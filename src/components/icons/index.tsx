@@ -309,3 +309,15 @@ export function ChevronDownIcon({ className = "w-4 h-4" }: IconProps) {
     </svg>
   );
 }
+
+export function WikilinkIcon({ className = "w-4 h-4" }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      {/* Custom: Double brackets for wikilinks */}
+      <path d="M8 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h3" />
+      <path d="M16 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" />
+      <path d="M10 4H7a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h3" />
+      <path d="M14 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" />
+    </svg>
+  );
+}

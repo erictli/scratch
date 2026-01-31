@@ -12,6 +12,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { Wikilink } from "./extensions/Wikilink";
+import { createWikilinkSuggestion } from "./extensions/wikilinkSuggestion";
 import { ToolbarButton, Tooltip, Input } from "../ui";
 import {
   FileTextIcon,
@@ -34,6 +35,7 @@ import {
   CheckIcon,
   CopyIcon,
   ChevronDownIcon,
+  WikilinkIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -52,11 +54,12 @@ interface FormatBarProps {
   editor: TiptapEditor | null;
   onAddLink: () => void;
   onAddImage: () => void;
+  onAddWikilink: () => void;
 }
 
 // FormatBar must re-render with parent to reflect editor.isActive() state changes
 // (editor instance is mutable, so memo would cause stale active states)
-function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
+function FormatBar({ editor, onAddLink, onAddImage, onAddWikilink }: FormatBarProps) {
   if (!editor) return null;
 
   return (
@@ -175,6 +178,13 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       >
         <ImageIcon />
       </ToolbarButton>
+      <ToolbarButton
+        onClick={onAddWikilink}
+        isActive={false}
+        title="Add Wikilink"
+      >
+        <WikilinkIcon />
+      </ToolbarButton>
     </div>
   );
 }
@@ -190,6 +200,21 @@ export function Editor() {
   const saveTimeoutRef = useRef<number | null>(null);
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const notesRef = useRef(notes);
+
+  // Keep notesRef updated with latest notes
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  // Create wikilink suggestion config that reads from ref (stable function)
+  const wikilinkSuggestion = useMemo(
+    () =>
+      createWikilinkSuggestion({
+        getNotes: () => notesRef.current,
+      }),
+    []
+  );
 
   // Build a map of note titles to IDs for wikilink navigation
   const noteTitleToId = useMemo(() => {
@@ -287,6 +312,7 @@ export function Editor() {
       Wikilink.configure({
         onNavigate: handleWikilinkNavigate,
         onCreate: handleWikilinkCreate,
+        suggestion: wikilinkSuggestion,
       }),
     ],
     editorProps: {
@@ -459,6 +485,12 @@ export function Editor() {
     await invoke("copy_to_clipboard", { text: html });
   }, [editor]);
 
+  // Wikilink handler - insert [[ to trigger suggestion
+  const handleAddWikilink = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().insertContent("[[").run();
+  }, [editor]);
+
   if (!currentNote) {
     return (
       <div className="flex-1 flex flex-col bg-bg">
@@ -534,7 +566,7 @@ export function Editor() {
       </div>
 
       {/* Format Bar */}
-      <FormatBar editor={editor} onAddLink={handleAddLink} onAddImage={handleAddImage} />
+      <FormatBar editor={editor} onAddLink={handleAddLink} onAddImage={handleAddImage} onAddWikilink={handleAddWikilink} />
 
       {/* Link Input */}
       {showLinkInput && (

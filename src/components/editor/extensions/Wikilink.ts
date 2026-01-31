@@ -1,11 +1,13 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
 
 export interface WikilinkOptions {
   HTMLAttributes: Record<string, unknown>;
   onNavigate: (noteId: string) => void;
   onCreate: (title: string) => void;
+  suggestion: Omit<SuggestionOptions, "editor">;
 }
 
 declare module "@tiptap/core" {
@@ -33,6 +35,21 @@ export const Wikilink = Node.create<WikilinkOptions>({
       HTMLAttributes: {},
       onNavigate: () => {},
       onCreate: () => {},
+      suggestion: {
+        char: "[[",
+        command: ({ editor, range, props }) => {
+          // Delete the [[ trigger and query text, then insert wikilink node
+          editor
+            .chain()
+            .focus()
+            .deleteRange(range)
+            .insertContent({
+              type: "wikilink",
+              attrs: { title: props.title, noteId: props.id || null },
+            })
+            .run();
+        },
+      } as Omit<SuggestionOptions, "editor">,
     };
   },
 
@@ -115,6 +132,12 @@ export const Wikilink = Node.create<WikilinkOptions>({
     const wikilinkPluginKey = new PluginKey("wikilink");
 
     return [
+      // Suggestion plugin for [[ autocomplete
+      Suggestion({
+        editor: this.editor,
+        ...this.options.suggestion,
+      }),
+      // Decoration plugin for highlighting [[wikilinks]] in raw text
       new Plugin({
         key: wikilinkPluginKey,
         props: {

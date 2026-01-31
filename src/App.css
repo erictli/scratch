@@ -433,3 +433,43 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 .slide-in-from-right-2 {
   animation-name: tooltip-slide-in-from-right;
 }
+
+/* Wikilink suggestion dropdown */
+.wikilink-suggestion-dropdown {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  max-height: 300px;
+  overflow-y: auto;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 0.25rem;
+}
+
+.wikilink-suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.wikilink-suggestion-item:hover,
+.wikilink-suggestion-item.is-selected {
+  background-color: var(--color-bg-muted);
+}
+
+.wikilink-suggestion-create {
+  border-top: 1px solid var(--color-border);
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+}
