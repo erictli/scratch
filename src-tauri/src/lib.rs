@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 
+mod git;
+
 // Note metadata for list display
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteMetadata {
@@ -75,13 +77,34 @@ pub struct EditorFontSettings {
     pub bold_weight: Option<i32>,         // 600, 700, 800 for headings and bold
 }
 
-// App settings
+// App config (stored in app data directory - just the notes folder path)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppConfig {
+    pub notes_folder: Option<String>,
+}
+
+// Per-folder settings (stored in .scratch/settings.json within notes folder)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
-    pub notes_folder: Option<String>,
     pub theme: ThemeSettings,
     #[serde(rename = "editorFont")]
     pub editor_font: Option<EditorFontSettings>,
+    #[serde(rename = "gitEnabled")]
+    pub git_enabled: Option<bool>,
+}
+
+// Agent edit entry in agent-state.json
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentEditEntry {
+    pub agent: String,
+    pub started: Option<i64>,
+}
+
+// Agent state file structure (.scratch/agent-state.json)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentState {
+    #[serde(default)]
+    pub editing: HashMap<String, AgentEditEntry>,
 }
 
 // Search result
@@ -268,21 +291,25 @@ impl SearchIndex {
 
 // App state with improved structure
 pub struct AppState {
-    pub settings: RwLock<Settings>,
+    pub app_config: RwLock<AppConfig>,  // notes_folder path (stored in app data)
+    pub settings: RwLock<Settings>,      // per-folder settings (stored in .scratch/)
     pub notes_cache: RwLock<HashMap<String, NoteMetadata>>,
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
     pub debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    pub agent_edits: Arc<RwLock<HashMap<String, String>>>,  // note_id -> agent_name
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            app_config: RwLock::new(AppConfig::default()),
             settings: RwLock::new(Settings::default()),
             notes_cache: RwLock::new(HashMap::new()),
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
+            agent_edits: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -340,11 +367,18 @@ fn generate_preview(content: &str) -> String {
     String::new()
 }
 
-// Get settings file path
-fn get_settings_path(app: &AppHandle) -> Result<PathBuf> {
+// Get app config file path (in app data directory)
+fn get_app_config_path(app: &AppHandle) -> Result<PathBuf> {
     let app_data = app.path().app_data_dir()?;
     std::fs::create_dir_all(&app_data)?;
-    Ok(app_data.join("settings.json"))
+    Ok(app_data.join("config.json"))
+}
+
+// Get per-folder settings file path (in .scratch/ within notes folder)
+fn get_settings_path(notes_folder: &str) -> PathBuf {
+    let scratch_dir = PathBuf::from(notes_folder).join(".scratch");
+    std::fs::create_dir_all(&scratch_dir).ok();
+    scratch_dir.join("settings.json")
 }
 
 // Get search index path
@@ -354,12 +388,34 @@ fn get_search_index_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(app_data.join("search_index"))
 }
 
-// Load settings from disk
-fn load_settings(app: &AppHandle) -> Settings {
-    let path = match get_settings_path(app) {
+// Load app config from disk (notes folder path)
+fn load_app_config(app: &AppHandle) -> AppConfig {
+    let path = match get_app_config_path(app) {
         Ok(p) => p,
-        Err(_) => return Settings::default(),
+        Err(_) => return AppConfig::default(),
     };
+
+    if path.exists() {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+            .unwrap_or_default()
+    } else {
+        AppConfig::default()
+    }
+}
+
+// Save app config to disk
+fn save_app_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
+    let path = get_app_config_path(app)?;
+    let content = serde_json::to_string_pretty(config)?;
+    std::fs::write(path, content)?;
+    Ok(())
+}
+
+// Load per-folder settings from disk
+fn load_settings(notes_folder: &str) -> Settings {
+    let path = get_settings_path(notes_folder);
 
     if path.exists() {
         std::fs::read_to_string(&path)
@@ -371,12 +427,36 @@ fn load_settings(app: &AppHandle) -> Settings {
     }
 }
 
-// Save settings to disk
-fn save_settings(app: &AppHandle, settings: &Settings) -> Result<()> {
-    let path = get_settings_path(app)?;
+// Save per-folder settings to disk
+fn save_settings(notes_folder: &str, settings: &Settings) -> Result<()> {
+    let path = get_settings_path(notes_folder);
     let content = serde_json::to_string_pretty(settings)?;
     std::fs::write(path, content)?;
     Ok(())
+}
+
+// Get agent state file path
+fn get_agent_state_path(notes_folder: &str) -> PathBuf {
+    PathBuf::from(notes_folder).join(".scratch").join("agent-state.json")
+}
+
+// Parse agent state file and return map of note_id -> agent_name
+fn parse_agent_state(notes_folder: &str) -> HashMap<String, String> {
+    let path = get_agent_state_path(notes_folder);
+    if !path.exists() {
+        return HashMap::new();
+    }
+
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<AgentState>(&content).ok())
+        .map(|state| {
+            state.editing
+                .into_iter()
+                .map(|(note_id, entry)| (note_id, entry.agent))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 // Clean up old entries from debounce map (entries older than 5 seconds)
@@ -391,9 +471,9 @@ fn cleanup_debounce_map(map: &Mutex<HashMap<PathBuf, Instant>>) {
 #[tauri::command]
 fn get_notes_folder(state: State<AppState>) -> Option<String> {
     state
-        .settings
+        .app_config
         .read()
-        .expect("settings read lock")
+        .expect("app_config read lock")
         .notes_folder
         .clone()
 }
@@ -411,16 +491,57 @@ fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Res
     let assets = path_buf.join("assets");
     std::fs::create_dir_all(&assets).map_err(|e| e.to_string())?;
 
-    // Update settings
-    {
-        let mut settings = state.settings.write().expect("settings write lock");
-        settings.notes_folder = Some(path.clone());
+    // Create .scratch config folder
+    let scratch_dir = path_buf.join(".scratch");
+    std::fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
+
+    // Check for migration: if old global settings exist and new per-folder settings don't
+    let old_settings_path = app.path().app_data_dir()
+        .map(|p| p.join("settings.json"))
+        .ok();
+    let new_settings_path = scratch_dir.join("settings.json");
+
+    if !new_settings_path.exists() {
+        if let Some(old_path) = old_settings_path {
+            if old_path.exists() {
+                // Migrate theme and font settings from old global settings
+                if let Ok(content) = std::fs::read_to_string(&old_path) {
+                    // Parse old settings format (which had notes_folder in it)
+                    if let Ok(old_settings) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let new_settings = Settings {
+                            theme: old_settings.get("theme")
+                                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                                .unwrap_or_default(),
+                            editor_font: old_settings.get("editorFont")
+                                .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                            git_enabled: None,
+                        };
+                        let _ = save_settings(&path, &new_settings);
+                    }
+                }
+            }
+        }
     }
 
-    // Save to disk
+    // Load per-folder settings
+    let settings = load_settings(&path);
+
+    // Update app config
     {
-        let settings = state.settings.read().expect("settings read lock");
-        save_settings(&app, &settings).map_err(|e| e.to_string())?;
+        let mut app_config = state.app_config.write().expect("app_config write lock");
+        app_config.notes_folder = Some(path.clone());
+    }
+
+    // Update settings in memory
+    {
+        let mut current_settings = state.settings.write().expect("settings write lock");
+        *current_settings = settings;
+    }
+
+    // Save app config to disk
+    {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        save_app_config(&app, &app_config).map_err(|e| e.to_string())?;
     }
 
     // Initialize search index
@@ -438,8 +559,8 @@ fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Res
 #[tauri::command]
 async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, String> {
     let folder = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
             .notes_folder
             .clone()
             .ok_or("Notes folder not set")?
@@ -503,8 +624,8 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
 #[tauri::command]
 async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, String> {
     let folder = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
             .notes_folder
             .clone()
             .ok_or("Notes folder not set")?
@@ -545,8 +666,8 @@ async fn save_note(
     state: State<'_, AppState>,
 ) -> Result<Note, String> {
     let folder = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
             .notes_folder
             .clone()
             .ok_or("Notes folder not set")?
@@ -610,8 +731,8 @@ async fn save_note(
 #[tauri::command]
 async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), String> {
     let folder = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
             .notes_folder
             .clone()
             .ok_or("Notes folder not set")?
@@ -644,8 +765,8 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
 #[tauri::command]
 async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
     let folder = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
             .notes_folder
             .clone()
             .ok_or("Notes folder not set")?
@@ -698,17 +819,21 @@ fn get_settings(state: State<AppState>) -> Settings {
 
 #[tauri::command]
 fn update_settings(
-    app: AppHandle,
     new_settings: Settings,
     state: State<AppState>,
 ) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+    };
+
     {
         let mut settings = state.settings.write().expect("settings write lock");
         *settings = new_settings;
     }
 
     let settings = state.settings.read().expect("settings read lock");
-    save_settings(&app, &settings).map_err(|e| e.to_string())?;
+    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -774,18 +899,58 @@ struct FileChangeEvent {
     path: String,
 }
 
+// Agent edits change event payload
+#[derive(Clone, Serialize)]
+struct AgentEditsChangeEvent {
+    edits: HashMap<String, String>, // note_id -> agent_name
+}
+
 fn setup_file_watcher(
     app: AppHandle,
     notes_folder: &str,
     debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    agent_edits: Arc<RwLock<HashMap<String, String>>>,
 ) -> Result<FileWatcherState, String> {
     let folder_path = PathBuf::from(notes_folder);
+    let scratch_path = folder_path.join(".scratch");
+    let notes_folder_owned = notes_folder.to_string();
     let app_handle = app.clone();
 
     let watcher = RecommendedWatcher::new(
         move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 for path in event.paths.iter() {
+                    // Check if this is the agent-state.json file
+                    if path.file_name().map_or(false, |n| n == "agent-state.json") {
+                        // Debounce agent state changes
+                        {
+                            let mut map = debounce_map.lock().expect("debounce map mutex");
+                            let now = Instant::now();
+                            if let Some(last) = map.get(path) {
+                                if now.duration_since(*last) < Duration::from_millis(300) {
+                                    continue;
+                                }
+                            }
+                            map.insert(path.clone(), now);
+                        }
+
+                        // Parse the new agent state
+                        let new_edits = parse_agent_state(&notes_folder_owned);
+
+                        // Update the shared state and emit event
+                        {
+                            let mut current = agent_edits.write().expect("agent_edits write lock");
+                            *current = new_edits.clone();
+                        }
+
+                        let _ = app_handle.emit(
+                            "agent-edits-change",
+                            AgentEditsChangeEvent { edits: new_edits },
+                        );
+                        continue;
+                    }
+
+                    // Handle regular .md files
                     if path.extension().map_or(false, |ext| ext == "md") {
                         // Debounce with cleanup
                         {
@@ -828,9 +993,16 @@ fn setup_file_watcher(
     .map_err(|e| e.to_string())?;
 
     let mut watcher = watcher;
+
+    // Watch the notes folder for .md files
     watcher
         .watch(&folder_path, RecursiveMode::NonRecursive)
         .map_err(|e| e.to_string())?;
+
+    // Watch the .scratch folder for agent-state.json
+    if scratch_path.exists() {
+        let _ = watcher.watch(&scratch_path, RecursiveMode::NonRecursive);
+    }
 
     Ok(FileWatcherState { watcher })
 }
@@ -838,8 +1010,8 @@ fn setup_file_watcher(
 #[tauri::command]
 fn start_file_watcher(app: AppHandle, state: State<AppState>) -> Result<(), String> {
     let folder = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
             .notes_folder
             .clone()
             .ok_or("Notes folder not set")?
@@ -848,7 +1020,19 @@ fn start_file_watcher(app: AppHandle, state: State<AppState>) -> Result<(), Stri
     // Clean up debounce map before starting
     cleanup_debounce_map(&state.debounce_map);
 
-    let watcher_state = setup_file_watcher(app, &folder, Arc::clone(&state.debounce_map))?;
+    // Load initial agent edits from file
+    let initial_edits = parse_agent_state(&folder);
+    {
+        let mut agent_edits = state.agent_edits.write().expect("agent_edits write lock");
+        *agent_edits = initial_edits;
+    }
+
+    let watcher_state = setup_file_watcher(
+        app,
+        &folder,
+        Arc::clone(&state.debounce_map),
+        Arc::clone(&state.agent_edits),
+    )?;
 
     let mut file_watcher = state.file_watcher.lock().expect("file watcher mutex");
     *file_watcher = Some(watcher_state);
@@ -864,8 +1048,8 @@ fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
 #[tauri::command]
 fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), String> {
     let folder = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
             .notes_folder
             .clone()
             .ok_or("Notes folder not set")?
@@ -885,6 +1069,75 @@ fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), St
     Ok(())
 }
 
+#[tauri::command]
+fn get_agent_edits(state: State<AppState>) -> HashMap<String, String> {
+    state.agent_edits.read().expect("agent_edits read lock").clone()
+}
+
+// Git commands
+
+#[tauri::command]
+fn git_is_available() -> bool {
+    git::is_available()
+}
+
+#[tauri::command]
+fn git_get_status(state: State<AppState>) -> git::GitStatus {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => git::get_status(&PathBuf::from(path)),
+        None => git::GitStatus::default(),
+    }
+}
+
+#[tauri::command]
+fn git_init_repo(state: State<AppState>) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+    };
+
+    git::git_init(&PathBuf::from(folder))
+}
+
+#[tauri::command]
+fn git_commit(message: String, state: State<AppState>) -> git::GitResult {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => git::commit_all(&PathBuf::from(path), &message),
+        None => git::GitResult {
+            success: false,
+            message: None,
+            error: Some("Notes folder not set".to_string()),
+        },
+    }
+}
+
+#[tauri::command]
+fn git_push(state: State<AppState>) -> git::GitResult {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => git::push(&PathBuf::from(path)),
+        None => git::GitResult {
+            success: false,
+            message: None,
+            error: Some("Notes folder not set".to_string()),
+        },
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -893,11 +1146,18 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
-            // Load settings on startup
-            let settings = load_settings(app.handle());
+            // Load app config on startup (contains notes folder path)
+            let app_config = load_app_config(app.handle());
+
+            // Load per-folder settings if notes folder is set
+            let settings = if let Some(ref folder) = app_config.notes_folder {
+                load_settings(folder)
+            } else {
+                Settings::default()
+            };
 
             // Initialize search index if notes folder is set
-            let search_index = if let Some(ref folder) = settings.notes_folder {
+            let search_index = if let Some(ref folder) = app_config.notes_folder {
                 if let Ok(index_path) = get_search_index_path(app.handle()) {
                     SearchIndex::new(&index_path)
                         .ok()
@@ -913,11 +1173,13 @@ pub fn run() {
             };
 
             let state = AppState {
+                app_config: RwLock::new(app_config),
                 settings: RwLock::new(settings),
                 notes_cache: RwLock::new(HashMap::new()),
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
+                agent_edits: Arc::new(RwLock::new(HashMap::new())),
             };
             app.manage(state);
             Ok(())
@@ -936,6 +1198,12 @@ pub fn run() {
             start_file_watcher,
             rebuild_search_index,
             copy_to_clipboard,
+            get_agent_edits,
+            git_is_available,
+            git_get_status,
+            git_init_repo,
+            git_commit,
+            git_push,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

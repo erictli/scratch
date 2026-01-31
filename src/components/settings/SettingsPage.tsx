@@ -1,5 +1,6 @@
 import { useTheme } from "../../context/ThemeContext";
 import { ArrowLeftIcon } from "../icons";
+import { GitSettingsSection } from "./GitSettingsSection";
 import type { FontFamily } from "../../types/note";
 
 interface SettingsPageProps {
@@ -173,6 +174,15 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 </p>
               </div>
             </div>
+          </section>
+
+          {/* Divider */}
+          <div className="border-t border-border my-8" />
+
+          {/* Version Control Section */}
+          <section>
+            <h2 className="text-sm font-medium text-text-muted mb-4">Version Control</h2>
+            <GitSettingsSection />
           </section>
         </div>
       </div>

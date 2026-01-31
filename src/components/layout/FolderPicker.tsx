@@ -1,10 +1,12 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNotes } from "../../context/NotesContext";
+import { useTheme } from "../../context/ThemeContext";
 import { Button } from "../ui";
 import { FolderIcon } from "../icons";
 
 export function FolderPicker() {
   const { setNotesFolder } = useNotes();
+  const { reloadSettings } = useTheme();
 
   const handleSelectFolder = async () => {
     try {
@@ -16,6 +18,8 @@ export function FolderPicker() {
 
       if (selected && typeof selected === "string") {
         await setNotesFolder(selected);
+        // Reload theme/font settings from the new folder's .scratch/settings.json
+        await reloadSettings();
       }
     } catch (err) {
       console.error("Failed to select folder:", err);

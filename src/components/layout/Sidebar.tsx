@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNotes } from "../../context/NotesContext";
 import { NoteList } from "../notes/NoteList";
+import { GitStatus } from "../git/GitStatus";
 import { IconButton, Input } from "../ui";
 import { PlusIcon, XIcon, SpinnerIcon, SettingsIcon } from "../icons";
 
@@ -79,18 +80,23 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         <NoteList />
       </div>
 
-      {/* Footer with new note button and settings */}
-      <div className="px-4 py-2 border-t border-border flex items-center justify-between">
-        <span className="text-xs text-text-muted">
-          {notes.length} {notes.length === 1 ? "note" : "notes"}
-        </span>
-        <div className="flex items-center gap-1">
-          <IconButton onClick={onOpenSettings} title="Settings (⌘,)">
-            <SettingsIcon />
-          </IconButton>
-          <IconButton onClick={createNote} title="New Note (⌘N)">
-            <PlusIcon />
-          </IconButton>
+      {/* Footer with git status, note count, and actions */}
+      <div className="px-4 py-2 border-t border-border">
+        <div className="flex items-center justify-between mb-1.5">
+          <GitStatus />
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-text-muted">
+            {notes.length} {notes.length === 1 ? "note" : "notes"}
+          </span>
+          <div className="flex items-center gap-1">
+            <IconButton onClick={onOpenSettings} title="Settings (⌘,)">
+              <SettingsIcon />
+            </IconButton>
+            <IconButton onClick={createNote} title="New Note (⌘N)">
+              <PlusIcon />
+            </IconButton>
+          </div>
         </div>
       </div>
     </div>

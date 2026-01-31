@@ -190,7 +190,7 @@ function FormatBar({ editor, onAddLink, onAddImage, onAddWikilink }: FormatBarPr
 }
 
 export function Editor() {
-  const { currentNote, saveNote, selectNote, createNote, notes } =
+  const { currentNote, saveNote, selectNote, createNote, notes, agentEdits } =
     useNotes();
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -520,6 +520,14 @@ export function Editor() {
 
   return (
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+      {/* Agent editing banner */}
+      {currentNote && agentEdits[currentNote.id] && (
+        <div className="mx-4 mt-2 flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 text-accent text-xs w-fit">
+          <SpinnerIcon className="w-3 h-3 animate-spin" />
+          <span>{agentEdits[currentNote.id]} is editing...</span>
+        </div>
+      )}
+
       {/* Drag region with date and save status */}
       <div
         className="h-10 shrink-0 flex items-end justify-between px-4 pb-1"

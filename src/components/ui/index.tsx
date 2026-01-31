@@ -77,9 +77,11 @@ interface ListItemProps {
   onClick?: () => void;
   /** Whether to animate title changes */
   animateTitle?: boolean;
+  /** Optional status icon to display next to meta */
+  statusIcon?: ReactNode;
 }
 
-export function ListItem({ title, subtitle, meta, isSelected = false, onClick, onContextMenu, animateTitle = false }: ListItemProps & { onContextMenu?: (e: React.MouseEvent) => void }) {
+export function ListItem({ title, subtitle, meta, isSelected = false, onClick, onContextMenu, animateTitle = false, statusIcon }: ListItemProps & { onContextMenu?: (e: React.MouseEvent) => void }) {
   return (
     <div
       onClick={onClick}
@@ -106,11 +108,14 @@ export function ListItem({ title, subtitle, meta, isSelected = false, onClick, o
             {title}
           </span>
         )}
-        {meta && (
-          <span className="text-xs text-text-muted whitespace-nowrap">
-            {meta}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {statusIcon}
+          {meta && (
+            <span className="text-xs text-text-muted whitespace-nowrap">
+              {meta}
+            </span>
+          )}
+        </div>
       </div>
       <p className={cn(
         "mt-0.5 text-xs line-clamp-1 min-h-[1.25rem]",

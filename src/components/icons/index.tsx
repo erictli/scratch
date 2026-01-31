@@ -321,3 +321,37 @@ export function WikilinkIcon({ className = "w-4 h-4" }: IconProps) {
     </svg>
   );
 }
+
+export function GitBranchIcon({ className = "w-4 h-4" }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      {/* Lucide: GitBranch */}
+      <line x1="6" x2="6" y1="3" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  );
+}
+
+export function GitCommitIcon({ className = "w-4 h-4" }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      {/* Lucide: GitCommitHorizontal */}
+      <circle cx="12" cy="12" r="3" />
+      <line x1="3" x2="9" y1="12" y2="12" />
+      <line x1="15" x2="21" y1="12" y2="12" />
+    </svg>
+  );
+}
+
+export function UploadIcon({ className = "w-4 h-4" }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      {/* Lucide: Upload */}
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" x2="12" y1="3" y2="15" />
+    </svg>
+  );
+}

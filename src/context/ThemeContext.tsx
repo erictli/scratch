@@ -62,6 +62,8 @@ interface ThemeContextType {
   editorFontSettings: Required<EditorFontSettings>;
   setEditorFontSetting: <K extends keyof EditorFontSettings>(key: K, value: EditorFontSettings[K]) => void;
   resetEditorFontSettings: () => void;
+  // Reload settings from backend (call after folder is set)
+  reloadSettings: () => Promise<void>;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -144,37 +146,46 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       : "light";
   });
 
+  // Function to load settings from backend
+  const loadSettingsFromBackend = useCallback(async () => {
+    try {
+      const settings = await getSettings();
+      if (settings.theme) {
+        const mode = settings.theme.mode as ThemeMode;
+        if (mode === "light" || mode === "dark" || mode === "system") {
+          setThemeState(mode);
+        }
+        // Load custom colors (for power users who edit settings.json)
+        if (settings.theme.customLightColors) {
+          setCustomLightColors(settings.theme.customLightColors);
+        }
+        if (settings.theme.customDarkColors) {
+          setCustomDarkColors(settings.theme.customDarkColors);
+        }
+      }
+      // Load font settings
+      if (settings.editorFont) {
+        setEditorFontSettings({
+          ...defaultEditorFontSettings,
+          ...settings.editorFont,
+        });
+      }
+    } catch {
+      // If settings can't be loaded, use defaults
+    }
+  }, []);
+
+  // Reload settings from backend (exposed to context consumers)
+  const reloadSettings = useCallback(async () => {
+    await loadSettingsFromBackend();
+  }, [loadSettingsFromBackend]);
+
   // Load settings from backend on mount
   useEffect(() => {
-    getSettings()
-      .then((settings) => {
-        if (settings.theme) {
-          const mode = settings.theme.mode as ThemeMode;
-          if (mode === "light" || mode === "dark" || mode === "system") {
-            setThemeState(mode);
-          }
-          // Load custom colors (for power users who edit settings.json)
-          if (settings.theme.customLightColors) {
-            setCustomLightColors(settings.theme.customLightColors);
-          }
-          if (settings.theme.customDarkColors) {
-            setCustomDarkColors(settings.theme.customDarkColors);
-          }
-        }
-        // Load font settings
-        if (settings.editorFont) {
-          setEditorFontSettings({
-            ...defaultEditorFontSettings,
-            ...settings.editorFont,
-          });
-        }
-        setIsInitialized(true);
-      })
-      .catch(() => {
-        // If settings can't be loaded, use defaults
-        setIsInitialized(true);
-      });
-  }, []);
+    loadSettingsFromBackend().finally(() => {
+      setIsInitialized(true);
+    });
+  }, [loadSettingsFromBackend]);
 
   // Listen for system theme changes
   useEffect(() => {
@@ -308,6 +319,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       editorFontSettings,
       setEditorFontSetting,
       resetEditorFontSettings,
+      reloadSettings,
     }}>
       {children}
     </ThemeContext.Provider>

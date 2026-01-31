@@ -1,7 +1,8 @@
-import { useRef, useState, useEffect, useCallback, useMemo, memo } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo, memo, type ReactNode } from "react";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
-import { ListItem } from "../ui";
+import { ListItem, Tooltip } from "../ui";
+import { SpinnerIcon } from "../icons";
 
 // Clean title - remove nbsp and other invisible characters
 function cleanTitle(title: string | undefined): string {
@@ -43,6 +44,7 @@ interface NoteItemProps {
   enableAnimation: boolean;
   onSelect: (id: string) => void;
   onContextMenu: (e: React.MouseEvent, id: string) => void;
+  agentEditing?: string; // agent name if being edited
 }
 
 const NoteItem = memo(function NoteItem({
@@ -54,12 +56,22 @@ const NoteItem = memo(function NoteItem({
   enableAnimation,
   onSelect,
   onContextMenu,
+  agentEditing,
 }: NoteItemProps) {
   const handleClick = useCallback(() => onSelect(id), [onSelect, id]);
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => onContextMenu(e, id),
     [onContextMenu, id]
   );
+
+  let statusIcon: ReactNode = undefined;
+  if (agentEditing) {
+    statusIcon = (
+      <Tooltip content={`${agentEditing} is editing...`}>
+        <SpinnerIcon className="w-3 h-3 text-accent animate-spin" />
+      </Tooltip>
+    );
+  }
 
   return (
     <ListItem
@@ -70,6 +82,7 @@ const NoteItem = memo(function NoteItem({
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       animateTitle={enableAnimation && isSelected}
+      statusIcon={statusIcon}
     />
   );
 });
@@ -84,6 +97,7 @@ export function NoteList() {
     isLoading,
     searchQuery,
     searchResults,
+    agentEdits,
   } = useNotes();
 
   // Track previous selection to detect switches vs edits
@@ -173,6 +187,7 @@ export function NoteList() {
           enableAnimation={enableAnimation}
           onSelect={selectNote}
           onContextMenu={handleContextMenu}
+          agentEditing={agentEdits[item.id]}
         />
       ))}
     </div>

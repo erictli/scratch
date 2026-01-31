@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { Note, NoteMetadata } from "../types/note";
+import type { Note, NoteMetadata, AgentEdits } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
 
@@ -24,6 +24,7 @@ interface NotesDataContextValue {
   searchQuery: string;
   searchResults: SearchResult[];
   isSearching: boolean;
+  agentEdits: AgentEdits; // note_id -> agent_name for notes being edited by AI
 }
 
 // Actions context: stable references, rarely causes re-renders
@@ -52,6 +53,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [agentEdits, setAgentEdits] = useState<AgentEdits>({});
 
   const refreshNotes = useCallback(async () => {
     if (!notesFolder) return;
@@ -211,6 +213,36 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshNotes]);
 
+  // Listen for agent edits change events
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    listen<{ edits: AgentEdits }>("agent-edits-change", (event) => {
+      const oldEdits = agentEdits;
+      const newEdits = event.payload.edits;
+
+      // Find notes that stopped being edited
+      for (const noteId of Object.keys(oldEdits)) {
+        if (!(noteId in newEdits)) {
+          // Agent finished editing this note - reload if currently selected
+          if (noteId === selectedNoteId) {
+            notesService.readNote(noteId).then(setCurrentNote).catch(() => {});
+          }
+        }
+      }
+
+      setAgentEdits(newEdits);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [agentEdits, selectedNoteId]);
+
   // Refresh notes when folder changes
   useEffect(() => {
     if (notesFolder) {
@@ -230,6 +262,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       searchQuery,
       searchResults,
       isSearching,
+      agentEdits,
     }),
     [
       notes,
@@ -240,6 +273,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       error,
       searchQuery,
       searchResults,
+      agentEdits,
       isSearching,
     ]
   );

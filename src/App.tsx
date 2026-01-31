@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { NotesProvider, useNotes } from "./context/NotesContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { GitProvider } from "./context/GitContext";
 import { TooltipProvider } from "./components/ui/Tooltip";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Editor } from "./components/editor/Editor";
@@ -156,7 +157,9 @@ function App() {
     <ThemeProvider>
       <TooltipProvider>
         <NotesProvider>
-          <AppContent />
+          <GitProvider>
+            <AppContent />
+          </GitProvider>
         </NotesProvider>
       </TooltipProvider>
     </ThemeProvider>

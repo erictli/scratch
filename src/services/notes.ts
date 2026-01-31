@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Note, NoteMetadata, Settings } from "../types/note";
+import type { Note, NoteMetadata, Settings, AgentEdits } from "../types/note";
 
 export async function getNotesFolder(): Promise<string | null> {
   return invoke("get_notes_folder");
@@ -60,4 +60,8 @@ export async function searchNotes(query: string): Promise<SearchResult[]> {
 
 export async function startFileWatcher(): Promise<void> {
   return invoke("start_file_watcher");
+}
+
+export async function getAgentEdits(): Promise<AgentEdits> {
+  return invoke("get_agent_edits");
 }
