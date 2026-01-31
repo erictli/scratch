@@ -52,7 +52,14 @@ All backend operations go through Tauri commands in `src-tauri/src/commands/`. F
 
 ### State Management
 - `NotesContext` manages all note state, CRUD operations, and search
-- `ThemeContext` handles light/dark/system theme
+- `ThemeContext` handles light/dark/system theme and editor typography settings
+
+### Settings
+Settings are stored globally in `{APP_DATA}/settings.json`. The settings page (`src/components/settings/`) provides UI for:
+- Theme mode (light/dark/system)
+- Editor typography (font family, size, bold weight)
+
+Power users can edit `settings.json` directly to customize colors.
 
 ### Editor
 TipTap editor with extensions:

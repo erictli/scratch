@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { getSettings, updateSettings } from "../services/notes";
-import type { ThemeColors, ThemeSettings, EditorFontSettings } from "../types/note";
+import type { ThemeColors, ThemeSettings, EditorFontSettings, FontFamily } from "../types/note";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -37,16 +37,18 @@ const defaultDarkColors: Required<ThemeColors> = {
   accent: "#3b82f6",
 };
 
-// Default editor font settings
+// Font family CSS values
+const fontFamilyMap: Record<FontFamily, string> = {
+  "system-sans": "ui-sans-serif, system-ui, sans-serif",
+  "serif": "Georgia, 'Times New Roman', serif",
+  "monospace": "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
+};
+
+// Default editor font settings (simplified)
 const defaultEditorFontSettings: Required<EditorFontSettings> = {
-  titleFontFamily: "ui-sans-serif, system-ui, sans-serif",
-  titleFontSize: 28,
-  titleFontWeight: 700,
-  bodyFontFamily: "ui-sans-serif, system-ui, sans-serif",
-  bodyFontSize: 16,
-  bodyFontWeight: 400,
-  bodyLineHeight: 1.6,
-  bodyParagraphSpacing: 0.75,
+  baseFontFamily: "system-sans",
+  baseFontSize: 16,
+  boldWeight: 700,
 };
 
 interface ThemeContextType {
@@ -54,16 +56,12 @@ interface ThemeContextType {
   resolvedTheme: "light" | "dark";
   setTheme: (theme: ThemeMode) => void;
   cycleTheme: () => void;
-  customColors: ThemeColors | undefined;
-  setCustomColor: (key: keyof ThemeColors, value: string) => void;
-  resetCustomColors: () => void;
-  getDefaultColors: () => Required<ThemeColors>;
+  // Keep color methods for power users who edit settings.json
   getCurrentColors: () => Required<ThemeColors>;
-  // Font settings
+  // Simplified font settings
   editorFontSettings: Required<EditorFontSettings>;
   setEditorFontSetting: <K extends keyof EditorFontSettings>(key: K, value: EditorFontSettings[K]) => void;
   resetEditorFontSettings: () => void;
-  getDefaultFontSettings: () => Required<EditorFontSettings>;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -108,17 +106,29 @@ function removeCSSVariables() {
   root.style.removeProperty("--color-accent");
 }
 
-// Apply editor font CSS variables
+// Apply editor font CSS variables (with computed values)
 function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   const root = document.documentElement;
-  root.style.setProperty("--editor-title-font-family", fonts.titleFontFamily);
-  root.style.setProperty("--editor-title-font-size", `${fonts.titleFontSize}px`);
-  root.style.setProperty("--editor-title-font-weight", String(fonts.titleFontWeight));
-  root.style.setProperty("--editor-body-font-family", fonts.bodyFontFamily);
-  root.style.setProperty("--editor-body-font-size", `${fonts.bodyFontSize}px`);
-  root.style.setProperty("--editor-body-font-weight", String(fonts.bodyFontWeight));
-  root.style.setProperty("--editor-body-line-height", String(fonts.bodyLineHeight));
-  root.style.setProperty("--editor-body-paragraph-spacing", `${fonts.bodyParagraphSpacing}em`);
+  const fontFamily = fontFamilyMap[fonts.baseFontFamily];
+  const baseSize = fonts.baseFontSize;
+  const boldWeight = fonts.boldWeight;
+
+  // Base font settings
+  root.style.setProperty("--editor-font-family", fontFamily);
+  root.style.setProperty("--editor-base-font-size", `${baseSize}px`);
+  root.style.setProperty("--editor-bold-weight", String(boldWeight));
+
+  // Computed header sizes (based on base)
+  root.style.setProperty("--editor-h1-size", `${baseSize * 2.25}px`);
+  root.style.setProperty("--editor-h2-size", `${baseSize * 1.75}px`);
+  root.style.setProperty("--editor-h3-size", `${baseSize * 1.5}px`);
+  root.style.setProperty("--editor-h4-size", `${baseSize * 1.25}px`);
+  root.style.setProperty("--editor-h5-size", `${baseSize}px`);
+  root.style.setProperty("--editor-h6-size", `${baseSize}px`);
+
+  // Fixed values for line height and spacing
+  root.style.setProperty("--editor-line-height", "1.6");
+  root.style.setProperty("--editor-paragraph-spacing", "1em");
 }
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
@@ -143,6 +153,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           if (mode === "light" || mode === "dark" || mode === "system") {
             setThemeState(mode);
           }
+          // Load custom colors (for power users who edit settings.json)
           if (settings.theme.customLightColors) {
             setCustomLightColors(settings.theme.customLightColors);
           }
@@ -178,14 +189,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   // Resolve the actual theme to use
   const resolvedTheme = theme === "system" ? systemTheme : theme;
 
-  // Get default colors for current theme
-  const getDefaultColors = useCallback((): Required<ThemeColors> => {
-    return resolvedTheme === "dark" ? defaultDarkColors : defaultLightColors;
-  }, [resolvedTheme]);
-
-  // Get current colors (defaults merged with custom)
+  // Get current colors (defaults merged with custom from settings.json)
   const getCurrentColors = useCallback((): Required<ThemeColors> => {
-    const defaults = getDefaultColors();
+    const defaults = resolvedTheme === "dark" ? defaultDarkColors : defaultLightColors;
     const custom = resolvedTheme === "dark" ? customDarkColors : customLightColors;
     if (!custom) return defaults;
     return {
@@ -199,10 +205,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       border: custom.border ?? defaults.border,
       accent: custom.accent ?? defaults.accent,
     };
-  }, [resolvedTheme, customLightColors, customDarkColors, getDefaultColors]);
-
-  // Get custom colors for current theme
-  const customColors = resolvedTheme === "dark" ? customDarkColors : customLightColors;
+  }, [resolvedTheme, customLightColors, customDarkColors]);
 
   // Apply theme to document
   useEffect(() => {
@@ -213,7 +216,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       root.classList.remove("dark");
     }
 
-    // Apply custom colors if any
+    // Apply custom colors if any (from settings.json for power users)
     const custom = resolvedTheme === "dark" ? customDarkColors : customLightColors;
     if (custom && Object.keys(custom).length > 0) {
       const currentColors = getCurrentColors();
@@ -223,18 +226,15 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, [resolvedTheme, customLightColors, customDarkColors, getCurrentColors]);
 
-  // Save settings to backend
-  const saveThemeSettings = useCallback(async (
-    newMode: ThemeMode,
-    newLightColors: ThemeColors | undefined,
-    newDarkColors: ThemeColors | undefined
-  ) => {
+  // Save theme mode to backend
+  const saveThemeSettings = useCallback(async (newMode: ThemeMode) => {
     try {
       const settings = await getSettings();
       const themeSettings: ThemeSettings = {
         mode: newMode,
-        customLightColors: newLightColors,
-        customDarkColors: newDarkColors,
+        // Preserve custom colors for power users
+        customLightColors: settings.theme?.customLightColors,
+        customDarkColors: settings.theme?.customDarkColors,
       };
       await updateSettings({
         ...settings,
@@ -247,8 +247,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
   const setTheme = useCallback((newTheme: ThemeMode) => {
     setThemeState(newTheme);
-    saveThemeSettings(newTheme, customLightColors, customDarkColors);
-  }, [customLightColors, customDarkColors, saveThemeSettings]);
+    saveThemeSettings(newTheme);
+  }, [saveThemeSettings]);
 
   const cycleTheme = useCallback(() => {
     const order: ThemeMode[] = ["light", "dark", "system"];
@@ -256,33 +256,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     const nextIndex = (currentIndex + 1) % order.length;
     setTheme(order[nextIndex]);
   }, [theme, setTheme]);
-
-  const setCustomColor = useCallback((key: keyof ThemeColors, value: string) => {
-    if (resolvedTheme === "dark") {
-      setCustomDarkColors((prev) => {
-        const updated = { ...prev, [key]: value };
-        saveThemeSettings(theme, customLightColors, updated);
-        return updated;
-      });
-    } else {
-      setCustomLightColors((prev) => {
-        const updated = { ...prev, [key]: value };
-        saveThemeSettings(theme, updated, customDarkColors);
-        return updated;
-      });
-    }
-  }, [resolvedTheme, theme, customLightColors, customDarkColors, saveThemeSettings]);
-
-  const resetCustomColors = useCallback(() => {
-    if (resolvedTheme === "dark") {
-      setCustomDarkColors(undefined);
-      saveThemeSettings(theme, customLightColors, undefined);
-    } else {
-      setCustomLightColors(undefined);
-      saveThemeSettings(theme, undefined, customDarkColors);
-    }
-    removeCSSVariables();
-  }, [resolvedTheme, theme, customLightColors, customDarkColors, saveThemeSettings]);
 
   // Apply font CSS variables whenever font settings change
   useEffect(() => {
@@ -300,11 +273,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     } catch (error) {
       console.error("Failed to save font settings:", error);
     }
-  }, []);
-
-  // Get default font settings
-  const getDefaultFontSettings = useCallback((): Required<EditorFontSettings> => {
-    return defaultEditorFontSettings;
   }, []);
 
   // Update a single font setting
@@ -336,15 +304,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       resolvedTheme,
       setTheme,
       cycleTheme,
-      customColors,
-      setCustomColor,
-      resetCustomColors,
-      getDefaultColors,
       getCurrentColors,
       editorFontSettings,
       setEditorFontSetting,
       resetEditorFontSettings,
-      getDefaultFontSettings,
     }}>
       {children}
     </ThemeContext.Provider>

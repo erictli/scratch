@@ -13,6 +13,8 @@ A minimalist markdown note-taking app for Mac, built with Tauri.
 - **Wikilinks** - Link notes together with `[[wikilinks]]`
 - **Auto-save** - Changes saved automatically as you type
 - **Dark mode** - Follows system theme or set manually
+- **Typography settings** - Customize font family, size, and weight
+- **Copy as** - Export notes as Markdown, Plain Text, or HTML
 - **Command palette** - Quick access to actions with `Cmd+P`
 
 ## Installation

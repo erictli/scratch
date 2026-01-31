@@ -17,6 +17,8 @@
     "fs:allow-read-dir",
     "dialog:default",
     "dialog:allow-open",
-    "core:menu:default"
+    "core:menu:default",
+    "clipboard-manager:default",
+    "clipboard-manager:allow-write-text"
   ]
 }

@@ -8,7 +8,8 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { Markdown } from "@tiptap/markdown";
 import { open } from "@tauri-apps/plugin-dialog";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { Wikilink } from "./extensions/Wikilink";
 import { ToolbarButton, Tooltip, Input } from "../ui";
@@ -31,6 +32,8 @@ import {
   ImageIcon,
   SpinnerIcon,
   CheckIcon,
+  CopyIcon,
+  ChevronDownIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -269,7 +272,7 @@ export function Editor() {
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
-          class: "text-accent underline cursor-pointer",
+          class: "underline cursor-pointer",
         },
       }),
       Image.configure({
@@ -437,6 +440,25 @@ export function Editor() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleAddLink]);
 
+  // Copy handlers
+  const handleCopyMarkdown = useCallback(async () => {
+    if (!editor) return;
+    const markdown = getMarkdown(editor);
+    await invoke("copy_to_clipboard", { text: markdown });
+  }, [editor, getMarkdown]);
+
+  const handleCopyPlainText = useCallback(async () => {
+    if (!editor) return;
+    const plainText = editor.getText();
+    await invoke("copy_to_clipboard", { text: plainText });
+  }, [editor]);
+
+  const handleCopyHtml = useCallback(async () => {
+    if (!editor) return;
+    const html = editor.getHTML();
+    await invoke("copy_to_clipboard", { text: html });
+  }, [editor]);
+
   if (!currentNote) {
     return (
       <div className="flex-1 flex flex-col bg-bg">
@@ -462,7 +484,43 @@ export function Editor() {
         <span className="text-xs text-text-muted">
           {formatDateTime(currentNote.modified)}
         </span>
-        <div className="titlebar-no-drag">
+        <div className="titlebar-no-drag flex items-center gap-2">
+          <DropdownMenu.Root>
+            <Tooltip content="Copy as...">
+              <DropdownMenu.Trigger asChild>
+                <button className="flex items-center gap-0.5 text-text-muted hover:text-text transition-colors">
+                  <CopyIcon className="w-3.5 h-3.5" />
+                  <ChevronDownIcon className="w-3 h-3" />
+                </button>
+              </DropdownMenu.Trigger>
+            </Tooltip>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                className="min-w-[140px] bg-bg border border-border rounded-md shadow-lg py-1 z-50"
+                sideOffset={5}
+                align="end"
+              >
+                <DropdownMenu.Item
+                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                  onSelect={handleCopyMarkdown}
+                >
+                  Markdown
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                  onSelect={handleCopyPlainText}
+                >
+                  Plain Text
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                  onSelect={handleCopyHtml}
+                >
+                  HTML
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
           {isSaving || isDirty ? (
             <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
               <SpinnerIcon className="w-3.5 h-3.5 text-text-muted animate-spin" />

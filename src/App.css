@@ -13,15 +13,20 @@
   --color-border: #e7e5e4;
   --color-accent: #3b82f6;
 
-  /* Editor font settings - defaults (overridden by ThemeContext) */
-  --editor-title-font-family: ui-sans-serif, system-ui, sans-serif;
-  --editor-title-font-size: 28px;
-  --editor-title-font-weight: 700;
-  --editor-body-font-family: ui-sans-serif, system-ui, sans-serif;
-  --editor-body-font-size: 16px;
-  --editor-body-font-weight: 400;
-  --editor-body-line-height: 1.6;
-  --editor-body-paragraph-spacing: 0.75em;
+  /* Editor font settings - simplified (overridden by ThemeContext) */
+  --editor-font-family: ui-sans-serif, system-ui, sans-serif;
+  --editor-base-font-size: 16px;
+  --editor-bold-weight: 700;
+  --editor-line-height: 1.6;
+  --editor-paragraph-spacing: 1em;
+
+  /* Computed header sizes (set by ThemeContext based on base size) */
+  --editor-h1-size: 36px;
+  --editor-h2-size: 28px;
+  --editor-h3-size: 24px;
+  --editor-h4-size: 20px;
+  --editor-h5-size: 16px;
+  --editor-h6-size: 16px;
 }
 
 /* Theme color tokens - Dark mode */
@@ -144,36 +149,120 @@ html.dark {
   animation: flip-char 0.2s ease-out;
 }
 
-/* Editor font customization */
+/* Editor font customization - simplified */
+.prose {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-base-font-size);
+  font-weight: 400;
+  line-height: var(--editor-line-height);
+  color: var(--color-text);
+}
+
+/* Ensure prose text color follows theme in dark mode */
+.prose :where(p, li, blockquote, code, pre, td, th):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--color-text);
+}
+
+.prose :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--color-text);
+}
+
+/* Headings - all use the same font family with computed sizes */
 .prose h1 {
-  font-family: var(--editor-title-font-family);
-  font-size: var(--editor-title-font-size);
-  font-weight: var(--editor-title-font-weight);
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h1-size);
+  font-weight: var(--editor-bold-weight);
   line-height: 1.2;
   margin-bottom: 0.5em;
 }
 
-.prose {
-  font-family: var(--editor-body-font-family);
-  font-size: var(--editor-body-font-size);
-  font-weight: var(--editor-body-font-weight);
-  line-height: var(--editor-body-line-height);
+.prose h2 {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h2-size);
+  font-weight: var(--editor-bold-weight);
+  line-height: 1.3;
 }
 
-/* h2-h6 use body font family but with heavier weights */
-.prose h2,
-.prose h3,
-.prose h4,
+.prose h3 {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h3-size);
+  font-weight: var(--editor-bold-weight);
+  line-height: 1.4;
+}
+
+.prose h4 {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h4-size);
+  font-weight: var(--editor-bold-weight);
+}
+
 .prose h5,
 .prose h6 {
-  font-family: var(--editor-body-font-family);
-  font-weight: 600;
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-h5-size);
+  font-weight: var(--editor-bold-weight);
 }
 
-/* Prose spacing overrides - using custom paragraph spacing */
+/* Bold text uses the same weight as headings */
+.prose strong,
+.prose b {
+  font-weight: var(--editor-bold-weight);
+  color: var(--color-text);
+}
+
+/* Code blocks and inline code */
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--color-text);
+  background-color: var(--color-bg-muted);
+  padding: 0.2em 0.4em;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-weight: 500;
+}
+
+/* Remove backticks from inline code */
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::before,
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::after {
+  content: "";
+}
+
+/* Code blocks (pre > code) */
+.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  background-color: var(--color-bg-muted);
+  color: var(--color-text);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.prose :where(pre code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.875em;
+  font-weight: 400;
+}
+
+/* Links - same color as text with underline */
+.prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+/* Blockquotes */
+.prose :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--color-text-muted);
+  border-left-color: var(--color-border);
+}
+
+/* Horizontal rules */
+.prose :where(hr):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-color: var(--color-border);
+}
+
+/* Prose spacing - fixed paragraph spacing */
 .prose p {
   margin-top: 0;
-  margin-bottom: var(--editor-body-paragraph-spacing);
+  margin-bottom: var(--editor-paragraph-spacing);
 }
 
 .prose ul, .prose ol {

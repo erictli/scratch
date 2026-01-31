@@ -10,6 +10,7 @@ use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 
 // Note metadata for list display
@@ -63,17 +64,12 @@ impl Default for ThemeSettings {
     }
 }
 
-// Editor font settings
+// Editor font settings (simplified)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EditorFontSettings {
-    pub title_font_family: Option<String>,
-    pub title_font_size: Option<f32>,
-    pub title_font_weight: Option<i32>,
-    pub body_font_family: Option<String>,
-    pub body_font_size: Option<f32>,
-    pub body_font_weight: Option<i32>,
-    pub body_line_height: Option<f32>,
-    pub body_paragraph_spacing: Option<f32>,
+    pub base_font_family: Option<String>, // "system-sans" | "serif" | "monospace"
+    pub base_font_size: Option<f32>,      // in px, default 16
+    pub bold_weight: Option<i32>,         // 600, 700, 800 for headings and bold
 }
 
 // App settings
@@ -857,6 +853,11 @@ fn start_file_watcher(app: AppHandle, state: State<AppState>) -> Result<(), Stri
 }
 
 #[tauri::command]
+fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
+    app.clipboard().write_text(text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), String> {
     let folder = {
         let settings = state.settings.read().expect("settings read lock");
@@ -886,6 +887,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             // Load settings on startup
             let settings = load_settings(app.handle());
@@ -929,6 +931,7 @@ pub fn run() {
             search_notes,
             start_file_watcher,
             rebuild_search_index,
+            copy_to_clipboard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
