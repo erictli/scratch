@@ -1,9 +1,52 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-/* Custom theme variables */
+/* Theme color tokens - Light mode (default) */
+:root {
+  --color-bg: #ffffff;
+  --color-bg-secondary: #fafaf9;
+  --color-bg-muted: #f5f5f4;
+  --color-bg-emphasis: #e7e5e4;
+  --color-text: #1c1917;
+  --color-text-muted: #78716c;
+  --color-text-inverse: #fafaf9;
+  --color-border: #e7e5e4;
+  --color-accent: #3b82f6;
+}
+
+/* Theme color tokens - Dark mode */
+.dark {
+  --color-bg: #0c0a09;
+  --color-bg-secondary: #1c1917;
+  --color-bg-muted: #292524;
+  --color-bg-emphasis: #44403c;
+  --color-text: #fafaf9;
+  --color-text-muted: #a8a29e;
+  --color-text-inverse: #1c1917;
+  --color-border: #292524;
+  --color-accent: #3b82f6;
+}
+
+/* Register theme colors with Tailwind */
 @theme {
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Background colors */
+  --color-bg: var(--color-bg);
+  --color-bg-secondary: var(--color-bg-secondary);
+  --color-bg-muted: var(--color-bg-muted);
+  --color-bg-emphasis: var(--color-bg-emphasis);
+
+  /* Text colors */
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-inverse: var(--color-text-inverse);
+
+  /* Border colors */
+  --color-border: var(--color-border);
+
+  /* Accent colors */
+  --color-accent: var(--color-accent);
 }
 
 /* Base styles */
@@ -32,8 +75,8 @@ body {
 
 /* Wikilink styles - highlight [[text]] in raw markdown */
 .wikilink-syntax {
-  color: #3b82f6;
-  background-color: rgba(59, 130, 246, 0.1);
+  color: var(--color-accent);
+  background-color: color-mix(in srgb, var(--color-accent) 10%, transparent);
   border-radius: 0.25rem;
 }
 
@@ -163,7 +206,7 @@ ul[data-type="taskList"] li > label input[type="checkbox"] {
   width: 0.875rem;
   height: 0.875rem;
   margin: 0;
-  accent-color: #57534e;
+  accent-color: var(--color-accent);
   cursor: pointer;
 }
 

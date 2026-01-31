@@ -31,11 +31,43 @@ pub struct Note {
     pub modified: i64,
 }
 
+// Theme color customization
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ThemeColors {
+    pub bg: Option<String>,
+    pub bg_secondary: Option<String>,
+    pub bg_muted: Option<String>,
+    pub bg_emphasis: Option<String>,
+    pub text: Option<String>,
+    pub text_muted: Option<String>,
+    pub text_inverse: Option<String>,
+    pub border: Option<String>,
+    pub accent: Option<String>,
+}
+
+// Theme settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeSettings {
+    pub mode: String, // "light" | "dark" | "system"
+    pub custom_light_colors: Option<ThemeColors>,
+    pub custom_dark_colors: Option<ThemeColors>,
+}
+
+impl Default for ThemeSettings {
+    fn default() -> Self {
+        Self {
+            mode: "system".to_string(),
+            custom_light_colors: None,
+            custom_dark_colors: None,
+        }
+    }
+}
+
 // App settings
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     pub notes_folder: Option<String>,
-    pub theme: String,
+    pub theme: ThemeSettings,
 }
 
 // Search result
@@ -232,10 +264,7 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            settings: RwLock::new(Settings {
-                notes_folder: None,
-                theme: "system".to_string(),
-            }),
+            settings: RwLock::new(Settings::default()),
             notes_cache: RwLock::new(HashMap::new()),
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),

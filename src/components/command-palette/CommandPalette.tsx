@@ -31,9 +31,10 @@ interface Command {
 interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
+  onOpenSettings?: () => void;
 }
 
-export function CommandPalette({ open, onClose }: CommandPaletteProps) {
+export function CommandPalette({ open, onClose, onOpenSettings }: CommandPaletteProps) {
   const {
     notes,
     selectNote,
@@ -69,6 +70,15 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       },
     },
     {
+      id: "settings",
+      label: "Settings",
+      shortcut: "⌘,",
+      action: () => {
+        onOpenSettings?.();
+        onClose();
+      },
+    },
+    {
       id: "theme-light",
       label: `Theme: Light${theme === "light" ? " ✓" : ""}`,
       action: () => {
@@ -92,7 +102,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         onClose();
       },
     },
-  ], [createNote, currentNote, deleteNote, onClose, setTheme, theme]);
+  ], [createNote, currentNote, deleteNote, onClose, onOpenSettings, setTheme, theme]);
 
   // Memoize filtered notes
   const filteredNotes = useMemo(() => {
@@ -196,9 +206,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       />
 
       {/* Palette */}
-      <div className="relative w-full max-w-lg bg-white dark:bg-stone-900 rounded-xl shadow-2xl overflow-hidden border border-stone-200 dark:border-stone-700 animate-slide-down">
+      <div className="relative w-full max-w-lg bg-bg-secondary rounded-xl shadow-2xl overflow-hidden border border-border animate-slide-down">
         {/* Search input */}
-        <div className="border-b border-stone-200 dark:border-stone-700">
+        <div className="border-b border-border">
           <input
             ref={inputRef}
             type="text"
@@ -206,14 +216,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search notes or type a command..."
-            className="w-full px-4 py-3 text-lg bg-transparent outline-none text-stone-900 dark:text-stone-100 placeholder-stone-400"
+            className="w-full px-4 py-3 text-lg bg-transparent outline-none text-text placeholder-text-muted"
           />
         </div>
 
         {/* Results */}
         <div ref={listRef} className="max-h-80 overflow-y-auto">
           {allItems.length === 0 ? (
-            <div className="p-4 text-center text-stone-500 dark:text-stone-400">
+            <div className="p-4 text-center text-text-muted">
               No results found
             </div>
           ) : (
@@ -221,7 +231,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               {/* Notes section */}
               {filteredNotes.length > 0 && (
                 <div>
-                  <div className="px-4 py-2 text-xs font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wider">
+                  <div className="px-4 py-2 text-xs font-medium text-text-muted uppercase tracking-wider">
                     Notes
                   </div>
                   {filteredNotes.slice(0, 10).map((note, i) => (
@@ -240,7 +250,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               {/* Commands section */}
               {filteredCommands.length > 0 && (
                 <div>
-                  <div className="px-4 py-2 text-xs font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wider border-t border-stone-100 dark:border-stone-800">
+                  <div className="px-4 py-2 text-xs font-medium text-text-muted uppercase tracking-wider border-t border-border">
                     Commands
                   </div>
                   {filteredCommands.map((cmd, i) => {

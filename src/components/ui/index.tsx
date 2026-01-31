@@ -20,10 +20,10 @@ export function ToolbarButton({ isActive = false, className = "", children, titl
     <button
       className={cn(
         "px-2 py-1 text-sm rounded transition-colors",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-1",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
         isActive
-          ? "bg-stone-300 dark:bg-stone-600 text-stone-900 dark:text-stone-100"
-          : "hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-400",
+          ? "bg-bg-emphasis text-text"
+          : "hover:bg-bg-muted text-text-muted",
         className
       )}
       tabIndex={-1}
@@ -50,8 +50,8 @@ export function IconButton({ className = "", children, title, ...props }: IconBu
     <button
       className={cn(
         "p-1.5 rounded-md transition-colors",
-        "hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400",
+        "hover:bg-bg-muted text-text-muted",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
         className
       )}
       tabIndex={-1}
@@ -90,8 +90,8 @@ export function ListItem({ title, subtitle, meta, isSelected = false, onClick, o
         "w-full text-left px-4 py-2.5 transition-colors cursor-pointer select-none",
         "focus:outline-none focus-visible:outline-none",
         isSelected
-          ? "bg-stone-200 dark:bg-stone-800"
-          : "hover:bg-stone-100 dark:hover:bg-stone-800/50"
+          ? "bg-bg-emphasis"
+          : "hover:bg-bg-muted"
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -99,32 +99,22 @@ export function ListItem({ title, subtitle, meta, isSelected = false, onClick, o
           <FlipText
             text={title}
             animate={true}
-            className={cn(
-              "text-sm font-medium truncate",
-              isSelected
-                ? "text-stone-900 dark:text-stone-100"
-                : "text-stone-800 dark:text-stone-200"
-            )}
+            className="text-sm font-medium truncate text-text"
           />
         ) : (
-          <span className={cn(
-            "text-sm font-medium truncate",
-            isSelected
-              ? "text-stone-900 dark:text-stone-100"
-              : "text-stone-800 dark:text-stone-200"
-          )}>
+          <span className="text-sm font-medium truncate text-text">
             {title}
           </span>
         )}
         {meta && (
-          <span className="text-xs text-stone-400 dark:text-stone-500 whitespace-nowrap">
+          <span className="text-xs text-text-muted whitespace-nowrap">
             {meta}
           </span>
         )}
       </div>
       <p className={cn(
         "mt-0.5 text-xs line-clamp-1 min-h-[1.25rem]",
-        subtitle ? "text-stone-500 dark:text-stone-400" : "text-transparent"
+        subtitle ? "text-text-muted" : "text-transparent"
       )}>
         {subtitle || "\u00A0"}
       </p>
@@ -150,17 +140,14 @@ export function CommandItem({ label, subtitle, shortcut, isSelected = false, onC
       className={cn(
         "w-full text-left px-4 py-2 flex items-center justify-between transition-colors cursor-pointer",
         isSelected
-          ? "bg-stone-200 dark:bg-stone-700 text-stone-900 dark:text-stone-100"
-          : "text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800"
+          ? "bg-bg-emphasis text-text"
+          : "text-text hover:bg-bg-muted"
       )}
     >
       <div className="flex flex-col min-w-0">
         <span className="font-medium truncate">{label}</span>
         {subtitle && (
-          <span className={cn(
-            "text-sm truncate",
-            isSelected ? "text-stone-600 dark:text-stone-300" : "text-stone-500 dark:text-stone-400"
-          )}>
+          <span className="text-sm truncate text-text-muted">
             {subtitle}
           </span>
         )}
@@ -169,8 +156,8 @@ export function CommandItem({ label, subtitle, shortcut, isSelected = false, onC
         <kbd className={cn(
           "text-xs px-2 py-0.5 rounded ml-2",
           isSelected
-            ? "bg-stone-300 dark:bg-stone-600 text-stone-700 dark:text-stone-200"
-            : "bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400"
+            ? "bg-bg-muted text-text"
+            : "bg-bg-muted text-text-muted"
         )}>
           {shortcut}
         </kbd>

@@ -12,13 +12,13 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         className={cn(
           "inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
           "disabled:pointer-events-none disabled:opacity-50",
           // Variants
-          variant === "default" && "bg-stone-900 text-stone-50 hover:bg-stone-800 dark:bg-stone-50 dark:text-stone-900 dark:hover:bg-stone-200",
-          variant === "secondary" && "bg-stone-100 text-stone-900 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-50 dark:hover:bg-stone-700",
-          variant === "ghost" && "hover:bg-stone-100 hover:text-stone-900 dark:hover:bg-stone-800 dark:hover:text-stone-50",
-          variant === "outline" && "border border-stone-200 bg-transparent hover:bg-stone-100 dark:border-stone-800 dark:hover:bg-stone-800",
+          variant === "default" && "bg-bg-emphasis text-text hover:bg-bg-muted",
+          variant === "secondary" && "bg-bg-muted text-text hover:bg-bg-emphasis",
+          variant === "ghost" && "hover:bg-bg-muted hover:text-text",
+          variant === "outline" && "border border-border bg-transparent hover:bg-bg-muted",
           // Sizes
           size === "default" && "h-10 px-4 py-2",
           size === "sm" && "h-9 rounded-md px-3",

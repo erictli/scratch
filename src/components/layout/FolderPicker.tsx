@@ -23,16 +23,16 @@ export function FolderPicker() {
   };
 
   return (
-    <div className="h-full flex items-center justify-center bg-stone-50 dark:bg-stone-950">
+    <div className="h-full flex items-center justify-center bg-bg-secondary">
       <div className="text-center p-8 max-w-md">
         <div className="mb-6">
-          <FolderIcon className="w-20 h-20 mx-auto text-stone-300 dark:text-stone-700" />
+          <FolderIcon className="w-20 h-20 mx-auto text-text-muted" />
         </div>
 
-        <h1 className="text-2xl font-medium text-stone-800 dark:text-stone-200 mb-2">
+        <h1 className="text-2xl font-medium text-text mb-2">
           Welcome to Scratch
         </h1>
-        <p className="text-stone-500 dark:text-stone-400 mb-6">
+        <p className="text-text-muted mb-6">
           Choose a folder to store your notes. Each note will be saved as a
           markdown file, making them portable and version-control friendly.
         </p>
@@ -41,7 +41,7 @@ export function FolderPicker() {
           Choose Notes Folder
         </Button>
 
-        <p className="mt-4 text-xs text-stone-400 dark:text-stone-600">
+        <p className="mt-4 text-xs text-text-muted">
           You can change this later in settings
         </p>
       </div>

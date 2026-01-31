@@ -38,14 +38,14 @@ export function Sidebar() {
   }, [clearSearch]);
 
   return (
-    <div className="w-64 h-full bg-stone-50 dark:bg-stone-900 border-r border-stone-200 dark:border-stone-800 flex flex-col">
+    <div className="w-64 h-full bg-bg-secondary border-r border-border flex flex-col">
       {/* Drag region */}
       <div className="h-10 shrink-0" data-tauri-drag-region />
 
       {/* Scrollable area with search and notes */}
       <div className="flex-1 overflow-y-auto">
         {/* Search - sticky at top */}
-        <div className="sticky top-0 z-10 bg-stone-50 dark:bg-stone-900 px-4 py-2">
+        <div className="sticky top-0 z-10 bg-bg-secondary px-4 py-2">
           <div className="relative">
             <Input
               type="text"
@@ -58,13 +58,13 @@ export function Sidebar() {
               <button
                 onClick={handleClearSearch}
                 tabIndex={-1}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-300"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
               >
                 <XIcon />
               </button>
             )}
             {isSearching && (
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400">
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted">
                 <SpinnerIcon />
               </div>
             )}
@@ -76,8 +76,8 @@ export function Sidebar() {
       </div>
 
       {/* Footer with new note button */}
-      <div className="px-4 py-2 border-t border-stone-200 dark:border-stone-800 flex items-center justify-between">
-        <span className="text-xs text-stone-500">
+      <div className="px-4 py-2 border-t border-border flex items-center justify-between">
+        <span className="text-xs text-text-muted">
           {notes.length} {notes.length === 1 ? "note" : "notes"}
         </span>
         <IconButton onClick={createNote} title="New Note (⌘N)">

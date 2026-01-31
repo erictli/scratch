@@ -138,7 +138,7 @@ export function NoteList() {
 
   if (isLoading && notes.length === 0) {
     return (
-      <div className="p-4 text-center text-stone-500 dark:text-stone-400">
+      <div className="p-4 text-center text-text-muted">
         Loading...
       </div>
     );
@@ -146,7 +146,7 @@ export function NoteList() {
 
   if (searchQuery.trim() && displayItems.length === 0) {
     return (
-      <div className="p-4 text-center text-stone-500 dark:text-stone-400">
+      <div className="p-4 text-center text-text-muted">
         No results found
       </div>
     );
@@ -154,14 +154,14 @@ export function NoteList() {
 
   if (displayItems.length === 0) {
     return (
-      <div className="p-4 text-center text-stone-500 dark:text-stone-400">
+      <div className="p-4 text-center text-text-muted">
         No notes yet
       </div>
     );
   }
 
   return (
-    <div className="divide-y divide-stone-100 dark:divide-stone-800">
+    <div className="divide-y divide-border">
       {displayItems.map((item) => (
         <NoteItem
           key={item.id}

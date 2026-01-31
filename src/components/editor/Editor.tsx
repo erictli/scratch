@@ -57,7 +57,7 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
   if (!editor) return null;
 
   return (
-    <div className="mx-4 my-2 flex items-center gap-0.5 px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-stone-900 overflow-x-auto">
+    <div className="mx-4 my-2 flex items-center gap-0.5 px-3 py-1.5 rounded-lg bg-bg-muted overflow-x-auto">
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBold().run()}
         isActive={editor.isActive("bold")}
@@ -80,7 +80,7 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
         <StrikethroughIcon />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-stone-300 dark:bg-stone-700 mx-1" />
+      <div className="w-px h-5 bg-bg-emphasis mx-1" />
 
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
@@ -104,7 +104,7 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
         <Heading3Icon />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-stone-300 dark:bg-stone-700 mx-1" />
+      <div className="w-px h-5 bg-bg-emphasis mx-1" />
 
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -156,7 +156,7 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
         <MinusIcon />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-stone-300 dark:bg-stone-700 mx-1" />
+      <div className="w-px h-5 bg-bg-emphasis mx-1" />
 
       <ToolbarButton
         onClick={onAddLink}
@@ -269,7 +269,7 @@ export function Editor() {
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
-          class: "text-blue-500 underline cursor-pointer",
+          class: "text-accent underline cursor-pointer",
         },
       }),
       Image.configure({
@@ -439,11 +439,11 @@ export function Editor() {
 
   if (!currentNote) {
     return (
-      <div className="flex-1 flex flex-col bg-white dark:bg-stone-950">
+      <div className="flex-1 flex flex-col bg-bg">
         {/* Drag region */}
         <div className="h-10 shrink-0" data-tauri-drag-region />
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-stone-400 dark:text-stone-600">
+          <div className="text-center text-text-muted">
             <FileTextIcon className="w-16 h-16 mx-auto mb-4" />
             <p>Select a note or create a new one</p>
           </div>
@@ -453,23 +453,23 @@ export function Editor() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-stone-950 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-bg overflow-hidden">
       {/* Drag region with date and save status */}
       <div
         className="h-10 shrink-0 flex items-end justify-between px-4 pb-1"
         data-tauri-drag-region
       >
-        <span className="text-xs text-stone-400 dark:text-stone-500">
+        <span className="text-xs text-text-muted">
           {formatDateTime(currentNote.modified)}
         </span>
         <div className="titlebar-no-drag">
           {isSaving || isDirty ? (
             <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
-              <SpinnerIcon className="w-3.5 h-3.5 text-stone-400 animate-spin" />
+              <SpinnerIcon className="w-3.5 h-3.5 text-text-muted animate-spin" />
             </Tooltip>
           ) : (
             <Tooltip content="All changes saved">
-              <CheckIcon className="w-3.5 h-3.5 text-stone-400" />
+              <CheckIcon className="w-3.5 h-3.5 text-text-muted" />
             </Tooltip>
           )}
         </div>
@@ -507,7 +507,7 @@ export function Editor() {
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden">
         <EditorContent
           editor={editor}
-          className="h-full text-stone-900 dark:text-stone-100"
+          className="h-full text-text"
         />
       </div>
     </div>

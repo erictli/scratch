@@ -6,10 +6,22 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { Editor } from "./components/editor/Editor";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
+import { SettingsPage } from "./components/settings";
+
+type ViewState = "notes" | "settings";
 
 function AppContent() {
   const { notesFolder, isLoading, createNote, notes, selectedNoteId, selectNote, searchQuery, searchResults } = useNotes();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [view, setView] = useState<ViewState>("notes");
+
+  const openSettings = useCallback(() => {
+    setView("settings");
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    setView("notes");
+  }, []);
 
   // Memoize display items to prevent unnecessary recalculations
   const displayItems = useMemo(() => {
@@ -34,6 +46,13 @@ function AppContent() {
       if ((e.metaKey || e.ctrlKey) && e.key === "p") {
         e.preventDefault();
         setPaletteOpen(true);
+        return;
+      }
+
+      // Cmd+, - Open settings
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        openSettings();
         return;
       }
 
@@ -97,7 +116,7 @@ function AppContent() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [createNote, displayItems, selectedNoteId, selectNote]);
+  }, [createNote, displayItems, selectedNoteId, selectNote, openSettings]);
 
   const handleClosePalette = useCallback(() => {
     setPaletteOpen(false);
@@ -105,8 +124,8 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-950">
-        <div className="text-stone-400">Loading...</div>
+      <div className="h-screen flex items-center justify-center bg-bg-secondary">
+        <div className="text-text-muted">Loading...</div>
       </div>
     );
   }
@@ -117,11 +136,17 @@ function AppContent() {
 
   return (
     <>
-      <div className="h-screen flex bg-white dark:bg-stone-950 overflow-hidden">
-        <Sidebar />
-        <Editor />
+      <div className="h-screen flex bg-bg overflow-hidden">
+        {view === "settings" ? (
+          <SettingsPage onBack={closeSettings} />
+        ) : (
+          <>
+            <Sidebar />
+            <Editor />
+          </>
+        )}
       </div>
-      <CommandPalette open={paletteOpen} onClose={handleClosePalette} />
+      <CommandPalette open={paletteOpen} onClose={handleClosePalette} onOpenSettings={openSettings} />
     </>
   );
 }
