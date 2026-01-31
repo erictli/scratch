@@ -141,7 +141,7 @@ function AppContent() {
           <SettingsPage onBack={closeSettings} />
         ) : (
           <>
-            <Sidebar />
+            <Sidebar onOpenSettings={openSettings} />
             <Editor />
           </>
         )}

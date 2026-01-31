@@ -2,9 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNotes } from "../../context/NotesContext";
 import { NoteList } from "../notes/NoteList";
 import { IconButton, Input } from "../ui";
-import { PlusIcon, XIcon, SpinnerIcon } from "../icons";
+import { PlusIcon, XIcon, SpinnerIcon, SettingsIcon } from "../icons";
 
-export function Sidebar() {
+interface SidebarProps {
+  onOpenSettings?: () => void;
+}
+
+export function Sidebar({ onOpenSettings }: SidebarProps) {
   const { createNote, notes, search, searchQuery, clearSearch, isSearching } =
     useNotes();
   const [inputValue, setInputValue] = useState(searchQuery);
@@ -75,14 +79,19 @@ export function Sidebar() {
         <NoteList />
       </div>
 
-      {/* Footer with new note button */}
+      {/* Footer with new note button and settings */}
       <div className="px-4 py-2 border-t border-border flex items-center justify-between">
         <span className="text-xs text-text-muted">
           {notes.length} {notes.length === 1 ? "note" : "notes"}
         </span>
-        <IconButton onClick={createNote} title="New Note (⌘N)">
-          <PlusIcon />
-        </IconButton>
+        <div className="flex items-center gap-1">
+          <IconButton onClick={onOpenSettings} title="Settings (⌘,)">
+            <SettingsIcon />
+          </IconButton>
+          <IconButton onClick={createNote} title="New Note (⌘N)">
+            <PlusIcon />
+          </IconButton>
+        </div>
       </div>
     </div>
   );

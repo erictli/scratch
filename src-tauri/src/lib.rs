@@ -63,11 +63,25 @@ impl Default for ThemeSettings {
     }
 }
 
+// Editor font settings
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EditorFontSettings {
+    pub title_font_family: Option<String>,
+    pub title_font_size: Option<f32>,
+    pub title_font_weight: Option<i32>,
+    pub body_font_family: Option<String>,
+    pub body_font_size: Option<f32>,
+    pub body_font_weight: Option<i32>,
+    pub body_line_height: Option<f32>,
+    pub body_paragraph_spacing: Option<f32>,
+}
+
 // App settings
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     pub notes_folder: Option<String>,
     pub theme: ThemeSettings,
+    pub editor_font: Option<EditorFontSettings>,
 }
 
 // Search result

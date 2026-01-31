@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { getSettings, updateSettings } from "../services/notes";
-import type { ThemeColors, ThemeSettings } from "../types/note";
+import type { ThemeColors, ThemeSettings, EditorFontSettings } from "../types/note";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -37,6 +37,18 @@ const defaultDarkColors: Required<ThemeColors> = {
   accent: "#3b82f6",
 };
 
+// Default editor font settings
+const defaultEditorFontSettings: Required<EditorFontSettings> = {
+  titleFontFamily: "ui-sans-serif, system-ui, sans-serif",
+  titleFontSize: 28,
+  titleFontWeight: 700,
+  bodyFontFamily: "ui-sans-serif, system-ui, sans-serif",
+  bodyFontSize: 16,
+  bodyFontWeight: 400,
+  bodyLineHeight: 1.6,
+  bodyParagraphSpacing: 0.75,
+};
+
 interface ThemeContextType {
   theme: ThemeMode;
   resolvedTheme: "light" | "dark";
@@ -47,6 +59,11 @@ interface ThemeContextType {
   resetCustomColors: () => void;
   getDefaultColors: () => Required<ThemeColors>;
   getCurrentColors: () => Required<ThemeColors>;
+  // Font settings
+  editorFontSettings: Required<EditorFontSettings>;
+  setEditorFontSetting: <K extends keyof EditorFontSettings>(key: K, value: EditorFontSettings[K]) => void;
+  resetEditorFontSettings: () => void;
+  getDefaultFontSettings: () => Required<EditorFontSettings>;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -91,10 +108,24 @@ function removeCSSVariables() {
   root.style.removeProperty("--color-accent");
 }
 
+// Apply editor font CSS variables
+function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
+  const root = document.documentElement;
+  root.style.setProperty("--editor-title-font-family", fonts.titleFontFamily);
+  root.style.setProperty("--editor-title-font-size", `${fonts.titleFontSize}px`);
+  root.style.setProperty("--editor-title-font-weight", String(fonts.titleFontWeight));
+  root.style.setProperty("--editor-body-font-family", fonts.bodyFontFamily);
+  root.style.setProperty("--editor-body-font-size", `${fonts.bodyFontSize}px`);
+  root.style.setProperty("--editor-body-font-weight", String(fonts.bodyFontWeight));
+  root.style.setProperty("--editor-body-line-height", String(fonts.bodyLineHeight));
+  root.style.setProperty("--editor-body-paragraph-spacing", `${fonts.bodyParagraphSpacing}em`);
+}
+
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<ThemeMode>("system");
   const [customLightColors, setCustomLightColors] = useState<ThemeColors | undefined>(undefined);
   const [customDarkColors, setCustomDarkColors] = useState<ThemeColors | undefined>(undefined);
+  const [editorFontSettings, setEditorFontSettings] = useState<Required<EditorFontSettings>>(defaultEditorFontSettings);
   const [isInitialized, setIsInitialized] = useState(false);
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
@@ -118,6 +149,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           if (settings.theme.customDarkColors) {
             setCustomDarkColors(settings.theme.customDarkColors);
           }
+        }
+        // Load font settings
+        if (settings.editorFont) {
+          setEditorFontSettings({
+            ...defaultEditorFontSettings,
+            ...settings.editorFont,
+          });
         }
         setIsInitialized(true);
       })
@@ -246,6 +284,47 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     removeCSSVariables();
   }, [resolvedTheme, theme, customLightColors, customDarkColors, saveThemeSettings]);
 
+  // Apply font CSS variables whenever font settings change
+  useEffect(() => {
+    applyFontCSSVariables(editorFontSettings);
+  }, [editorFontSettings]);
+
+  // Save font settings to backend
+  const saveFontSettings = useCallback(async (newFontSettings: Required<EditorFontSettings>) => {
+    try {
+      const settings = await getSettings();
+      await updateSettings({
+        ...settings,
+        editorFont: newFontSettings,
+      });
+    } catch (error) {
+      console.error("Failed to save font settings:", error);
+    }
+  }, []);
+
+  // Get default font settings
+  const getDefaultFontSettings = useCallback((): Required<EditorFontSettings> => {
+    return defaultEditorFontSettings;
+  }, []);
+
+  // Update a single font setting
+  const setEditorFontSetting = useCallback(<K extends keyof EditorFontSettings>(
+    key: K,
+    value: EditorFontSettings[K]
+  ) => {
+    setEditorFontSettings((prev) => {
+      const updated = { ...prev, [key]: value };
+      saveFontSettings(updated);
+      return updated;
+    });
+  }, [saveFontSettings]);
+
+  // Reset font settings to defaults
+  const resetEditorFontSettings = useCallback(() => {
+    setEditorFontSettings(defaultEditorFontSettings);
+    saveFontSettings(defaultEditorFontSettings);
+  }, [saveFontSettings]);
+
   // Don't render until initialized to prevent flash
   if (!isInitialized) {
     return null;
@@ -262,6 +341,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       resetCustomColors,
       getDefaultColors,
       getCurrentColors,
+      editorFontSettings,
+      setEditorFontSetting,
+      resetEditorFontSettings,
+      getDefaultFontSettings,
     }}>
       {children}
     </ThemeContext.Provider>

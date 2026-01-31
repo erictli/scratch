@@ -31,7 +31,19 @@ export interface ThemeSettings {
   customDarkColors?: ThemeColors;
 }
 
+export interface EditorFontSettings {
+  titleFontFamily?: string;
+  titleFontSize?: number; // in px
+  titleFontWeight?: number; // 400, 500, 600, 700, etc.
+  bodyFontFamily?: string;
+  bodyFontSize?: number; // in px
+  bodyFontWeight?: number;
+  bodyLineHeight?: number; // multiplier like 1.5, 1.75
+  bodyParagraphSpacing?: number; // in em
+}
+
 export interface Settings {
   notes_folder: string | null;
   theme: ThemeSettings;
+  editorFont?: EditorFontSettings;
 }

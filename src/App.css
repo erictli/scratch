@@ -12,6 +12,16 @@
   --color-text-inverse: #fafaf9;
   --color-border: #e7e5e4;
   --color-accent: #3b82f6;
+
+  /* Editor font settings - defaults (overridden by ThemeContext) */
+  --editor-title-font-family: ui-sans-serif, system-ui, sans-serif;
+  --editor-title-font-size: 28px;
+  --editor-title-font-weight: 700;
+  --editor-body-font-family: ui-sans-serif, system-ui, sans-serif;
+  --editor-body-font-size: 16px;
+  --editor-body-font-weight: 400;
+  --editor-body-line-height: 1.6;
+  --editor-body-paragraph-spacing: 0.75em;
 }
 
 /* Theme color tokens - Dark mode */
@@ -134,10 +144,36 @@ html.dark {
   animation: flip-char 0.2s ease-out;
 }
 
-/* Prose spacing overrides - tighter spacing */
-.prose p {
-  margin-top: 0.5em;
+/* Editor font customization */
+.prose h1 {
+  font-family: var(--editor-title-font-family);
+  font-size: var(--editor-title-font-size);
+  font-weight: var(--editor-title-font-weight);
+  line-height: 1.2;
   margin-bottom: 0.5em;
+}
+
+.prose {
+  font-family: var(--editor-body-font-family);
+  font-size: var(--editor-body-font-size);
+  font-weight: var(--editor-body-font-weight);
+  line-height: var(--editor-body-line-height);
+}
+
+/* h2-h6 use body font family but with heavier weights */
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  font-family: var(--editor-body-font-family);
+  font-weight: 600;
+}
+
+/* Prose spacing overrides - using custom paragraph spacing */
+.prose p {
+  margin-top: 0;
+  margin-bottom: var(--editor-body-paragraph-spacing);
 }
 
 .prose ul, .prose ol {
