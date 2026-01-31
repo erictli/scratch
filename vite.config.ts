@@ -30,4 +30,55 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  // Production build optimizations
+  build: {
+    // Use modern ES modules for smaller bundles
+    target: "esnext",
+    // Use esbuild for fast minification
+    minify: "esbuild",
+    // Optimize chunk splitting
+    rollupOptions: {
+      output: {
+        // Manual chunk splitting for better caching
+        manualChunks: {
+          // TipTap and related editor libraries
+          "tiptap": [
+            "@tiptap/react",
+            "@tiptap/starter-kit",
+            "@tiptap/markdown",
+            "@tiptap/extension-link",
+            "@tiptap/extension-image",
+            "@tiptap/extension-placeholder",
+            "@tiptap/extension-task-list",
+            "@tiptap/extension-task-item",
+          ],
+          // React core
+          "react-vendor": ["react", "react-dom"],
+          // Tauri APIs
+          "tauri": [
+            "@tauri-apps/api",
+            "@tauri-apps/plugin-dialog",
+            "@tauri-apps/plugin-opener",
+          ],
+        },
+      },
+    },
+    // Enable source maps for debugging (optional, can disable for smaller builds)
+    sourcemap: false,
+    // Increase chunk size warning limit (TipTap is large)
+    chunkSizeWarningLimit: 1000,
+  },
+
+  // Optimize dependencies
+  optimizeDeps: {
+    // Pre-bundle these dependencies for faster dev startup
+    include: [
+      "react",
+      "react-dom",
+      "@tiptap/react",
+      "@tiptap/starter-kit",
+      "@tiptap/markdown",
+    ],
+  },
 }));

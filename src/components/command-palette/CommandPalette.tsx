@@ -3,6 +3,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
   type KeyboardEvent,
 } from "react";
 import { useNotes } from "../../context/NotesContext";
@@ -46,8 +47,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Commands
-  const commands: Command[] = [
+  // Memoize commands array
+  const commands = useMemo<Command[]>(() => [
     {
       id: "new-note",
       label: "New Note",
@@ -91,23 +92,28 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         onClose();
       },
     },
-  ];
+  ], [createNote, currentNote, deleteNote, onClose, setTheme, theme]);
 
-  // Filter notes and commands based on query
-  const filteredNotes = query.trim()
-    ? notes.filter((note) =>
-        note.title.toLowerCase().includes(query.toLowerCase())
-      )
-    : notes;
+  // Memoize filtered notes
+  const filteredNotes = useMemo(() => {
+    if (!query.trim()) return notes;
+    const queryLower = query.toLowerCase();
+    return notes.filter((note) =>
+      note.title.toLowerCase().includes(queryLower)
+    );
+  }, [query, notes]);
 
-  const filteredCommands = query.trim()
-    ? commands.filter((cmd) =>
-        cmd.label.toLowerCase().includes(query.toLowerCase())
-      )
-    : commands;
+  // Memoize filtered commands
+  const filteredCommands = useMemo(() => {
+    if (!query.trim()) return commands;
+    const queryLower = query.toLowerCase();
+    return commands.filter((cmd) =>
+      cmd.label.toLowerCase().includes(queryLower)
+    );
+  }, [query, commands]);
 
-  // All items (notes first, then commands)
-  const allItems = [
+  // Memoize all items (notes first, then commands)
+  const allItems = useMemo(() => [
     ...filteredNotes.slice(0, 10).map((note) => ({
       type: "note" as const,
       id: note.id,
@@ -125,7 +131,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       shortcut: cmd.shortcut,
       action: cmd.action,
     })),
-  ];
+  ], [filteredNotes, filteredCommands, selectNote, onClose]);
 
   // Reset state when opened
   useEffect(() => {
@@ -179,6 +185,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   if (!open) return null;
 
+  const notesCount = Math.min(filteredNotes.length, 10);
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       {/* Backdrop */}
@@ -216,20 +224,16 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                   <div className="px-4 py-2 text-xs font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wider">
                     Notes
                   </div>
-                  {filteredNotes.slice(0, 10).map((note, i) => {
-                    const index = i;
-                    const item = allItems[index];
-                    return (
-                      <div key={note.id} data-index={index}>
-                        <CommandItem
-                          label={cleanTitle(note.title)}
-                          subtitle={note.preview}
-                          isSelected={selectedIndex === index}
-                          onClick={item.action}
-                        />
-                      </div>
-                    );
-                  })}
+                  {filteredNotes.slice(0, 10).map((note, i) => (
+                    <div key={note.id} data-index={i}>
+                      <CommandItem
+                        label={cleanTitle(note.title)}
+                        subtitle={note.preview}
+                        isSelected={selectedIndex === i}
+                        onClick={allItems[i].action}
+                      />
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -240,7 +244,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     Commands
                   </div>
                   {filteredCommands.map((cmd, i) => {
-                    const index = filteredNotes.slice(0, 10).length + i;
+                    const index = notesCount + i;
                     return (
                       <div key={cmd.id} data-index={index}>
                         <CommandItem

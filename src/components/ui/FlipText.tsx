@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, memo } from "react";
 
 interface FlipTextProps {
   text: string;
@@ -8,11 +8,17 @@ interface FlipTextProps {
 }
 
 // Split-flap display animation for text changes
-export function FlipText({ text, className = "", animate = true }: FlipTextProps) {
-  const [displayChars, setDisplayChars] = useState<string[]>(text.split(""));
+// Optimized to use single timing mechanism and minimize re-renders
+export const FlipText = memo(function FlipText({
+  text,
+  className = "",
+  animate = true
+}: FlipTextProps) {
+  const [displayText, setDisplayText] = useState(text);
   const [isAnimating, setIsAnimating] = useState(false);
   const prevTextRef = useRef(text);
   const animationRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
 
   useEffect(() => {
     const prevText = prevTextRef.current;
@@ -20,13 +26,13 @@ export function FlipText({ text, className = "", animate = true }: FlipTextProps
 
     // If same text, just ensure display is correct
     if (prevText === newText) {
-      setDisplayChars(newText.split(""));
+      setDisplayText(newText);
       return;
     }
 
     // If animation disabled, update instantly
     if (!animate) {
-      setDisplayChars(newText.split(""));
+      setDisplayText(newText);
       prevTextRef.current = newText;
       return;
     }
@@ -42,39 +48,58 @@ export function FlipText({ text, className = "", animate = true }: FlipTextProps
     const paddedNew = newText.padEnd(maxLen, " ");
 
     // Initialize with previous text
-    const chars = paddedPrev.split("");
-    setDisplayChars(chars);
+    let chars = paddedPrev.split("");
+    setDisplayText(chars.join(""));
     setIsAnimating(true);
+    prevTextRef.current = newText;
 
-    // Animate each character with staggered delay
-    let currentIndex = 0;
-    const animateNext = () => {
-      if (currentIndex >= maxLen) {
-        // Trim trailing spaces
-        setDisplayChars(newText.split(""));
-        setIsAnimating(false);
-        prevTextRef.current = newText;
+    // Animation timing constants
+    const charDelay = 45; // ms between each character
+    const initialDelay = 60; // ms before starting
+
+    // Use a single requestAnimationFrame loop for smooth animation
+    startTimeRef.current = 0;
+
+    const animateFrame = (timestamp: number) => {
+      if (startTimeRef.current === 0) {
+        startTimeRef.current = timestamp;
+      }
+
+      const elapsed = timestamp - startTimeRef.current;
+
+      // Calculate how many characters should be revealed
+      const charsToReveal = Math.floor((elapsed - initialDelay) / charDelay);
+
+      if (elapsed < initialDelay) {
+        // Still in initial delay
+        animationRef.current = requestAnimationFrame(animateFrame);
         return;
       }
 
-      // Only animate if character changed
-      if (paddedPrev[currentIndex] !== paddedNew[currentIndex]) {
-        chars[currentIndex] = paddedNew[currentIndex];
-        setDisplayChars([...chars]);
+      if (charsToReveal >= maxLen) {
+        // Animation complete
+        setDisplayText(newText);
+        setIsAnimating(false);
+        return;
       }
 
-      currentIndex++;
-      animationRef.current = requestAnimationFrame(() => {
-        setTimeout(animateNext, 45); // 45ms between each character (slightly slower)
-      });
+      // Update characters up to the current reveal point
+      let changed = false;
+      for (let i = 0; i <= charsToReveal && i < maxLen; i++) {
+        if (chars[i] !== paddedNew[i]) {
+          chars[i] = paddedNew[i];
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        setDisplayText(chars.join("").trimEnd() || chars.join(""));
+      }
+
+      animationRef.current = requestAnimationFrame(animateFrame);
     };
 
-    // Start animation after a brief delay
-    animationRef.current = requestAnimationFrame(() => {
-      setTimeout(animateNext, 60);
-    });
-
-    prevTextRef.current = newText;
+    animationRef.current = requestAnimationFrame(animateFrame);
 
     return () => {
       if (animationRef.current) {
@@ -83,21 +108,13 @@ export function FlipText({ text, className = "", animate = true }: FlipTextProps
     };
   }, [text, animate]);
 
+  // Use a single span with CSS transitions for smoother rendering
   return (
-    <span className={`inline-flex ${className}`} aria-label={text}>
-      {displayChars.map((char, i) => (
-        <span
-          key={i}
-          className={`inline-block transition-transform duration-100 ${
-            isAnimating ? "animate-flip-char" : ""
-          }`}
-          style={{
-            minWidth: char === " " ? "0.25em" : undefined,
-          }}
-        >
-          {char}
-        </span>
-      ))}
+    <span
+      className={`inline-block ${className} ${isAnimating ? "animate-flip-text" : ""}`}
+      aria-label={text}
+    >
+      {displayText}
     </span>
   );
-}
+});

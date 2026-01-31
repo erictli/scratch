@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -11,7 +12,9 @@ import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
 
-interface NotesContextValue {
+// Separate contexts to prevent unnecessary re-renders
+// Data context: changes frequently, only subscribed by components that need the data
+interface NotesDataContextValue {
   notes: NoteMetadata[];
   selectedNoteId: string | null;
   currentNote: Note | null;
@@ -21,6 +24,10 @@ interface NotesContextValue {
   searchQuery: string;
   searchResults: SearchResult[];
   isSearching: boolean;
+}
+
+// Actions context: stable references, rarely causes re-renders
+interface NotesActionsContextValue {
   selectNote: (id: string) => Promise<void>;
   createNote: () => Promise<void>;
   saveNote: (content: string) => Promise<void>;
@@ -32,7 +39,8 @@ interface NotesContextValue {
   clearSearch: () => void;
 }
 
-const NotesContext = createContext<NotesContextValue | null>(null);
+const NotesDataContext = createContext<NotesDataContextValue | null>(null);
+const NotesActionsContext = createContext<NotesActionsContextValue | null>(null);
 
 export function NotesProvider({ children }: { children: ReactNode }) {
   const [notes, setNotes] = useState<NoteMetadata[]>([]);
@@ -98,16 +106,20 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       try {
         await notesService.deleteNote(id);
-        if (selectedNoteId === id) {
-          setSelectedNoteId(null);
-          setCurrentNote(null);
-        }
+        // Only clear selection if we're deleting the currently selected note
+        setSelectedNoteId((prevId) => {
+          if (prevId === id) {
+            setCurrentNote(null);
+            return null;
+          }
+          return prevId;
+        });
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to delete note");
       }
     },
-    [selectedNoteId, refreshNotes]
+    [refreshNotes]
   );
 
   const duplicateNote = useCallback(
@@ -206,38 +218,88 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }
   }, [notesFolder, refreshNotes]);
 
+  // Memoize data context value to prevent unnecessary re-renders
+  const dataValue = useMemo<NotesDataContextValue>(
+    () => ({
+      notes,
+      selectedNoteId,
+      currentNote,
+      notesFolder,
+      isLoading,
+      error,
+      searchQuery,
+      searchResults,
+      isSearching,
+    }),
+    [
+      notes,
+      selectedNoteId,
+      currentNote,
+      notesFolder,
+      isLoading,
+      error,
+      searchQuery,
+      searchResults,
+      isSearching,
+    ]
+  );
+
+  // Memoize actions context value - these are stable callbacks
+  const actionsValue = useMemo<NotesActionsContextValue>(
+    () => ({
+      selectNote,
+      createNote,
+      saveNote,
+      deleteNote,
+      duplicateNote,
+      refreshNotes,
+      setNotesFolder,
+      search,
+      clearSearch,
+    }),
+    [
+      selectNote,
+      createNote,
+      saveNote,
+      deleteNote,
+      duplicateNote,
+      refreshNotes,
+      setNotesFolder,
+      search,
+      clearSearch,
+    ]
+  );
+
   return (
-    <NotesContext.Provider
-      value={{
-        notes,
-        selectedNoteId,
-        currentNote,
-        notesFolder,
-        isLoading,
-        error,
-        searchQuery,
-        searchResults,
-        isSearching,
-        selectNote,
-        createNote,
-        saveNote,
-        deleteNote,
-        duplicateNote,
-        refreshNotes,
-        setNotesFolder,
-        search,
-        clearSearch,
-      }}
-    >
-      {children}
-    </NotesContext.Provider>
+    <NotesActionsContext.Provider value={actionsValue}>
+      <NotesDataContext.Provider value={dataValue}>
+        {children}
+      </NotesDataContext.Provider>
+    </NotesActionsContext.Provider>
   );
 }
 
-export function useNotes() {
-  const context = useContext(NotesContext);
+// Hook to get notes data (subscribes to data changes)
+export function useNotesData() {
+  const context = useContext(NotesDataContext);
   if (!context) {
-    throw new Error("useNotes must be used within a NotesProvider");
+    throw new Error("useNotesData must be used within a NotesProvider");
   }
   return context;
+}
+
+// Hook to get notes actions (stable references, rarely causes re-renders)
+export function useNotesActions() {
+  const context = useContext(NotesActionsContext);
+  if (!context) {
+    throw new Error("useNotesActions must be used within a NotesProvider");
+  }
+  return context;
+}
+
+// Combined hook for convenience (backward compatible)
+export function useNotes() {
+  const data = useNotesData();
+  const actions = useNotesActions();
+  return { ...data, ...actions };
 }

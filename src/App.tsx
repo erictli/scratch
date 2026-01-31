@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { NotesProvider, useNotes } from "./context/NotesContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { TooltipProvider } from "./components/ui/Tooltip";
@@ -11,8 +11,10 @@ function AppContent() {
   const { notesFolder, isLoading, createNote, notes, selectedNoteId, selectNote, searchQuery, searchResults } = useNotes();
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Get display items (search results or all notes)
-  const displayItems = searchQuery.trim() ? searchResults : notes;
+  // Memoize display items to prevent unnecessary recalculations
+  const displayItems = useMemo(() => {
+    return searchQuery.trim() ? searchResults : notes;
+  }, [searchQuery, searchResults, notes]);
 
   // Global keyboard shortcuts
   useEffect(() => {

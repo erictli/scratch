@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo, memo } from "react";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
 import { ListItem } from "../ui";
@@ -32,6 +32,47 @@ function formatDate(timestamp: number): string {
   // Otherwise show date
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
+
+// Memoized note item component
+interface NoteItemProps {
+  id: string;
+  title: string;
+  preview?: string;
+  modified: number;
+  isSelected: boolean;
+  enableAnimation: boolean;
+  onSelect: (id: string) => void;
+  onContextMenu: (e: React.MouseEvent, id: string) => void;
+}
+
+const NoteItem = memo(function NoteItem({
+  id,
+  title,
+  preview,
+  modified,
+  isSelected,
+  enableAnimation,
+  onSelect,
+  onContextMenu,
+}: NoteItemProps) {
+  const handleClick = useCallback(() => onSelect(id), [onSelect, id]);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => onContextMenu(e, id),
+    [onContextMenu, id]
+  );
+
+  return (
+    <ListItem
+      title={cleanTitle(title)}
+      subtitle={preview}
+      meta={formatDate(modified)}
+      isSelected={isSelected}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      animateTitle={enableAnimation && isSelected}
+    />
+  );
+});
 
 export function NoteList() {
   const {
@@ -82,15 +123,18 @@ export function NoteList() {
     }
   }, [selectedNoteId]);
 
-  // Show search results if there's a search query
-  const displayItems = searchQuery.trim()
-    ? searchResults.map((r) => ({
+  // Memoize display items to prevent recalculation on every render
+  const displayItems = useMemo(() => {
+    if (searchQuery.trim()) {
+      return searchResults.map((r) => ({
         id: r.id,
         title: r.title,
         preview: r.preview,
         modified: r.modified,
-      }))
-    : notes;
+      }));
+    }
+    return notes;
+  }, [searchQuery, searchResults, notes]);
 
   if (isLoading && notes.length === 0) {
     return (
@@ -119,15 +163,16 @@ export function NoteList() {
   return (
     <div className="divide-y divide-stone-100 dark:divide-stone-800">
       {displayItems.map((item) => (
-        <ListItem
+        <NoteItem
           key={item.id}
-          title={cleanTitle(item.title)}
-          subtitle={item.preview}
-          meta={formatDate(item.modified)}
+          id={item.id}
+          title={item.title}
+          preview={item.preview}
+          modified={item.modified}
           isSelected={selectedNoteId === item.id}
-          onClick={() => selectNote(item.id)}
-          onContextMenu={(e) => handleContextMenu(e, item.id)}
-          animateTitle={enableAnimation && selectedNoteId === item.id}
+          enableAnimation={enableAnimation}
+          onSelect={selectNote}
+          onContextMenu={handleContextMenu}
         />
       ))}
     </div>
