@@ -34,6 +34,7 @@ pub struct Note {
 
 // Theme color customization
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ThemeColors {
     pub bg: Option<String>,
     pub bg_secondary: Option<String>,
@@ -48,6 +49,7 @@ pub struct ThemeColors {
 
 // Theme settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ThemeSettings {
     pub mode: String, // "light" | "dark" | "system"
     pub custom_light_colors: Option<ThemeColors>,
@@ -66,6 +68,7 @@ impl Default for ThemeSettings {
 
 // Editor font settings (simplified)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct EditorFontSettings {
     pub base_font_family: Option<String>, // "system-sans" | "serif" | "monospace"
     pub base_font_size: Option<f32>,      // in px, default 16
@@ -77,6 +80,7 @@ pub struct EditorFontSettings {
 pub struct Settings {
     pub notes_folder: Option<String>,
     pub theme: ThemeSettings,
+    #[serde(rename = "editorFont")]
     pub editor_font: Option<EditorFontSettings>,
 }
 

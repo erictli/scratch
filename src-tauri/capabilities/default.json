@@ -18,7 +18,6 @@
     "dialog:default",
     "dialog:allow-open",
     "core:menu:default",
-    "clipboard-manager:default",
     "clipboard-manager:allow-write-text"
   ]
 }

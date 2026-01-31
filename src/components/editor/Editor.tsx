@@ -469,20 +469,32 @@ export function Editor() {
   // Copy handlers
   const handleCopyMarkdown = useCallback(async () => {
     if (!editor) return;
-    const markdown = getMarkdown(editor);
-    await invoke("copy_to_clipboard", { text: markdown });
+    try {
+      const markdown = getMarkdown(editor);
+      await invoke("copy_to_clipboard", { text: markdown });
+    } catch (error) {
+      console.error("Failed to copy markdown:", error);
+    }
   }, [editor, getMarkdown]);
 
   const handleCopyPlainText = useCallback(async () => {
     if (!editor) return;
-    const plainText = editor.getText();
-    await invoke("copy_to_clipboard", { text: plainText });
+    try {
+      const plainText = editor.getText();
+      await invoke("copy_to_clipboard", { text: plainText });
+    } catch (error) {
+      console.error("Failed to copy plain text:", error);
+    }
   }, [editor]);
 
   const handleCopyHtml = useCallback(async () => {
     if (!editor) return;
-    const html = editor.getHTML();
-    await invoke("copy_to_clipboard", { text: html });
+    try {
+      const html = editor.getHTML();
+      await invoke("copy_to_clipboard", { text: html });
+    } catch (error) {
+      console.error("Failed to copy HTML:", error);
+    }
   }, [editor]);
 
   // Wikilink handler - insert [[ to trigger suggestion
