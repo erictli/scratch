@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo, memo } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useEditor, EditorContent, type Editor as TiptapEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -51,8 +51,9 @@ interface FormatBarProps {
   onAddImage: () => void;
 }
 
-// Memoized FormatBar to prevent re-renders on every keystroke
-const FormatBar = memo(function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
+// FormatBar must re-render with parent to reflect editor.isActive() state changes
+// (editor instance is mutable, so memo would cause stale active states)
+function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
   if (!editor) return null;
 
   return (
@@ -173,7 +174,7 @@ const FormatBar = memo(function FormatBar({ editor, onAddLink, onAddImage }: For
       </ToolbarButton>
     </div>
   );
-});
+}
 
 export function Editor() {
   const { currentNote, saveNote, selectNote, createNote, notes } =
@@ -328,7 +329,8 @@ export function Editor() {
 
     const isNewNote = loadedNoteIdRef.current === null;
     const wasEmpty = loadedNoteIdRef.current !== null && currentNote.content?.trim() === "";
-    loadedNoteIdRef.current = currentNote.id;
+    const loadingNoteId = currentNote.id;
+    loadedNoteIdRef.current = loadingNoteId;
 
     isLoadingRef.current = true;
 
@@ -354,7 +356,14 @@ export function Editor() {
 
     setIsDirty(false);
 
+    // Capture note ID to check in RAF callback - prevents race condition
+    // if user switches notes quickly before RAF fires
     requestAnimationFrame(() => {
+      // Bail if a different note started loading
+      if (loadedNoteIdRef.current !== loadingNoteId) {
+        return;
+      }
+
       isLoadingRef.current = false;
 
       // For brand new empty notes, focus and select all so user can start typing
