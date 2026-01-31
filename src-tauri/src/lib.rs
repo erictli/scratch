@@ -256,7 +256,7 @@ impl SearchIndex {
         if notes_folder.exists() {
             for entry in std::fs::read_dir(notes_folder)?.flatten() {
                 let file_path = entry.path();
-                if file_path.extension().map_or(false, |ext| ext == "md") {
+                if file_path.extension().is_some_and(|ext| ext == "md") {
                     if let Ok(content) = std::fs::read_to_string(&file_path) {
                         let metadata = entry.metadata()?;
                         let modified = metadata
@@ -578,7 +578,7 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
 
     while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
         let file_path = entry.path();
-        if file_path.extension().map_or(false, |ext| ext == "md") {
+        if file_path.extension().is_some_and(|ext| ext == "md") {
             // Get metadata first (single syscall)
             if let Ok(metadata) = entry.metadata().await {
                 if let Ok(content) = fs::read_to_string(&file_path).await {
@@ -921,7 +921,7 @@ fn setup_file_watcher(
             if let Ok(event) = res {
                 for path in event.paths.iter() {
                     // Check if this is the agent-state.json file
-                    if path.file_name().map_or(false, |n| n == "agent-state.json") {
+                    if path.file_name().is_some_and(|n| n == "agent-state.json") {
                         // Debounce agent state changes
                         {
                             let mut map = debounce_map.lock().expect("debounce map mutex");
@@ -951,7 +951,7 @@ fn setup_file_watcher(
                     }
 
                     // Handle regular .md files
-                    if path.extension().map_or(false, |ext| ext == "md") {
+                    if path.extension().is_some_and(|ext| ext == "md") {
                         // Debounce with cleanup
                         {
                             let mut map = debounce_map.lock().expect("debounce map mutex");
@@ -1161,9 +1161,8 @@ pub fn run() {
                 if let Ok(index_path) = get_search_index_path(app.handle()) {
                     SearchIndex::new(&index_path)
                         .ok()
-                        .map(|idx| {
+                        .inspect(|idx| {
                             let _ = idx.rebuild_index(&PathBuf::from(folder));
-                            idx
                         })
                 } else {
                     None

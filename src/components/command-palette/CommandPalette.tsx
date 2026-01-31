@@ -9,17 +9,7 @@ import {
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { CommandItem } from "../ui";
-
-// Clean title - remove nbsp and other invisible characters
-function cleanTitle(title: string | undefined): string {
-  if (!title) return "Untitled";
-  const cleaned = title
-    .replace(/&nbsp;/g, " ")
-    .replace(/\u00A0/g, " ")
-    .replace(/\u200B/g, "")
-    .trim();
-  return cleaned || "Untitled";
-}
+import { cleanTitle } from "../../lib/utils";
 
 interface Command {
   id: string;

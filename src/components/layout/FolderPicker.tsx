@@ -2,7 +2,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Button } from "../ui";
-import { FolderIcon } from "../icons";
 
 export function FolderPicker() {
   const { setNotesFolder } = useNotes();
@@ -27,27 +26,48 @@ export function FolderPicker() {
   };
 
   return (
-    <div className="h-full flex items-center justify-center bg-bg-secondary">
-      <div className="text-center p-8 max-w-md">
-        <div className="mb-6">
-          <FolderIcon className="w-20 h-20 mx-auto text-text-muted" />
+    <div className="h-full flex flex-col bg-bg-secondary">
+      {/* Draggable title bar area */}
+      <div className="h-10 shrink-0" data-tauri-drag-region />
+
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center p-8 max-w-lg">
+          <img
+            src="/folders-dark.png"
+            alt="Folders"
+            className="w-48 h-auto mx-auto invert dark:invert-0 mb-2 animate-fade-in-up"
+            style={{ animationDelay: "0ms" }}
+          />
+
+          <h1
+            className="text-3xl text-text font-serif mb-2 tracking-[-0.01em] animate-fade-in-up"
+            style={{ animationDelay: "100ms" }}
+          >
+            Welcome to Scratch
+          </h1>
+          <p
+            className="text-text-muted mb-6 animate-fade-in-up"
+            style={{ animationDelay: "100ms" }}
+          >
+            Scratch is an offline-first notes app. Your notes are simply stored
+            on your computer as markdown files.
+          </p>
+          <div
+            className="animate-fade-in-up"
+            style={{ animationDelay: "200ms" }}
+          >
+            <Button onClick={handleSelectFolder} size="lg">
+              Choose your notes folder
+            </Button>
+          </div>
+
+          <p
+            className="mt-2 text-xs text-text-muted/60 animate-fade-in-up"
+            style={{ animationDelay: "300ms" }}
+          >
+            You can change this later
+          </p>
         </div>
-
-        <h1 className="text-2xl font-medium text-text mb-2">
-          Welcome to Scratch
-        </h1>
-        <p className="text-text-muted mb-6">
-          Choose a folder to store your notes. Each note will be saved as a
-          markdown file, making them portable and version-control friendly.
-        </p>
-
-        <Button onClick={handleSelectFolder} size="lg">
-          Choose Notes Folder
-        </Button>
-
-        <p className="mt-4 text-xs text-text-muted">
-          You can change this later in settings
-        </p>
       </div>
     </div>
   );

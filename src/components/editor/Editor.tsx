@@ -1,5 +1,9 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
-import { useEditor, EditorContent, type Editor as TiptapEditor } from "@tiptap/react";
+import {
+  useEditor,
+  EditorContent,
+  type Editor as TiptapEditor,
+} from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -15,7 +19,6 @@ import { Wikilink } from "./extensions/Wikilink";
 import { createWikilinkSuggestion } from "./extensions/wikilinkSuggestion";
 import { ToolbarButton, Tooltip, Input } from "../ui";
 import {
-  FileTextIcon,
   BoldIcon,
   ItalicIcon,
   StrikethroughIcon,
@@ -59,7 +62,12 @@ interface FormatBarProps {
 
 // FormatBar must re-render with parent to reflect editor.isActive() state changes
 // (editor instance is mutable, so memo would cause stale active states)
-function FormatBar({ editor, onAddLink, onAddImage, onAddWikilink }: FormatBarProps) {
+function FormatBar({
+  editor,
+  onAddLink,
+  onAddImage,
+  onAddWikilink,
+}: FormatBarProps) {
   if (!editor) return null;
 
   return (
@@ -171,11 +179,7 @@ function FormatBar({ editor, onAddLink, onAddImage, onAddWikilink }: FormatBarPr
       >
         <LinkIcon />
       </ToolbarButton>
-      <ToolbarButton
-        onClick={onAddImage}
-        isActive={false}
-        title="Add Image"
-      >
+      <ToolbarButton onClick={onAddImage} isActive={false} title="Add Image">
         <ImageIcon />
       </ToolbarButton>
       <ToolbarButton
@@ -213,7 +217,7 @@ export function Editor() {
       createWikilinkSuggestion({
         getNotes: () => notesRef.current,
       }),
-    []
+    [],
   );
 
   // Build a map of note titles to IDs for wikilink navigation
@@ -231,7 +235,7 @@ export function Editor() {
     (noteId: string) => {
       selectNote(noteId);
     },
-    [selectNote]
+    [selectNote],
   );
 
   // Handle wikilink creation
@@ -247,7 +251,7 @@ export function Editor() {
         await createNote();
       }
     },
-    [noteTitleToId, selectNote, createNote]
+    [noteTitleToId, selectNote, createNote],
   );
 
   // Get markdown from editor
@@ -261,7 +265,7 @@ export function Editor() {
       // Fallback to plain text
       return editorInstance.getText();
     },
-    []
+    [],
   );
 
   // Auto-save with debounce
@@ -281,7 +285,7 @@ export function Editor() {
         }
       }, 1000);
     },
-    [saveNote]
+    [saveNote],
   );
 
   const editor = useEditor({
@@ -357,7 +361,8 @@ export function Editor() {
     }
 
     const isNewNote = loadedNoteIdRef.current === null;
-    const wasEmpty = loadedNoteIdRef.current !== null && currentNote.content?.trim() === "";
+    const wasEmpty =
+      loadedNoteIdRef.current !== null && currentNote.content?.trim() === "";
     const loadingNoteId = currentNote.id;
     loadedNoteIdRef.current = loadingNoteId;
 
@@ -404,7 +409,6 @@ export function Editor() {
     });
   }, [currentNote, editor]);
 
-
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
@@ -446,7 +450,12 @@ export function Editor() {
     if (!editor) return;
     const selected = await open({
       multiple: false,
-      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
+      filters: [
+        {
+          name: "Images",
+          extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"],
+        },
+      ],
     });
     if (selected) {
       const src = convertFileSrc(selected as string);
@@ -510,7 +519,11 @@ export function Editor() {
         <div className="h-10 shrink-0" data-tauri-drag-region />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-text-muted">
-            <FileTextIcon className="w-16 h-16 mx-auto mb-4" />
+            <img
+              src="/note-dark.png"
+              alt="Note"
+              className="w-36 h-auto mx-auto mb-4 invert dark:invert-0"
+            />
             <p>Select a note or create a new one</p>
           </div>
         </div>
@@ -586,7 +599,12 @@ export function Editor() {
       </div>
 
       {/* Format Bar */}
-      <FormatBar editor={editor} onAddLink={handleAddLink} onAddImage={handleAddImage} onAddWikilink={handleAddWikilink} />
+      <FormatBar
+        editor={editor}
+        onAddLink={handleAddLink}
+        onAddImage={handleAddImage}
+        onAddWikilink={handleAddWikilink}
+      />
 
       {/* Link Input */}
       {showLinkInput && (
@@ -607,18 +625,22 @@ export function Editor() {
             }}
             className="flex-1"
           />
-          <ToolbarButton onClick={handleLinkSubmit} isActive={false} title="Apply link">
+          <ToolbarButton
+            onClick={handleLinkSubmit}
+            isActive={false}
+            title="Apply link"
+          >
             <CheckIcon />
           </ToolbarButton>
         </div>
       )}
 
       {/* TipTap Editor */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden">
-        <EditorContent
-          editor={editor}
-          className="h-full text-text"
-        />
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden"
+      >
+        <EditorContent editor={editor} className="h-full text-text" />
       </div>
     </div>
   );
