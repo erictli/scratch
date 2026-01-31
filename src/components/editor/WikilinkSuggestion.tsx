@@ -62,23 +62,27 @@ export const WikilinkSuggestionList = forwardRef<
     [items, command, showCreateOption, query]
   );
 
-  useImperativeHandle(ref, () => ({
-    onKeyDown: ({ event }) => {
-      if (event.key === "ArrowUp") {
-        setSelectedIndex((prev) => (prev <= 0 ? totalItems - 1 : prev - 1));
-        return true;
-      }
-      if (event.key === "ArrowDown") {
-        setSelectedIndex((prev) => (prev >= totalItems - 1 ? 0 : prev + 1));
-        return true;
-      }
-      if (event.key === "Enter") {
-        selectItem(selectedIndex);
-        return true;
-      }
-      return false;
-    },
-  }));
+  useImperativeHandle(
+    ref,
+    () => ({
+      onKeyDown: ({ event }) => {
+        if (event.key === "ArrowUp") {
+          setSelectedIndex((prev) => (prev <= 0 ? totalItems - 1 : prev - 1));
+          return true;
+        }
+        if (event.key === "ArrowDown") {
+          setSelectedIndex((prev) => (prev >= totalItems - 1 ? 0 : prev + 1));
+          return true;
+        }
+        if (event.key === "Enter") {
+          selectItem(selectedIndex);
+          return true;
+        }
+        return false;
+      },
+    }),
+    [totalItems, selectItem, selectedIndex]
+  );
 
   if (items.length === 0 && !showCreateOption) {
     return (
