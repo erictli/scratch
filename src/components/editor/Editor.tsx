@@ -205,6 +205,7 @@ export function Editor() {
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const notesRef = useRef(notes);
+  const editorRef = useRef<TiptapEditor | null>(null);
 
   // Keep notesRef updated with latest notes
   useEffect(() => {
@@ -333,6 +334,40 @@ export function Editor() {
         }
         return false;
       },
+      // Handle markdown paste
+      handlePaste: (_view, event) => {
+        const text = event.clipboardData?.getData("text/plain");
+        if (!text) return false;
+
+        // Check if text looks like markdown (has common markdown patterns)
+        const markdownPatterns = /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|```|^\s*\[.*\]\(.*\)|^\s*!\[|\*\*.*\*\*|__.*__|~~.*~~|^\s*[-*_]{3,}\s*$/m;
+        if (!markdownPatterns.test(text)) {
+          // Not markdown, let TipTap handle it normally
+          return false;
+        }
+
+        // Parse markdown and insert using editor ref
+        const currentEditor = editorRef.current;
+        if (!currentEditor) return false;
+
+        const manager = currentEditor.storage.markdown?.manager;
+        if (manager && typeof manager.parse === "function") {
+          try {
+            const parsed = manager.parse(text);
+            if (parsed) {
+              currentEditor.commands.insertContent(parsed);
+              return true;
+            }
+          } catch {
+            // Fall back to default paste behavior
+          }
+        }
+
+        return false;
+      },
+    },
+    onCreate: ({ editor: editorInstance }) => {
+      editorRef.current = editorInstance;
     },
     onUpdate: ({ editor: editorInstance }) => {
       if (isLoadingRef.current) return;
