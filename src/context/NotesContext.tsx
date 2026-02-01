@@ -95,24 +95,39 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const saveNote = useCallback(
     async (content: string) => {
       if (!currentNote) return;
+
+      // Capture the note ID at the start of the save operation
+      const savingNoteId = currentNote.id;
+
       try {
         // Mark this note as recently saved to ignore file-change events from our own save
-        recentlySavedRef.current.add(currentNote.id);
+        recentlySavedRef.current.add(savingNoteId);
 
-        const updated = await notesService.saveNote(currentNote.id, content);
+        const updated = await notesService.saveNote(savingNoteId, content);
 
         // If the note was renamed (ID changed), also mark the new ID
-        if (updated.id !== currentNote.id) {
+        if (updated.id !== savingNoteId) {
           recentlySavedRef.current.add(updated.id);
         }
 
-        setCurrentNote(updated);
+        // Only update state if we're still on the same note we started saving
+        // This prevents race conditions when user switches notes during save
+        setSelectedNoteId((prevId) => {
+          if (prevId === savingNoteId) {
+            // Update to the new ID if the note was renamed
+            setCurrentNote(updated);
+            return updated.id;
+          }
+          // User switched to a different note, don't update current note
+          return prevId;
+        });
+
         await refreshNotes();
 
         // Clear the recently saved flag after a short delay
         // (longer than the file watcher debounce of 500ms)
         setTimeout(() => {
-          recentlySavedRef.current.delete(currentNote.id);
+          recentlySavedRef.current.delete(savingNoteId);
           recentlySavedRef.current.delete(updated.id);
         }, 1000);
       } catch (err) {

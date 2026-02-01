@@ -229,11 +229,16 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         clearTimeout(saveTimeoutRef.current);
       }
 
+      // Capture the note ID now (before the timeout)
+      const savingNoteId = currentNote?.id;
+
       saveTimeoutRef.current = window.setTimeout(async () => {
         setIsSaving(true);
         try {
           // Track what we're saving to distinguish from external changes
-          lastSavedContentRef.current = newContent;
+          if (savingNoteId) {
+            lastSaveRef.current = { noteId: savingNoteId, content: newContent };
+          }
           await saveNote(newContent);
           setIsDirty(false);
         } finally {
@@ -241,7 +246,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         }
       }, 1000);
     },
-    [saveNote],
+    [saveNote, currentNote?.id],
   );
 
   const editor = useEditor({
@@ -350,8 +355,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const loadedNoteIdRef = useRef<string | null>(null);
   // Track the modified timestamp of the loaded content
   const loadedModifiedRef = useRef<number | null>(null);
-  // Track content we last saved (to detect external vs our own changes)
-  const lastSavedContentRef = useRef<string | null>(null);
+  // Track the last save (note ID and content) to detect our own saves vs external changes
+  const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
 
   // Load note content when the current note changes
   useEffect(() => {
@@ -361,7 +366,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     }
 
     const isSameNote = currentNote.id === loadedNoteIdRef.current;
-    const isOurSave = currentNote.content === lastSavedContentRef.current;
+    const lastSave = lastSaveRef.current;
+    // Check if this update is from our own save (same note we saved, content matches)
+    const isOurSave = lastSave &&
+      (lastSave.noteId === currentNote.id || lastSave.noteId === loadedNoteIdRef.current) &&
+      lastSave.content === currentNote.content;
     const isExternalChange = isSameNote &&
       currentNote.modified !== loadedModifiedRef.current &&
       !isOurSave;
@@ -374,9 +383,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     }
 
     // If it's our own save with a rename (ID changed but content matches), just update refs
-    if (isOurSave && !isSameNote) {
+    // This happens when the title changes and the file gets renamed
+    if (isOurSave && !isSameNote && lastSave?.noteId === loadedNoteIdRef.current) {
       loadedNoteIdRef.current = currentNote.id;
       loadedModifiedRef.current = currentNote.modified;
+      lastSaveRef.current = null; // Clear after handling rename
       return;
     }
 
