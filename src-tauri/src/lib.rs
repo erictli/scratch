@@ -675,28 +675,47 @@ async fn save_note(
     let folder_path = PathBuf::from(&folder);
 
     let title = extract_title(&content);
+    let desired_id = sanitize_filename(&title);
 
-    // Determine the file ID and path
-    let (note_id, file_path) = if let Some(existing_id) = id {
-        (
-            existing_id.clone(),
-            folder_path.join(format!("{}.md", existing_id)),
-        )
+    // Determine the file ID and path, handling renames
+    let (final_id, file_path, old_id) = if let Some(existing_id) = id {
+        let old_file_path = folder_path.join(format!("{}.md", existing_id));
+
+        // Check if we should rename the file
+        if existing_id != desired_id {
+            // Find a unique name for the new ID
+            let mut new_id = desired_id.clone();
+            let mut counter = 1;
+
+            while new_id != existing_id && folder_path.join(format!("{}.md", new_id)).exists() {
+                new_id = format!("{}-{}", desired_id, counter);
+                counter += 1;
+            }
+
+            // Delete old file if it exists and is different from new path
+            let new_file_path = folder_path.join(format!("{}.md", new_id));
+            if old_file_path.exists() && old_file_path != new_file_path {
+                let _ = fs::remove_file(&old_file_path).await;
+            }
+
+            (new_id, new_file_path, Some(existing_id))
+        } else {
+            (existing_id, old_file_path, None)
+        }
     } else {
-        // Generate new ID from title
-        let base_id = sanitize_filename(&title);
-        let mut final_id = base_id.clone();
+        // New note - generate unique ID from title
+        let mut new_id = desired_id.clone();
         let mut counter = 1;
 
-        while folder_path.join(format!("{}.md", final_id)).exists() {
-            final_id = format!("{}-{}", base_id, counter);
+        while folder_path.join(format!("{}.md", new_id)).exists() {
+            new_id = format!("{}-{}", desired_id, counter);
             counter += 1;
         }
 
-        (final_id.clone(), folder_path.join(format!("{}.md", final_id)))
+        (new_id.clone(), folder_path.join(format!("{}.md", new_id)), None)
     };
 
-    // Write the file
+    // Write the file to the new path
     fs::write(&file_path, &content)
         .await
         .map_err(|e| e.to_string())?;
@@ -711,16 +730,25 @@ async fn save_note(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    // Update search index
+    // Update search index (delete old entry if renamed, then add new)
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.index_note(&note_id, &title, &content, modified);
+            if let Some(ref old) = old_id {
+                let _ = search_index.delete_note(old);
+            }
+            let _ = search_index.index_note(&final_id, &title, &content, modified);
         }
     }
 
+    // Update cache (remove old entry if renamed)
+    if let Some(ref old) = old_id {
+        let mut cache = state.notes_cache.write().expect("cache write lock");
+        cache.remove(old);
+    }
+
     Ok(Note {
-        id: note_id,
+        id: final_id,
         title,
         content,
         path: file_path.to_string_lossy().into_owned(),
