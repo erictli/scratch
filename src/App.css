@@ -11,7 +11,7 @@
   --color-text-muted: #78716c;
   --color-text-inverse: #fafaf9;
   --color-border: #e7e5e4;
-  --color-accent: #3b82f6;
+  --color-accent: #1c1917;
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
   --editor-font-family: ui-sans-serif, system-ui, sans-serif;
@@ -39,7 +39,7 @@
   --color-text-muted: #a8a29e;
   --color-text-inverse: #1c1917;
   --color-border: #292524;
-  --color-accent: #3b82f6;
+  --color-accent: #fafaf9;
 }
 
 /* Register theme colors with Tailwind */
@@ -94,11 +94,33 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Wikilink styles - highlight [[text]] in raw markdown */
-.wikilink-syntax {
-  color: var(--color-accent);
-  background-color: color-mix(in srgb, var(--color-accent) 10%, transparent);
+/* Link tooltip in editor */
+.prose a {
+  position: relative;
+}
+
+.prose a::after {
+  content: "⌘+click to open";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-text-inverse);
+  background-color: var(--color-text);
   border-radius: 0.25rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  margin-bottom: 0.25rem;
+  z-index: 50;
+}
+
+.prose a:hover::after {
+  opacity: 1;
 }
 
 /* Smooth theme transitions */
@@ -176,6 +198,7 @@ html.dark {
   font-size: var(--editor-h1-size);
   font-weight: var(--editor-bold-weight);
   line-height: 1.2;
+  margin-top: 1em;
   margin-bottom: 0.5em;
 }
 
@@ -184,6 +207,8 @@ html.dark {
   font-size: var(--editor-h2-size);
   font-weight: var(--editor-bold-weight);
   line-height: 1.3;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
 }
 
 .prose h3 {
@@ -191,12 +216,16 @@ html.dark {
   font-size: var(--editor-h3-size);
   font-weight: var(--editor-bold-weight);
   line-height: 1.4;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
 }
 
 .prose h4 {
   font-family: var(--editor-font-family);
   font-size: var(--editor-h4-size);
   font-weight: var(--editor-bold-weight);
+  margin-top: 0.75em;
+  margin-bottom: 0.5em;
 }
 
 .prose h5,
@@ -204,6 +233,8 @@ html.dark {
   font-family: var(--editor-font-family);
   font-size: var(--editor-h5-size);
   font-weight: var(--editor-bold-weight);
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
 }
 
 /* Bold text uses the same weight as headings */
@@ -234,7 +265,7 @@ html.dark {
   background-color: var(--color-bg-muted);
   color: var(--color-text);
   border-radius: 0.5rem;
-  padding: 1rem;
+  padding: 0.75rem 1rem 1rem;
   overflow-x: auto;
 }
 
@@ -269,8 +300,8 @@ html.dark {
 }
 
 .prose ul, .prose ol {
-  margin-top: 0.5em;
-  margin-bottom: 0.5em;
+  margin-top: 0;
+  margin-bottom: var(--editor-paragraph-spacing);
   padding-left: 1.25em;
 }
 
@@ -285,6 +316,15 @@ html.dark {
   margin-top: 0;
   margin-bottom: 0;
   padding-left: 0.25em;
+}
+
+/* List markers - use muted stone color */
+.prose :where(ul > li)::marker {
+  color: var(--color-text-muted);
+}
+
+.prose :where(ol > li)::marker {
+  color: var(--color-text-muted);
 }
 
 .prose li > p {
@@ -331,8 +371,8 @@ ul[data-type="taskList"] li > label {
 }
 
 ul[data-type="taskList"] li > label input[type="checkbox"] {
-  width: 0.875rem;
-  height: 0.875rem;
+  width: 1rem;
+  height: 1rem;
   margin: 0;
   accent-color: var(--color-accent);
   cursor: pointer;
@@ -437,42 +477,52 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
   animation-name: tooltip-slide-in-from-right;
 }
 
-/* Wikilink suggestion dropdown */
-.wikilink-suggestion-dropdown {
+/* Inline link editor popup */
+.link-editor-popup {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  max-height: 300px;
-  overflow-y: auto;
-  min-width: 200px;
-  max-width: 320px;
-  padding: 0.25rem;
+  padding: 0.375rem;
 }
 
-.wikilink-suggestion-item {
+.link-editor-input {
+  width: 220px;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  background-color: var(--color-bg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  outline: none;
+}
+
+.link-editor-input:focus {
+  border-color: var(--color-accent);
+}
+
+.link-editor-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.link-editor-button {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.375rem;
-  border: none;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  color: var(--color-text-muted);
   background: transparent;
-  color: var(--color-text);
-  font-size: 0.875rem;
-  text-align: left;
+  border: none;
+  border-radius: 0.25rem;
   cursor: pointer;
-  transition: background-color 0.1s;
+  transition: background-color 0.1s, color 0.1s;
 }
 
-.wikilink-suggestion-item:hover,
-.wikilink-suggestion-item.is-selected {
+.link-editor-button:hover {
   background-color: var(--color-bg-muted);
-}
-
-.wikilink-suggestion-create {
-  border-top: 1px solid var(--color-border);
-  margin-top: 0.25rem;
-  padding-top: 0.5rem;
+  color: var(--color-text);
 }

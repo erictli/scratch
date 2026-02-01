@@ -1,7 +1,8 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import {
   useEditor,
   EditorContent,
+  ReactRenderer,
   type Editor as TiptapEditor,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -11,13 +12,13 @@ import Image from "@tiptap/extension-image";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { Markdown } from "@tiptap/markdown";
+import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
-import { Wikilink } from "./extensions/Wikilink";
-import { createWikilinkSuggestion } from "./extensions/wikilinkSuggestion";
-import { ToolbarButton, Tooltip, Input } from "../ui";
+import { LinkEditor } from "./LinkEditor";
+import { ToolbarButton, Tooltip } from "../ui";
 import {
   BoldIcon,
   ItalicIcon,
@@ -25,6 +26,7 @@ import {
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
+  Heading4Icon,
   ListIcon,
   ListOrderedIcon,
   CheckSquareIcon,
@@ -38,7 +40,6 @@ import {
   CheckIcon,
   CopyIcon,
   ChevronDownIcon,
-  WikilinkIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -57,7 +58,6 @@ interface FormatBarProps {
   editor: TiptapEditor | null;
   onAddLink: () => void;
   onAddImage: () => void;
-  onAddWikilink: () => void;
 }
 
 // FormatBar must re-render with parent to reflect editor.isActive() state changes
@@ -66,7 +66,6 @@ function FormatBar({
   editor,
   onAddLink,
   onAddImage,
-  onAddWikilink,
 }: FormatBarProps) {
   if (!editor) return null;
 
@@ -116,6 +115,13 @@ function FormatBar({
         title="Heading 3"
       >
         <Heading3Icon />
+      </ToolbarButton>
+      <ToolbarButton
+        onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}
+        isActive={editor.isActive("heading", { level: 4 })}
+        title="Heading 4"
+      >
+        <Heading4Icon />
       </ToolbarButton>
 
       <div className="w-px h-5 bg-bg-emphasis mx-1" />
@@ -182,78 +188,19 @@ function FormatBar({
       <ToolbarButton onClick={onAddImage} isActive={false} title="Add Image">
         <ImageIcon />
       </ToolbarButton>
-      <ToolbarButton
-        onClick={onAddWikilink}
-        isActive={false}
-        title="Add Wikilink"
-      >
-        <WikilinkIcon />
-      </ToolbarButton>
     </div>
   );
 }
 
 export function Editor() {
-  const { currentNote, saveNote, selectNote, createNote, notes } =
-    useNotes();
+  const { currentNote, saveNote } = useNotes();
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [showLinkInput, setShowLinkInput] = useState(false);
-  const [linkUrl, setLinkUrl] = useState("");
-  const linkInputRef = useRef<HTMLInputElement>(null);
   const saveTimeoutRef = useRef<number | null>(null);
+  const linkPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const notesRef = useRef(notes);
   const editorRef = useRef<TiptapEditor | null>(null);
-
-  // Keep notesRef updated with latest notes
-  useEffect(() => {
-    notesRef.current = notes;
-  }, [notes]);
-
-  // Create wikilink suggestion config that reads from ref (stable function)
-  const wikilinkSuggestion = useMemo(
-    () =>
-      createWikilinkSuggestion({
-        getNotes: () => notesRef.current,
-      }),
-    [],
-  );
-
-  // Build a map of note titles to IDs for wikilink navigation
-  const noteTitleToId = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const note of notes) {
-      const titleLower = note.title.toLowerCase();
-      map[titleLower] = note.id;
-    }
-    return map;
-  }, [notes]);
-
-  // Handle wikilink navigation
-  const handleWikilinkNavigate = useCallback(
-    (noteId: string) => {
-      selectNote(noteId);
-    },
-    [selectNote],
-  );
-
-  // Handle wikilink creation
-  const handleWikilinkCreate = useCallback(
-    async (title: string) => {
-      // Check if note with this title exists
-      const titleLower = title.toLowerCase();
-      const existingId = noteTitleToId[titleLower];
-      if (existingId) {
-        selectNote(existingId);
-      } else {
-        // Create new note
-        await createNote();
-      }
-    },
-    [noteTitleToId, selectNote, createNote],
-  );
 
   // Get markdown from editor
   const getMarkdown = useCallback(
@@ -316,16 +263,28 @@ export function Editor() {
         nested: true,
       }),
       Markdown.configure({}),
-      Wikilink.configure({
-        onNavigate: handleWikilinkNavigate,
-        onCreate: handleWikilinkCreate,
-        suggestion: wikilinkSuggestion,
-      }),
     ],
     editorProps: {
       attributes: {
         class:
-          "prose prose-lg dark:prose-invert max-w-none focus:outline-none min-h-full px-8 pt-4 pb-32",
+          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-8 pt-12 pb-32",
+      },
+      // Handle cmd/ctrl+click to open links
+      handleClick: (_view, _pos, event) => {
+        // Only handle cmd/ctrl+click
+        if (!event.metaKey && !event.ctrlKey) return false;
+
+        const target = event.target as HTMLElement;
+        const link = target.closest("a");
+        if (link) {
+          const href = link.getAttribute("href");
+          if (href) {
+            event.preventDefault();
+            window.open(href, "_blank");
+            return true;
+          }
+        }
+        return false;
       },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
@@ -483,40 +442,91 @@ export function Editor() {
     });
   }, [currentNote, editor]);
 
-  // Cleanup timeout on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      if (linkPopupRef.current) {
+        linkPopupRef.current.destroy();
+      }
     };
   }, []);
 
-  // Link handlers
+  // Link handlers - show inline popup at cursor position
   const handleAddLink = useCallback(() => {
     if (!editor) return;
+
+    // Destroy existing popup if any
+    if (linkPopupRef.current) {
+      linkPopupRef.current.destroy();
+      linkPopupRef.current = null;
+    }
+
     // Get existing link URL if cursor is on a link
     const existingUrl = editor.getAttributes("link").href || "";
-    setLinkUrl(existingUrl);
-    setShowLinkInput(true);
-    requestAnimationFrame(() => linkInputRef.current?.focus());
-  }, [editor]);
 
-  const handleLinkSubmit = useCallback(() => {
-    if (!editor) return;
-    if (linkUrl.trim()) {
-      editor.chain().focus().setLink({ href: linkUrl.trim() }).run();
-    } else {
-      editor.chain().focus().unsetLink().run();
-    }
-    setShowLinkInput(false);
-    setLinkUrl("");
-  }, [editor, linkUrl]);
+    // Get cursor position for popup placement
+    const { from, to } = editor.state.selection;
+    const start = editor.view.coordsAtPos(from);
+    const end = editor.view.coordsAtPos(to);
 
-  const handleLinkCancel = useCallback(() => {
-    setShowLinkInput(false);
-    setLinkUrl("");
-    editor?.commands.focus();
+    // Create a virtual element at the selection for tippy to anchor to
+    const virtualElement = {
+      getBoundingClientRect: () => ({
+        width: end.left - start.left,
+        height: start.bottom - start.top,
+        top: start.top,
+        left: start.left,
+        right: end.left,
+        bottom: start.bottom,
+        x: start.left,
+        y: start.top,
+      }),
+    };
+
+    // Create the link editor component
+    const component = new ReactRenderer(LinkEditor, {
+      props: {
+        initialUrl: existingUrl,
+        onSubmit: (url: string) => {
+          if (url.trim()) {
+            editor.chain().focus().setLink({ href: url.trim() }).run();
+          } else {
+            editor.chain().focus().unsetLink().run();
+          }
+          linkPopupRef.current?.destroy();
+          linkPopupRef.current = null;
+        },
+        onRemove: () => {
+          editor.chain().focus().unsetLink().run();
+          linkPopupRef.current?.destroy();
+          linkPopupRef.current = null;
+        },
+        onCancel: () => {
+          editor.commands.focus();
+          linkPopupRef.current?.destroy();
+          linkPopupRef.current = null;
+        },
+      },
+      editor,
+    });
+
+    // Create tippy popup
+    linkPopupRef.current = tippy(document.body, {
+      getReferenceClientRect: () => virtualElement.getBoundingClientRect() as DOMRect,
+      appendTo: () => document.body,
+      content: component.element,
+      showOnCreate: true,
+      interactive: true,
+      trigger: "manual",
+      placement: "bottom-start",
+      offset: [0, 8],
+      onDestroy: () => {
+        component.destroy();
+      },
+    });
   }, [editor]);
 
   // Image handler
@@ -578,12 +588,6 @@ export function Editor() {
     } catch (error) {
       console.error("Failed to copy HTML:", error);
     }
-  }, [editor]);
-
-  // Wikilink handler - insert [[ to trigger suggestion
-  const handleAddWikilink = useCallback(() => {
-    if (!editor) return;
-    editor.chain().focus().insertContent("[[").run();
   }, [editor]);
 
   if (!currentNote) {
@@ -669,37 +673,7 @@ export function Editor() {
         editor={editor}
         onAddLink={handleAddLink}
         onAddImage={handleAddImage}
-        onAddWikilink={handleAddWikilink}
       />
-
-      {/* Link Input */}
-      {showLinkInput && (
-        <div className="mx-4 mb-2 flex items-center gap-2">
-          <Input
-            ref={linkInputRef}
-            type="url"
-            placeholder="Enter URL..."
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleLinkSubmit();
-              } else if (e.key === "Escape") {
-                handleLinkCancel();
-              }
-            }}
-            className="flex-1"
-          />
-          <ToolbarButton
-            onClick={handleLinkSubmit}
-            isActive={false}
-            title="Apply link"
-          >
-            <CheckIcon />
-          </ToolbarButton>
-        </div>
-      )}
 
       {/* TipTap Editor */}
       <div
