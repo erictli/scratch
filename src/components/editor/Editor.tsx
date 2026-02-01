@@ -207,6 +207,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
+  const currentNoteIdRef = useRef<string | null>(null);
+
+  // Keep ref in sync with current note ID
+  currentNoteIdRef.current = currentNote?.id ?? null;
 
   // Get markdown from editor
   const getMarkdown = useCallback(
@@ -233,6 +237,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       const savingNoteId = currentNote?.id;
 
       saveTimeoutRef.current = window.setTimeout(async () => {
+        // Guard: only save if still on the same note
+        if (savingNoteId && currentNoteIdRef.current !== savingNoteId) {
+          return;
+        }
+
         setIsSaving(true);
         try {
           // Track what we're saving to distinguish from external changes
@@ -291,7 +300,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           const href = link.getAttribute("href");
           if (href) {
             event.preventDefault();
-            window.open(href, "_blank");
+            window.open(href, "_blank", "noopener,noreferrer");
             return true;
           }
         }
@@ -484,23 +493,36 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     // Get existing link URL if cursor is on a link
     const existingUrl = editor.getAttributes("link").href || "";
 
-    // Get cursor position for popup placement
+    // Get selection bounds for popup placement using DOM Range for accurate multi-line support
     const { from, to } = editor.state.selection;
-    const start = editor.view.coordsAtPos(from);
-    const end = editor.view.coordsAtPos(to);
 
     // Create a virtual element at the selection for tippy to anchor to
     const virtualElement = {
-      getBoundingClientRect: () => ({
-        width: end.left - start.left,
-        height: start.bottom - start.top,
-        top: start.top,
-        left: start.left,
-        right: end.left,
-        bottom: start.bottom,
-        x: start.left,
-        y: start.top,
-      }),
+      getBoundingClientRect: () => {
+        // Try to get accurate bounds using DOM Range
+        const startPos = editor.view.domAtPos(from);
+        const endPos = editor.view.domAtPos(to);
+
+        if (startPos && endPos) {
+          const range = document.createRange();
+          range.setStart(startPos.node, startPos.offset);
+          range.setEnd(endPos.node, endPos.offset);
+          return range.getBoundingClientRect();
+        }
+
+        // Fallback to coordsAtPos for collapsed selections
+        const coords = editor.view.coordsAtPos(from);
+        return {
+          width: 0,
+          height: coords.bottom - coords.top,
+          top: coords.top,
+          left: coords.left,
+          right: coords.left,
+          bottom: coords.bottom,
+          x: coords.left,
+          y: coords.top,
+        };
+      },
     };
 
     // Create the link editor component

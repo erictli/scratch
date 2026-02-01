@@ -98,12 +98,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
       // Capture the note ID at the start of the save operation
       const savingNoteId = currentNote.id;
+      let updatedId: string | null = null;
 
       try {
         // Mark this note as recently saved to ignore file-change events from our own save
         recentlySavedRef.current.add(savingNoteId);
 
         const updated = await notesService.saveNote(savingNoteId, content);
+        updatedId = updated.id;
 
         // If the note was renamed (ID changed), also mark the new ID
         if (updated.id !== savingNoteId) {
@@ -128,10 +130,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         // (longer than the file watcher debounce of 500ms)
         setTimeout(() => {
           recentlySavedRef.current.delete(savingNoteId);
-          recentlySavedRef.current.delete(updated.id);
+          if (updatedId) recentlySavedRef.current.delete(updatedId);
         }, 1000);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save note");
+        // Clean up immediately on error to avoid leaving stale entries
+        recentlySavedRef.current.delete(savingNoteId);
+        if (updatedId) recentlySavedRef.current.delete(updatedId);
       }
     },
     [currentNote, refreshNotes]
