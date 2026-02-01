@@ -8,6 +8,7 @@ pub struct GitStatus {
     pub is_repo: bool,
     pub has_remote: bool,
     pub has_upstream: bool, // Whether the current branch tracks an upstream
+    pub remote_url: Option<String>, // URL of the 'origin' remote
     pub changed_count: usize,
     pub ahead_count: i32, // -1 if no upstream tracking
     pub current_branch: Option<String>,
@@ -84,6 +85,11 @@ pub fn get_status(path: &Path) -> GitStatus {
     {
         status.has_remote = output.status.success()
             && !String::from_utf8_lossy(&output.stdout).trim().is_empty();
+
+        // Get remote URL if remote exists
+        if status.has_remote {
+            status.remote_url = get_remote_url(path);
+        }
     }
 
     // Get status with porcelain format for easy parsing
@@ -225,7 +231,7 @@ pub fn push(path: &Path) -> GitResult {
                 GitResult {
                     success: false,
                     message: None,
-                    error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+                    error: Some(parse_push_error(&String::from_utf8_lossy(&output.stderr))),
                 }
             }
         }
@@ -234,5 +240,123 @@ pub fn push(path: &Path) -> GitResult {
             message: None,
             error: Some(format!("Failed to push: {}", e)),
         },
+    }
+}
+
+/// Get the URL of the 'origin' remote, if configured
+pub fn get_remote_url(path: &Path) -> Option<String> {
+    if !is_git_repo(path) {
+        return None;
+    }
+
+    Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// Add a remote named 'origin' with the given URL
+pub fn add_remote(path: &Path, url: &str) -> GitResult {
+    // Validate URL format (basic check)
+    if !is_valid_remote_url(url) {
+        return GitResult {
+            success: false,
+            message: None,
+            error: Some("Invalid remote URL format. URL must start with https://, http://, or git@".to_string()),
+        };
+    }
+
+    let output = Command::new("git")
+        .args(["remote", "add", "origin", url])
+        .current_dir(path)
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                GitResult {
+                    success: true,
+                    message: Some("Remote added successfully".to_string()),
+                    error: None,
+                }
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                // Handle common case: remote already exists
+                if stderr.contains("already exists") {
+                    GitResult {
+                        success: false,
+                        message: None,
+                        error: Some("Remote 'origin' already exists".to_string()),
+                    }
+                } else {
+                    GitResult {
+                        success: false,
+                        message: None,
+                        error: Some(stderr),
+                    }
+                }
+            }
+        }
+        Err(e) => GitResult {
+            success: false,
+            message: None,
+            error: Some(format!("Failed to add remote: {}", e)),
+        },
+    }
+}
+
+/// Push to remote and set upstream tracking (git push -u origin <branch>)
+pub fn push_with_upstream(path: &Path, branch: &str) -> GitResult {
+    let output = Command::new("git")
+        .args(["push", "-u", "origin", branch])
+        .current_dir(path)
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                GitResult {
+                    success: true,
+                    message: Some(format!("Pushed and tracking origin/{}", branch)),
+                    error: None,
+                }
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                GitResult {
+                    success: false,
+                    message: None,
+                    error: Some(parse_push_error(&stderr)),
+                }
+            }
+        }
+        Err(e) => GitResult {
+            success: false,
+            message: None,
+            error: Some(format!("Failed to push: {}", e)),
+        },
+    }
+}
+
+/// Basic validation for git remote URLs
+fn is_valid_remote_url(url: &str) -> bool {
+    let url = url.trim();
+    // SSH format: git@github.com:user/repo.git
+    // HTTPS format: https://github.com/user/repo.git
+    url.starts_with("git@") || url.starts_with("https://") || url.starts_with("http://")
+}
+
+/// Parse git push errors into user-friendly messages
+fn parse_push_error(stderr: &str) -> String {
+    if stderr.contains("Permission denied") || stderr.contains("publickey") {
+        "Authentication failed. Check your SSH keys or credentials.".to_string()
+    } else if stderr.contains("Repository not found") || stderr.contains("does not exist") {
+        "Remote repository not found. Check the URL.".to_string()
+    } else if stderr.contains("Could not resolve host") {
+        "Could not connect to remote. Check your internet connection.".to_string()
+    } else {
+        stderr.trim().to_string()
     }
 }

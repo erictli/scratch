@@ -18,6 +18,7 @@ interface GitContextValue {
   isLoading: boolean;
   isCommitting: boolean;
   isPushing: boolean;
+  isAddingRemote: boolean;
   gitAvailable: boolean;
   lastError: string | null;
 
@@ -26,6 +27,8 @@ interface GitContextValue {
   initRepo: () => Promise<boolean>;
   commit: (message: string) => Promise<boolean>;
   push: () => Promise<boolean>;
+  addRemote: (url: string) => Promise<boolean>;
+  pushWithUpstream: () => Promise<boolean>;
   clearError: () => void;
 }
 
@@ -37,6 +40,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
+  const [isAddingRemote, setIsAddingRemote] = useState(false);
   const [gitAvailable, setGitAvailable] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -104,6 +108,42 @@ export function GitProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshStatus]);
 
+  const addRemote = useCallback(async (url: string) => {
+    setIsAddingRemote(true);
+    try {
+      const result = await gitService.addRemote(url);
+      if (result.error) {
+        setLastError(result.error);
+        return false;
+      }
+      await refreshStatus();
+      return true;
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : "Failed to add remote");
+      return false;
+    } finally {
+      setIsAddingRemote(false);
+    }
+  }, [refreshStatus]);
+
+  const pushWithUpstream = useCallback(async () => {
+    setIsPushing(true);
+    try {
+      const result = await gitService.pushWithUpstream();
+      if (result.error) {
+        setLastError(result.error);
+        return false;
+      }
+      await refreshStatus();
+      return true;
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : "Failed to push");
+      return false;
+    } finally {
+      setIsPushing(false);
+    }
+  }, [refreshStatus]);
+
   const clearError = useCallback(() => {
     setLastError(null);
   }, []);
@@ -149,12 +189,15 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isLoading,
       isCommitting,
       isPushing,
+      isAddingRemote,
       gitAvailable,
       lastError,
       refreshStatus,
       initRepo,
       commit,
       push,
+      addRemote,
+      pushWithUpstream,
       clearError,
     }),
     [
@@ -162,12 +205,15 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isLoading,
       isCommitting,
       isPushing,
+      isAddingRemote,
       gitAvailable,
       lastError,
       refreshStatus,
       initRepo,
       commit,
       push,
+      addRemote,
+      pushWithUpstream,
       clearError,
     ]
   );

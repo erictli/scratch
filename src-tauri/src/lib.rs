@@ -1077,6 +1077,61 @@ async fn git_push(state: State<'_, AppState>) -> Result<git::GitResult, String> 
     }
 }
 
+#[tauri::command]
+async fn git_add_remote(url: String, state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::add_remote(&PathBuf::from(path), &url)
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitResult {
+            success: false,
+            message: None,
+            error: Some("Notes folder not set".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
+async fn git_push_with_upstream(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                // Get current branch first
+                let status = git::get_status(&PathBuf::from(&path));
+                match status.current_branch {
+                    Some(branch) => git::push_with_upstream(&PathBuf::from(&path), &branch),
+                    None => git::GitResult {
+                        success: false,
+                        message: None,
+                        error: Some("No current branch found".to_string()),
+                    },
+                }
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitResult {
+            success: false,
+            message: None,
+            error: Some("Notes folder not set".to_string()),
+        }),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1140,6 +1195,8 @@ pub fn run() {
             git_init_repo,
             git_commit,
             git_push,
+            git_add_remote,
+            git_push_with_upstream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
