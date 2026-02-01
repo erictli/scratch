@@ -600,7 +600,7 @@ export function Editor() {
             <img
               src="/note-dark.png"
               alt="Note"
-              className="w-36 h-auto mx-auto mb-4 invert dark:invert-0"
+              className="w-40 h-auto mx-auto mb-4 invert dark:invert-0"
             />
             <p>Select a note or create a new one</p>
           </div>
