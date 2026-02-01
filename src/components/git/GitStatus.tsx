@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { useGit } from "../../context/GitContext";
 import { Button, IconButton, Tooltip, Input } from "../ui";
-import { GitBranchIcon, GitCommitIcon, UploadIcon, SpinnerIcon } from "../icons";
+import {
+  GitBranchIcon,
+  GitCommitIcon,
+  UploadIcon,
+  SpinnerIcon,
+} from "../icons";
 
 export function GitStatus() {
   const {
@@ -28,7 +33,11 @@ export function GitStatus() {
   if (status && !status.isRepo) {
     return (
       <Tooltip content="Initialize Git repository">
-        <Button onClick={initRepo} variant="link" className="text-xs h-auto p-0">
+        <Button
+          onClick={initRepo}
+          variant="link"
+          className="text-xs h-auto p-0"
+        >
           Enable Git
         </Button>
       </Tooltip>
@@ -56,7 +65,7 @@ export function GitStatus() {
       {/* Branch name */}
       {status.currentBranch && (
         <span className="text-xs text-text-muted flex items-center gap-1">
-          <GitBranchIcon className="w-3 h-3" />
+          <GitBranchIcon className="w-4.5 h-4.5" />
           {status.currentBranch}
         </span>
       )}
@@ -95,7 +104,7 @@ export function GitStatus() {
                 {isCommitting ? (
                   <SpinnerIcon className="w-3 h-3 animate-spin" />
                 ) : (
-                  <GitCommitIcon className="w-3 h-3" />
+                  <GitCommitIcon className="w-4.5 h-4.5" />
                 )}
               </IconButton>
             </div>
@@ -104,7 +113,7 @@ export function GitStatus() {
               onClick={() => setShowCommitInput(true)}
               title="Commit changes"
             >
-              <GitCommitIcon className="w-3 h-3" />
+              <GitCommitIcon className="w-4.5 h-4.5" />
             </IconButton>
           )}
         </>

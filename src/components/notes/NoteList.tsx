@@ -9,7 +9,11 @@ function formatDate(timestamp: number): string {
   const now = new Date();
 
   // Get start of today, yesterday, etc. (midnight local time)
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  );
   const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
 
   // Today: show time
@@ -23,7 +27,8 @@ function formatDate(timestamp: number): string {
   }
 
   // Calculate days ago
-  const daysAgo = Math.floor((startOfToday.getTime() - date.getTime()) / 86400000) + 1;
+  const daysAgo =
+    Math.floor((startOfToday.getTime() - date.getTime()) / 86400000) + 1;
 
   // 2-6 days ago: show "X days ago"
   if (daysAgo <= 6) {
@@ -36,7 +41,11 @@ function formatDate(timestamp: number): string {
   }
 
   // Different year: show full date
-  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  return date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 // Memoized note item component
@@ -89,25 +98,28 @@ export function NoteList() {
     searchResults,
   } = useNotes();
 
-  const handleContextMenu = useCallback(async (e: React.MouseEvent, noteId: string) => {
-    e.preventDefault();
+  const handleContextMenu = useCallback(
+    async (e: React.MouseEvent, noteId: string) => {
+      e.preventDefault();
 
-    const menu = await Menu.new({
-      items: [
-        await MenuItem.new({
-          text: "Duplicate",
-          action: () => duplicateNote(noteId),
-        }),
-        await PredefinedMenuItem.new({ item: "Separator" }),
-        await MenuItem.new({
-          text: "Delete",
-          action: () => deleteNote(noteId),
-        }),
-      ],
-    });
+      const menu = await Menu.new({
+        items: [
+          await MenuItem.new({
+            text: "Duplicate",
+            action: () => duplicateNote(noteId),
+          }),
+          await PredefinedMenuItem.new({ item: "Separator" }),
+          await MenuItem.new({
+            text: "Delete",
+            action: () => deleteNote(noteId),
+          }),
+        ],
+      });
 
-    await menu.popup();
-  }, [duplicateNote, deleteNote]);
+      await menu.popup();
+    },
+    [duplicateNote, deleteNote]
+  );
 
   // Memoize display items to prevent recalculation on every render
   const displayItems = useMemo(() => {
@@ -124,7 +136,7 @@ export function NoteList() {
 
   if (isLoading && notes.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted">
+      <div className="p-4 text-center text-text-muted select-none">
         Loading...
       </div>
     );
@@ -132,7 +144,7 @@ export function NoteList() {
 
   if (searchQuery.trim() && displayItems.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted">
+      <div className="p-4 text-center text-text-muted select-none">
         No results found
       </div>
     );
@@ -140,7 +152,7 @@ export function NoteList() {
 
   if (displayItems.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted">
+      <div className="p-4 text-center text-text-muted select-none">
         No notes yet
       </div>
     );

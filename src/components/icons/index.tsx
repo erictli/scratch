@@ -5,7 +5,7 @@ interface IconProps {
   className?: string;
 }
 
-export function PlusIcon({ className = "w-5 h-5" }: IconProps) {
+export function PlusIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -16,13 +16,14 @@ export function PlusIcon({ className = "w-5 h-5" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: Plus */}
-      <path d="M12 5v14M5 12h14" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 5l0 14" />
+      <path d="M5 12l14 0" />
     </svg>
   );
 }
 
-export function XIcon({ className = "w-4 h-4" }: IconProps) {
+export function XIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -39,29 +40,34 @@ export function XIcon({ className = "w-4 h-4" }: IconProps) {
   );
 }
 
-export function SpinnerIcon({ className = "w-4 h-4 animate-spin" }: IconProps) {
+export function SpinnerIcon({
+  className = "w-4.5 h-4.5 animate-spin",
+}: IconProps) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none">
-      {/* Loading spinner */}
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-      />
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 6l0 -3" />
+      <path d="M16.25 7.75l2.15 -2.15" />
+      <path d="M18 12l3 0" />
+      <path d="M16.25 16.25l2.15 2.15" />
+      <path d="M12 18l0 3" />
+      <path d="M7.75 16.25l-2.15 2.15" />
+      <path d="M6 12l-3 0" />
+      <path d="M7.75 7.75l-2.15 -2.15" />
     </svg>
   );
 }
 
 // Format bar icons
-export function BoldIcon({ className = "w-4 h-4" }: IconProps) {
+export function BoldIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -72,12 +78,14 @@ export function BoldIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M6 12h9a4 4 0 0 1 0 8H6V4h8a4 4 0 0 1 0 8" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M7 5h6a3.5 3.5 0 0 1 0 7h-6l0 -7" />
+      <path d="M13 12h1a3.5 3.5 0 0 1 0 7h-7v-7" />
     </svg>
   );
 }
 
-export function ItalicIcon({ className = "w-4 h-4" }: IconProps) {
+export function ItalicIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -88,14 +96,15 @@ export function ItalicIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <line x1="19" x2="10" y1="4" y2="4" />
-      <line x1="14" x2="5" y1="20" y2="20" />
-      <line x1="15" x2="9" y1="4" y2="20" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M11 5l6 0" />
+      <path d="M7 19l6 0" />
+      <path d="M14 5l-4 14" />
     </svg>
   );
 }
 
-export function StrikethroughIcon({ className = "w-4 h-4" }: IconProps) {
+export function StrikethroughIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -106,14 +115,14 @@ export function StrikethroughIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M16 4H9a3 3 0 0 0-2.83 4" />
-      <path d="M14 12a4 4 0 0 1 0 8H6" />
-      <line x1="4" x2="20" y1="12" y2="12" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M5 12l14 0" />
+      <path d="M16 6.5a4 2 0 0 0 -4 -1.5h-1a3.5 3.5 0 0 0 0 7h2a3.5 3.5 0 0 1 0 7h-1.5a4 2 0 0 1 -4 -1.5" />
     </svg>
   );
 }
 
-export function Heading1Icon({ className = "w-4 h-4" }: IconProps) {
+export function Heading1Icon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -124,15 +133,20 @@ export function Heading1Icon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M19 18v-8l-2 2" />
+      <path d="M4 6v12" />
+      <path d="M12 6v12" />
+      <path d="M11 18h2" />
+      <path d="M3 18h2" />
       <path d="M4 12h8" />
-      <path d="M4 18V6" />
-      <path d="M12 18V6" />
-      <path d="m17 12 3-2v8" />
+      <path d="M3 6h2" />
+      <path d="M11 6h2" />
     </svg>
   );
 }
 
-export function Heading2Icon({ className = "w-4 h-4" }: IconProps) {
+export function Heading2Icon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -143,15 +157,20 @@ export function Heading2Icon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M17 12a2 2 0 1 1 4 0c0 .591 -.417 1.318 -.816 1.858l-3.184 4.143l4 0" />
+      <path d="M4 6v12" />
+      <path d="M12 6v12" />
+      <path d="M11 18h2" />
+      <path d="M3 18h2" />
       <path d="M4 12h8" />
-      <path d="M4 18V6" />
-      <path d="M12 18V6" />
-      <path d="M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1" />
+      <path d="M3 6h2" />
+      <path d="M11 6h2" />
     </svg>
   );
 }
 
-export function Heading3Icon({ className = "w-4 h-4" }: IconProps) {
+export function Heading3Icon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -162,16 +181,21 @@ export function Heading3Icon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M19 14a2 2 0 1 0 -2 -2" />
+      <path d="M17 16a2 2 0 1 0 2 -2" />
+      <path d="M4 6v12" />
+      <path d="M12 6v12" />
+      <path d="M11 18h2" />
+      <path d="M3 18h2" />
       <path d="M4 12h8" />
-      <path d="M4 18V6" />
-      <path d="M12 18V6" />
-      <path d="M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2" />
-      <path d="M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2" />
+      <path d="M3 6h2" />
+      <path d="M11 6h2" />
     </svg>
   );
 }
 
-export function Heading4Icon({ className = "w-4 h-4" }: IconProps) {
+export function Heading4Icon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -182,16 +206,20 @@ export function Heading4Icon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M20 18v-8l-4 6h5" />
+      <path d="M4 6v12" />
+      <path d="M12 6v12" />
+      <path d="M11 18h2" />
+      <path d="M3 18h2" />
       <path d="M4 12h8" />
-      <path d="M4 18V6" />
-      <path d="M12 18V6" />
-      <path d="M17 10v4h4" />
-      <path d="M21 10v8" />
+      <path d="M3 6h2" />
+      <path d="M11 6h2" />
     </svg>
   );
 }
 
-export function ListIcon({ className = "w-4 h-4" }: IconProps) {
+export function ListIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -202,17 +230,18 @@ export function ListIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <line x1="8" x2="21" y1="6" y2="6" />
-      <line x1="8" x2="21" y1="12" y2="12" />
-      <line x1="8" x2="21" y1="18" y2="18" />
-      <line x1="3" x2="3.01" y1="6" y2="6" />
-      <line x1="3" x2="3.01" y1="12" y2="12" />
-      <line x1="3" x2="3.01" y1="18" y2="18" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M9 6l11 0" />
+      <path d="M9 12l11 0" />
+      <path d="M9 18l11 0" />
+      <path d="M5 6l0 .01" />
+      <path d="M5 12l0 .01" />
+      <path d="M5 18l0 .01" />
     </svg>
   );
 }
 
-export function ListOrderedIcon({ className = "w-4 h-4" }: IconProps) {
+export function ListOrderedIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -223,17 +252,17 @@ export function ListOrderedIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <line x1="10" x2="21" y1="6" y2="6" />
-      <line x1="10" x2="21" y1="12" y2="12" />
-      <line x1="10" x2="21" y1="18" y2="18" />
-      <path d="M4 6h1v4" />
-      <path d="M4 10h2" />
-      <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M11 6h9" />
+      <path d="M11 12h9" />
+      <path d="M12 18h8" />
+      <path d="M4 16a2 2 0 1 1 4 0c0 .591 -.5 1 -1 1.5l-3 2.5h4" />
+      <path d="M6 10v-6l-2 2" />
     </svg>
   );
 }
 
-export function QuoteIcon({ className = "w-4 h-4" }: IconProps) {
+export function QuoteIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -244,13 +273,18 @@ export function QuoteIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z" />
-      <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M6 15h15" />
+      <path d="M21 19h-15" />
+      <path d="M15 11h6" />
+      <path d="M21 7h-6" />
+      <path d="M9 9h1a1 1 0 1 1 -1 1v-2.5a2 2 0 0 1 2 -2" />
+      <path d="M3 9h1a1 1 0 1 1 -1 1v-2.5a2 2 0 0 1 2 -2" />
     </svg>
   );
 }
 
-export function CodeIcon({ className = "w-4 h-4" }: IconProps) {
+export function CodeIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -261,13 +295,15 @@ export function CodeIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <polyline points="16 18 22 12 16 6" />
-      <polyline points="8 6 2 12 8 18" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M14.5 4h2.5a3 3 0 0 1 3 3v10a3 3 0 0 1 -3 3h-10a3 3 0 0 1 -3 -3v-5" />
+      <path d="M6 5l-2 2l2 2" />
+      <path d="M10 9l2 -2l-2 -2" />
     </svg>
   );
 }
 
-export function LinkIcon({ className = "w-4 h-4" }: IconProps) {
+export function LinkIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -278,13 +314,15 @@ export function LinkIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M9 15l6 -6" />
+      <path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" />
+      <path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" />
     </svg>
   );
 }
 
-export function LinkOffIcon({ className = "w-4 h-4" }: IconProps) {
+export function LinkOffIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -306,7 +344,7 @@ export function LinkOffIcon({ className = "w-4 h-4" }: IconProps) {
   );
 }
 
-export function ImageIcon({ className = "w-4 h-4" }: IconProps) {
+export function ImageIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -317,14 +355,16 @@ export function ImageIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-      <circle cx="9" cy="9" r="2" />
-      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M15 8h.01" />
+      <path d="M3 6a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v12a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3v-12" />
+      <path d="M3 16l5 -5c.928 -.893 2.072 -.893 3 0l5 5" />
+      <path d="M14 14l1 -1c.928 -.893 2.072 -.893 3 0l3 3" />
     </svg>
   );
 }
 
-export function InlineCodeIcon({ className = "w-4 h-4" }: IconProps) {
+export function InlineCodeIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -335,14 +375,15 @@ export function InlineCodeIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: Code2 - simpler brackets for inline code */}
-      <path d="m18 16 4-4-4-4" />
-      <path d="m6 8-4 4 4 4" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M7 8l-4 4l4 4" />
+      <path d="M17 8l4 4l-4 4" />
+      <path d="M14 4l-4 16" />
     </svg>
   );
 }
 
-export function MinusIcon({ className = "w-4 h-4" }: IconProps) {
+export function SeparatorIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -353,13 +394,15 @@ export function MinusIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: Minus - for horizontal rule */}
-      <path d="M5 12h14" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M3 12l0 .01" />
+      <path d="M7 12l10 0" />
+      <path d="M21 12l0 .01" />
     </svg>
   );
 }
 
-export function CheckSquareIcon({ className = "w-4 h-4" }: IconProps) {
+export function CheckSquareIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -370,14 +413,34 @@ export function CheckSquareIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: CheckSquare - for task lists */}
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="m9 12 2 2 4-4" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M13 5h8" />
+      <path d="M13 9h5" />
+      <path d="M13 15h8" />
+      <path d="M13 19h5" />
+      <path d="M3 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" />
+      <path d="M3 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" />
     </svg>
   );
 }
 
-export function CheckIcon({ className = "w-4 h-4" }: IconProps) {
+export function CircleCheckIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M17 3.34a10 10 0 1 1 -14.995 8.984l-.005 -.324l.005 -.324a10 10 0 0 1 14.995 -8.336zm-1.293 5.953a1 1 0 0 0 -1.32 -.083l-.094 .083l-3.293 3.292l-1.293 -1.292l-.094 -.083a1 1 0 0 0 -1.403 1.403l.083 .094l2 2l.094 .083a1 1 0 0 0 1.226 0l.094 -.083l4 -4l.083 -.094a1 1 0 0 0 -.083 -1.32z" />
+    </svg>
+  );
+}
+
+export function CheckIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -394,7 +457,7 @@ export function CheckIcon({ className = "w-4 h-4" }: IconProps) {
   );
 }
 
-export function ArrowLeftIcon({ className = "w-4 h-4" }: IconProps) {
+export function ArrowLeftIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -412,7 +475,7 @@ export function ArrowLeftIcon({ className = "w-4 h-4" }: IconProps) {
   );
 }
 
-export function SettingsIcon({ className = "w-4 h-4" }: IconProps) {
+export function SettingsIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -423,14 +486,14 @@ export function SettingsIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: Settings */}
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065" />
+      <path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
     </svg>
   );
 }
 
-export function PaletteIcon({ className = "w-4 h-4" }: IconProps) {
+export function PaletteIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -451,7 +514,7 @@ export function PaletteIcon({ className = "w-4 h-4" }: IconProps) {
   );
 }
 
-export function FolderIcon({ className = "w-4 h-4" }: IconProps) {
+export function FolderIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -468,7 +531,7 @@ export function FolderIcon({ className = "w-4 h-4" }: IconProps) {
   );
 }
 
-export function CopyIcon({ className = "w-4 h-4" }: IconProps) {
+export function CopyIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -479,14 +542,14 @@ export function CopyIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: Copy */}
-      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666" />
+      <path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1" />
     </svg>
   );
 }
 
-export function ChevronDownIcon({ className = "w-4 h-4" }: IconProps) {
+export function ChevronDownIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -497,13 +560,13 @@ export function ChevronDownIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: ChevronDown */}
-      <path d="m6 9 6 6 6-6" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M6 9l6 6l6 -6" />
     </svg>
   );
 }
 
-export function GitBranchIcon({ className = "w-4 h-4" }: IconProps) {
+export function GitBranchIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -514,16 +577,18 @@ export function GitBranchIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: GitBranch */}
-      <line x1="6" x2="6" y1="3" y2="15" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="6" cy="18" r="3" />
-      <path d="M18 9a9 9 0 0 1-9 9" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M5 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+      <path d="M5 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+      <path d="M15 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+      <path d="M7 8l0 8" />
+      <path d="M9 18h6a2 2 0 0 0 2 -2v-5" />
+      <path d="M14 14l3 -3l3 3" />
     </svg>
   );
 }
 
-export function GitCommitIcon({ className = "w-4 h-4" }: IconProps) {
+export function GitCommitIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -534,15 +599,15 @@ export function GitCommitIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: GitCommitHorizontal */}
-      <circle cx="12" cy="12" r="3" />
-      <line x1="3" x2="9" y1="12" y2="12" />
-      <line x1="15" x2="21" y1="12" y2="12" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" />
+      <path d="M12 3l0 6" />
+      <path d="M12 15l0 6" />
     </svg>
   );
 }
 
-export function UploadIcon({ className = "w-4 h-4" }: IconProps) {
+export function UploadIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -553,15 +618,15 @@ export function UploadIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: Upload */}
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" x2="12" y1="3" y2="15" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 18.004h-5.343c-2.572 -.004 -4.657 -2.011 -4.657 -4.487c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.38 0 2.57 .811 3.128 1.986" />
+      <path d="M19 22v-6" />
+      <path d="M22 19l-3 -3l-3 3" />
     </svg>
   );
 }
 
-export function PanelLeftIcon({ className = "w-4 h-4" }: IconProps) {
+export function PanelLeftIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -572,9 +637,12 @@ export function PanelLeftIcon({ className = "w-4 h-4" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: PanelLeft */}
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M9 3v18" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12" />
+      <path d="M9 4v1" />
+      <path d="M9 9v1" />
+      <path d="M9 14v1" />
+      <path d="M9 19v1" />
     </svg>
   );
 }

@@ -15,9 +15,11 @@
   --color-text-inverse: #fafaf9;
   --color-border: #e7e5e4;
   --color-accent: #1c1917;
+  --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
-  --editor-font-family: ui-sans-serif, system-ui, sans-serif;
+  --editor-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
   --editor-base-font-size: 16px;
   --editor-bold-weight: 700;
   --editor-line-height: 1.6;
@@ -43,11 +45,17 @@
   --color-text-inverse: #1c1917;
   --color-border: #292524;
   --color-accent: #fafaf9;
+  --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
 }
 
 /* Register theme colors with Tailwind */
 @theme {
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif,
+    "Apple Color Emoji";
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco,
+    "Courier New", monospace;
 
   /* Custom font sizes */
   --text-2xs: 0.75rem; /* 12px */
@@ -74,7 +82,9 @@
 }
 
 /* Base styles */
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -95,6 +105,25 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Text and image selection highlight */
+::selection {
+  background-color: var(--color-selection);
+}
+
+::-moz-selection {
+  background-color: var(--color-selection);
+}
+
+/* Hide scrollbar while allowing scroll */
+.scrollbar-none {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
 }
 
 /* Link tooltip in editor */
@@ -142,8 +171,12 @@ html.dark {
 
 /* Command palette animations */
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slide-down {
@@ -192,11 +225,17 @@ html.dark {
 }
 
 /* Ensure prose text color follows theme in dark mode */
-.prose :where(p, li, blockquote, code, pre, td, th):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+.prose
+  :where(p, li, blockquote, code, pre, td, th):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  ) {
   color: var(--color-text);
 }
 
-.prose :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+.prose
+  :where(h1, h2, h3, h4, h5, h6):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  ) {
   color: var(--color-text);
 }
 
@@ -263,8 +302,14 @@ html.dark {
 }
 
 /* Remove backticks from inline code */
-.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::before,
-.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::after {
+.prose
+  :where(code):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::before,
+.prose
+  :where(code):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::after {
   content: "";
 }
 
@@ -277,7 +322,8 @@ html.dark {
   overflow-x: auto;
 }
 
-.prose :where(pre code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+.prose
+  :where(pre code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
   background-color: transparent;
   padding: 0;
   font-size: 0.875em;
@@ -291,7 +337,8 @@ html.dark {
 }
 
 /* Blockquotes */
-.prose :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+.prose
+  :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
   color: var(--color-text-muted);
   border-left-color: var(--color-border);
 }
@@ -307,7 +354,8 @@ html.dark {
   margin-bottom: var(--editor-paragraph-spacing);
 }
 
-.prose ul, .prose ol {
+.prose ul,
+.prose ol {
   margin-top: 0;
   margin-bottom: var(--editor-paragraph-spacing);
   padding-left: 1.25em;
@@ -402,43 +450,75 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 
 /* Radix UI tooltip animations */
 @keyframes tooltip-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes tooltip-fade-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes tooltip-zoom-in {
-  from { transform: scale(0.95); }
-  to { transform: scale(1); }
+  from {
+    transform: scale(0.95);
+  }
+  to {
+    transform: scale(1);
+  }
 }
 
 @keyframes tooltip-zoom-out {
-  from { transform: scale(1); }
-  to { transform: scale(0.95); }
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(0.95);
+  }
 }
 
 @keyframes tooltip-slide-in-from-top {
-  from { transform: translateY(-2px); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(-2px);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 @keyframes tooltip-slide-in-from-bottom {
-  from { transform: translateY(2px); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(2px);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 @keyframes tooltip-slide-in-from-left {
-  from { transform: translateX(-2px); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(-2px);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 @keyframes tooltip-slide-in-from-right {
-  from { transform: translateX(2px); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(2px);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 .animate-in {

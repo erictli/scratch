@@ -13,22 +13,8 @@ export interface Note {
   modified: number;
 }
 
-export interface ThemeColors {
-  bg?: string;
-  bgSecondary?: string;
-  bgMuted?: string;
-  bgEmphasis?: string;
-  text?: string;
-  textMuted?: string;
-  textInverse?: string;
-  border?: string;
-  accent?: string;
-}
-
 export interface ThemeSettings {
   mode: "light" | "dark" | "system";
-  customLightColors?: ThemeColors;
-  customDarkColors?: ThemeColors;
 }
 
 export type FontFamily = "system-sans" | "serif" | "monospace";

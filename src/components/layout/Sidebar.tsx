@@ -43,7 +43,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   }, [clearSearch]);
 
   return (
-    <div className="w-64 h-full bg-bg-secondary border-r border-border flex flex-col">
+    <div className="w-64 h-full bg-bg-secondary border-r border-border flex flex-col select-none">
       {/* Drag region */}
       <div className="h-10 shrink-0" data-tauri-drag-region />
 

@@ -33,11 +33,11 @@ import {
   QuoteIcon,
   CodeIcon,
   InlineCodeIcon,
-  MinusIcon,
+  SeparatorIcon,
   LinkIcon,
   ImageIcon,
   SpinnerIcon,
-  CheckIcon,
+  CircleCheckIcon,
   CopyIcon,
   ChevronDownIcon,
   PanelLeftIcon,
@@ -67,7 +67,7 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
   if (!editor) return null;
 
   return (
-    <div className="mx-4 my-2 flex items-center gap-0.5 px-3 py-1.5 rounded-lg bg-bg-muted overflow-x-auto">
+    <div className="mx-4 mt-2 flex items-center gap-0.5 px-3 py-1.5 rounded-lg bg-bg-muted overflow-x-auto scrollbar-none">
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBold().run()}
         isActive={editor.isActive("bold")}
@@ -170,7 +170,7 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
         isActive={false}
         title="Horizontal Rule"
       >
-        <MinusIcon />
+        <SeparatorIcon />
       </ToolbarButton>
 
       <div className="w-px h-5 bg-bg-emphasis mx-1" />
@@ -283,7 +283,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     editorProps: {
       attributes: {
         class:
-          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-8 pt-12 pb-32",
+          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-8 pt-8 pb-32",
       },
       // Handle cmd/ctrl+click to open links
       handleClick: (_view, _pos, event) => {
@@ -473,6 +473,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     });
   }, [currentNote, editor]);
 
+  // Scroll to top on mount (e.g., when returning from settings)
+  useEffect(() => {
+    scrollContainerRef.current?.scrollTo(0, 0);
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -647,30 +652,20 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         <div
           className="h-10 shrink-0 flex items-end px-4 pb-1"
           data-tauri-drag-region
-        >
-          {onToggleSidebar && (
-            <IconButton
-              onClick={onToggleSidebar}
-              title={
-                sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
-              }
-              className="titlebar-no-drag"
-            >
-              <PanelLeftIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-        </div>
-        <div className="flex-1 flex items-center justify-center pb-6">
-          <div className="text-center text-text-muted">
+        ></div>
+        <div className="flex-1 flex items-center justify-center pb-8">
+          <div className="text-center text-text-muted select-none">
             <img
               src="/note-dark.png"
               alt="Note"
-              className="w-48 h-auto mx-auto mb-2 invert dark:invert-0"
+              className="w-44 h-auto mx-auto mb-2 invert dark:invert-0"
             />
             <h1 className="text-2xl text-text font-serif mb-1 tracking-[-0.01em] ">
               What's on your mind?
             </h1>
-            <p>Pick up where you left off, or start something new</p>
+            <p className="text-sm">
+              Pick up where you left off, or start something new
+            </p>
             <Button
               onClick={createNote}
               variant="secondary"
@@ -700,7 +695,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                 sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
               }
             >
-              <PanelLeftIcon className="w-4 h-4" />
+              <PanelLeftIcon />
             </IconButton>
           )}
           <span className="text-xs text-text-muted">
@@ -712,8 +707,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             <Tooltip content="Copy as...">
               <DropdownMenu.Trigger asChild>
                 <button className="flex items-center gap-0.5 text-text-muted hover:text-text transition-colors">
-                  <CopyIcon className="w-3.5 h-3.5" />
-                  <ChevronDownIcon className="w-3 h-3" />
+                  <CopyIcon />
+                  <ChevronDownIcon className="w-3.5 h-3.5 stroke-[2.5]" />
                 </button>
               </DropdownMenu.Trigger>
             </Tooltip>
@@ -746,11 +741,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           </DropdownMenu.Root>
           {isSaving || isDirty ? (
             <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
-              <SpinnerIcon className="w-3.5 h-3.5 text-text-muted animate-spin" />
+              <SpinnerIcon className="w-4.5 h-4.5 text-text-muted animate-spin" />
             </Tooltip>
           ) : (
             <Tooltip content="All changes saved">
-              <CheckIcon className="w-3.5 h-3.5 text-text-muted" />
+              <CircleCheckIcon className="w-4.5 h-4.5 text-text-muted" />
             </Tooltip>
           )}
         </div>
