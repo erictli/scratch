@@ -252,12 +252,13 @@ export function GitSettingsSection() {
                   Learn more about SSH authentication
                 </a>
               )}
-              <button
+              <Button
                 onClick={clearError}
-                className="block text-xs text-red-400 hover:text-red-300 mt-2"
+                variant="link"
+                className="block text-xs h-auto p-0 mt-2 text-red-400 hover:text-red-300"
               >
                 Dismiss
-              </button>
+              </Button>
             </div>
           </div>
         )}

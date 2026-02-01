@@ -560,3 +560,21 @@ export function UploadIcon({ className = "w-4 h-4" }: IconProps) {
     </svg>
   );
 }
+
+export function PanelLeftIcon({ className = "w-4 h-4" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {/* Lucide: PanelLeft */}
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+    </svg>
+  );
+}

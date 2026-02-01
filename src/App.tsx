@@ -15,6 +15,11 @@ function AppContent() {
   const { notesFolder, isLoading, createNote, notes, selectedNoteId, selectNote, searchQuery, searchResults } = useNotes();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarVisible((prev) => !prev);
+  }, []);
 
   const openSettings = useCallback(() => {
     setView("settings");
@@ -54,6 +59,13 @@ function AppContent() {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
         openSettings();
+        return;
+      }
+
+      // Cmd+\ - Toggle sidebar
+      if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+        e.preventDefault();
+        toggleSidebar();
         return;
       }
 
@@ -117,7 +129,7 @@ function AppContent() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [createNote, displayItems, selectedNoteId, selectNote, openSettings]);
+  }, [createNote, displayItems, selectedNoteId, selectNote, openSettings, toggleSidebar]);
 
   const handleClosePalette = useCallback(() => {
     setPaletteOpen(false);
@@ -142,8 +154,8 @@ function AppContent() {
           <SettingsPage onBack={closeSettings} />
         ) : (
           <>
-            <Sidebar onOpenSettings={openSettings} />
-            <Editor />
+            {sidebarVisible && <Sidebar onOpenSettings={openSettings} />}
+            <Editor onToggleSidebar={toggleSidebar} sidebarVisible={sidebarVisible} />
           </>
         )}
       </div>

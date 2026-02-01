@@ -18,7 +18,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
-import { ToolbarButton, Tooltip } from "../ui";
+import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import {
   BoldIcon,
   ItalicIcon,
@@ -40,6 +40,7 @@ import {
   CheckIcon,
   CopyIcon,
   ChevronDownIcon,
+  PanelLeftIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -192,8 +193,13 @@ function FormatBar({
   );
 }
 
-export function Editor() {
-  const { currentNote, saveNote } = useNotes();
+interface EditorProps {
+  onToggleSidebar?: () => void;
+  sidebarVisible?: boolean;
+}
+
+export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
+  const { currentNote, saveNote, createNote } = useNotes();
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
@@ -599,15 +605,38 @@ export function Editor() {
     return (
       <div className="flex-1 flex flex-col bg-bg">
         {/* Drag region */}
-        <div className="h-10 shrink-0" data-tauri-drag-region />
-        <div className="flex-1 flex items-center justify-center">
+        <div className="h-10 shrink-0 flex items-end px-4 pb-1" data-tauri-drag-region>
+          {onToggleSidebar && (
+            <IconButton
+              onClick={onToggleSidebar}
+              title={sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"}
+              className="titlebar-no-drag"
+            >
+              <PanelLeftIcon className="w-4 h-4" />
+            </IconButton>
+          )}
+        </div>
+        <div className="flex-1 flex items-center justify-center pb-6">
           <div className="text-center text-text-muted">
             <img
               src="/note-dark.png"
               alt="Note"
-              className="w-40 h-auto mx-auto mb-4 invert dark:invert-0"
+              className="w-48 h-auto mx-auto mb-2 invert dark:invert-0"
             />
-            <p>Select a note or create a new one</p>
+            <h1
+            className="text-2xl text-text font-serif mb-1 tracking-[-0.01em] "
+          >
+            A blank page awaits
+          </h1>
+            <p>Pick up where you left off, or start something new</p>
+            <Button
+              onClick={createNote}
+              variant="secondary"
+              size="sm"
+              className="mt-4"
+            >
+              New Note <span className="text-text-muted ml-1">⌘N</span>
+            </Button>
           </div>
         </div>
       </div>
@@ -616,14 +645,24 @@ export function Editor() {
 
   return (
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
-      {/* Drag region with date and save status */}
+      {/* Drag region with sidebar toggle, date and save status */}
       <div
         className="h-10 shrink-0 flex items-end justify-between px-4 pb-1"
         data-tauri-drag-region
       >
-        <span className="text-xs text-text-muted">
-          {formatDateTime(currentNote.modified)}
-        </span>
+        <div className="titlebar-no-drag flex items-center gap-3">
+          {onToggleSidebar && (
+            <IconButton
+              onClick={onToggleSidebar}
+              title={sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"}
+            >
+              <PanelLeftIcon className="w-4 h-4" />
+            </IconButton>
+          )}
+          <span className="text-xs text-text-muted">
+            {formatDateTime(currentNote.modified)}
+          </span>
+        </div>
         <div className="titlebar-no-drag flex items-center gap-2">
           <DropdownMenu.Root>
             <Tooltip content="Copy as...">

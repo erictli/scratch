@@ -1,4 +1,5 @@
 import { useTheme } from "../../context/ThemeContext";
+import { Button } from "../ui";
 import type { FontFamily } from "../../types/note";
 
 // Font family options
@@ -54,20 +55,15 @@ export function AppearanceSettingsSection() {
         <h2 className="text-sm font-medium text-text-muted mb-4">Theme</h2>
         <div className="flex gap-2">
           {(["light", "dark", "system"] as const).map((mode) => (
-            <button
+            <Button
               key={mode}
               onClick={() => setTheme(mode)}
-              className={`
-                flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors
-                ${
-                  theme === mode
-                    ? "bg-bg-emphasis text-text"
-                    : "bg-bg-muted text-text-muted hover:bg-bg-emphasis hover:text-text"
-                }
-              `}
+              variant={theme === mode ? "default" : "secondary"}
+              size="sm"
+              className="flex-1"
             >
               {mode.charAt(0).toUpperCase() + mode.slice(1)}
-            </button>
+            </Button>
           ))}
         </div>
         {theme === "system" && (
@@ -85,12 +81,13 @@ export function AppearanceSettingsSection() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-medium text-text-muted">Typography</h2>
           {hasCustomFonts && (
-            <button
+            <Button
               onClick={resetEditorFontSettings}
-              className="text-xs text-accent hover:underline"
+              variant="link"
+              className="text-xs h-auto p-0 text-accent"
             >
               Reset to defaults
-            </button>
+            </Button>
           )}
         </div>
 

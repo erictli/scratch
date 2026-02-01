@@ -7,20 +7,36 @@ import { cleanTitle } from "../../lib/utils";
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp * 1000);
   const now = new Date();
-  const diff = now.getTime() - date.getTime();
 
-  // Less than 24 hours
-  if (diff < 86400000) {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // Get start of today, yesterday, etc. (midnight local time)
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
+
+  // Today: show time
+  if (date >= startOfToday) {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
 
-  // Less than 7 days
-  if (diff < 604800000) {
-    return date.toLocaleDateString([], { weekday: "short" });
+  // Yesterday
+  if (date >= startOfYesterday) {
+    return "Yesterday";
   }
 
-  // Otherwise show date
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  // Calculate days ago
+  const daysAgo = Math.floor((startOfToday.getTime() - date.getTime()) / 86400000) + 1;
+
+  // 2-6 days ago: show "X days ago"
+  if (daysAgo <= 6) {
+    return `${daysAgo} days ago`;
+  }
+
+  // This year: show month and day
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  // Different year: show full date
+  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
 // Memoized note item component

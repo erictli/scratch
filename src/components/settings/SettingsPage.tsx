@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ArrowLeftIcon, FolderIcon, PaletteIcon, GitBranchIcon } from "../icons";
+import { Button, IconButton } from "../ui";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { GitSettingsSection } from "./GitSettingsSection";
@@ -23,12 +24,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     <div className="h-full flex flex-col bg-bg">
       {/* Header */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
-        <button
-          onClick={onBack}
-          className="p-1.5 rounded-md hover:bg-bg-muted text-text-muted hover:text-text transition-colors"
-        >
+        <IconButton onClick={onBack} title="Back">
           <ArrowLeftIcon className="w-5 h-5" />
-        </button>
+        </IconButton>
         <h1 className="text-lg font-semibold text-text">Settings</h1>
       </div>
 
@@ -40,21 +38,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
-              <button
+              <Button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`
-                  flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors text-left
-                  ${
-                    isActive
-                      ? "bg-bg-emphasis text-text"
-                      : "text-text-muted hover:bg-bg-muted hover:text-text"
-                  }
-                `}
+                variant={isActive ? "secondary" : "ghost"}
+                size="sm"
+                className="justify-start gap-2.5"
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
-              </button>
+              </Button>
             );
           })}
         </nav>

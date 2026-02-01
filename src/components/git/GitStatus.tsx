@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useGit } from "../../context/GitContext";
-import { IconButton, Tooltip, Input } from "../ui";
+import { Button, IconButton, Tooltip, Input } from "../ui";
 import { GitBranchIcon, GitCommitIcon, UploadIcon, SpinnerIcon } from "../icons";
 
 export function GitStatus() {
@@ -28,12 +28,9 @@ export function GitStatus() {
   if (status && !status.isRepo) {
     return (
       <Tooltip content="Initialize Git repository">
-        <button
-          onClick={initRepo}
-          className="text-xs text-text-muted hover:text-text transition-colors"
-        >
+        <Button onClick={initRepo} variant="link" className="text-xs h-auto p-0">
           Enable Git
-        </button>
+        </Button>
       </Tooltip>
     );
   }
@@ -129,12 +126,13 @@ export function GitStatus() {
       {/* Error indicator */}
       {lastError && (
         <Tooltip content={lastError}>
-          <button
+          <Button
             onClick={clearError}
-            className="text-xs text-red-500 hover:text-red-600"
+            variant="link"
+            className="text-xs h-auto p-0 text-red-500 hover:text-red-600"
           >
             Error
-          </button>
+          </Button>
         </Tooltip>
       )}
     </div>
