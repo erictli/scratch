@@ -7,8 +7,9 @@ use std::process::Command;
 pub struct GitStatus {
     pub is_repo: bool,
     pub has_remote: bool,
+    pub has_upstream: bool, // Whether the current branch tracks an upstream
     pub changed_count: usize,
-    pub ahead_count: usize,
+    pub ahead_count: i32, // -1 if no upstream tracking
     pub current_branch: Option<String>,
     pub error: Option<String>,
 }
@@ -99,18 +100,32 @@ pub fn get_status(path: &Path) -> GitStatus {
 
     // Get ahead count if we have a remote
     if status.has_remote && status.current_branch.is_some() {
-        if let Ok(output) = Command::new("git")
+        match Command::new("git")
             .args(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])
             .current_dir(path)
             .output()
         {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let parts: Vec<&str> = stdout.trim().split('\t').collect();
-                if parts.len() == 2 {
-                    // parts[0] is behind count, parts[1] is ahead count
-                    status.ahead_count = parts[1].parse().unwrap_or(0);
+            Ok(output) => {
+                if output.status.success() {
+                    status.has_upstream = true;
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let parts: Vec<&str> = stdout.trim().split('\t').collect();
+                    if parts.len() == 2 {
+                        // parts[0] is behind count, parts[1] is ahead count
+                        status.ahead_count = parts[1].parse().unwrap_or(0);
+                    }
+                } else {
+                    // Command failed - likely no upstream configured
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if stderr.contains("no upstream") || stderr.contains("unknown revision") {
+                        status.has_upstream = false;
+                        status.ahead_count = -1; // Sentinel value indicating no upstream
+                    }
                 }
+            }
+            Err(_) => {
+                status.has_upstream = false;
+                status.ahead_count = -1;
             }
         }
     }
@@ -121,16 +136,33 @@ pub fn get_status(path: &Path) -> GitStatus {
 /// Stage all changes and commit
 pub fn commit_all(path: &Path, message: &str) -> GitResult {
     // Stage all changes
-    let stage_output = Command::new("git")
+    let stage_output = match Command::new("git")
         .args(["add", "-A"])
         .current_dir(path)
-        .output();
+        .output()
+    {
+        Ok(output) => output,
+        Err(e) => {
+            return GitResult {
+                success: false,
+                message: None,
+                error: Some(format!("Failed to run git add: {}", e)),
+            };
+        }
+    };
 
-    if let Err(e) = stage_output {
+    // Check if staging succeeded
+    if !stage_output.status.success() {
+        let stderr = String::from_utf8_lossy(&stage_output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&stage_output.stdout).to_string();
         return GitResult {
             success: false,
             message: None,
-            error: Some(format!("Failed to stage changes: {}", e)),
+            error: Some(format!(
+                "Failed to stage changes: {}{}",
+                stderr,
+                if stdout.is_empty() { String::new() } else { format!("\n{}", stdout) }
+            )),
         };
     }
 

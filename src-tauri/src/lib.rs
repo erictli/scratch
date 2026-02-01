@@ -455,35 +455,7 @@ fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Res
     let scratch_dir = path_buf.join(".scratch");
     std::fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
 
-    // Check for migration: if old global settings exist and new per-folder settings don't
-    let old_settings_path = app.path().app_data_dir()
-        .map(|p| p.join("settings.json"))
-        .ok();
-    let new_settings_path = scratch_dir.join("settings.json");
-
-    if !new_settings_path.exists() {
-        if let Some(old_path) = old_settings_path {
-            if old_path.exists() {
-                // Migrate theme and font settings from old global settings
-                if let Ok(content) = std::fs::read_to_string(&old_path) {
-                    // Parse old settings format (which had notes_folder in it)
-                    if let Ok(old_settings) = serde_json::from_str::<serde_json::Value>(&content) {
-                        let new_settings = Settings {
-                            theme: old_settings.get("theme")
-                                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                                .unwrap_or_default(),
-                            editor_font: old_settings.get("editorFont")
-                                .and_then(|v| serde_json::from_value(v.clone()).ok()),
-                            git_enabled: None,
-                        };
-                        let _ = save_settings(&path, &new_settings);
-                    }
-                }
-            }
-        }
-    }
-
-    // Load per-folder settings
+    // Load per-folder settings (starts fresh with defaults if none exist)
     let settings = load_settings(&path);
 
     // Update app config
@@ -652,13 +624,9 @@ async fn save_note(
                 counter += 1;
             }
 
-            // Delete old file if it exists and is different from new path
             let new_file_path = folder_path.join(format!("{}.md", new_id));
-            if old_file_path.exists() && old_file_path != new_file_path {
-                let _ = fs::remove_file(&old_file_path).await;
-            }
-
-            (new_id, new_file_path, Some(existing_id))
+            // Track old_file_path for cleanup after successful write
+            (new_id, new_file_path, Some((existing_id, old_file_path)))
         } else {
             (existing_id, old_file_path, None)
         }
@@ -680,6 +648,13 @@ async fn save_note(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Delete old file AFTER successful write (to prevent data loss)
+    if let Some((_, ref old_file_path)) = old_id {
+        if old_file_path.exists() && *old_file_path != file_path {
+            let _ = fs::remove_file(old_file_path).await;
+        }
+    }
+
     let metadata = fs::metadata(&file_path)
         .await
         .map_err(|e| e.to_string())?;
@@ -694,17 +669,17 @@ async fn save_note(
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            if let Some(ref old) = old_id {
-                let _ = search_index.delete_note(old);
+            if let Some((ref old_id_str, _)) = old_id {
+                let _ = search_index.delete_note(old_id_str);
             }
             let _ = search_index.index_note(&final_id, &title, &content, modified);
         }
     }
 
     // Update cache (remove old entry if renamed)
-    if let Some(ref old) = old_id {
+    if let Some((ref old_id_str, _)) = old_id {
         let mut cache = state.notes_cache.write().expect("cache write lock");
-        cache.remove(old);
+        cache.remove(old_id_str);
     }
 
     Ok(Note {
@@ -1014,67 +989,91 @@ fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), St
     Ok(())
 }
 
-// Git commands
+// Git commands - run blocking git operations off the main thread
 
 #[tauri::command]
-fn git_is_available() -> bool {
-    git::is_available()
+async fn git_is_available() -> bool {
+    tauri::async_runtime::spawn_blocking(git::is_available)
+        .await
+        .unwrap_or(false)
 }
 
 #[tauri::command]
-fn git_get_status(state: State<AppState>) -> git::GitStatus {
+async fn git_get_status(state: State<'_, AppState>) -> Result<git::GitStatus, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
     };
 
     match folder {
-        Some(path) => git::get_status(&PathBuf::from(path)),
-        None => git::GitStatus::default(),
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::get_status(&PathBuf::from(path))
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitStatus::default()),
     }
 }
 
 #[tauri::command]
-fn git_init_repo(state: State<AppState>) -> Result<(), String> {
+async fn git_init_repo(state: State<'_, AppState>) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone().ok_or("Notes folder not set")?
     };
 
-    git::git_init(&PathBuf::from(folder))
+    tauri::async_runtime::spawn_blocking(move || {
+        git::git_init(&PathBuf::from(folder))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn git_commit(message: String, state: State<AppState>) -> git::GitResult {
+async fn git_commit(message: String, state: State<'_, AppState>) -> Result<git::GitResult, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
     };
 
     match folder {
-        Some(path) => git::commit_all(&PathBuf::from(path), &message),
-        None => git::GitResult {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::commit_all(&PathBuf::from(path), &message)
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitResult {
             success: false,
             message: None,
             error: Some("Notes folder not set".to_string()),
-        },
+        }),
     }
 }
 
 #[tauri::command]
-fn git_push(state: State<AppState>) -> git::GitResult {
+async fn git_push(state: State<'_, AppState>) -> Result<git::GitResult, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
     };
 
     match folder {
-        Some(path) => git::push(&PathBuf::from(path)),
-        None => git::GitResult {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::push(&PathBuf::from(path))
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitResult {
             success: false,
             message: None,
             error: Some("Notes folder not set".to_string()),
-        },
+        }),
     }
 }
 
