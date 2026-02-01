@@ -5,10 +5,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { Note, NoteMetadata, AgentEdits } from "../types/note";
+import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
 
@@ -24,7 +25,6 @@ interface NotesDataContextValue {
   searchQuery: string;
   searchResults: SearchResult[];
   isSearching: boolean;
-  agentEdits: AgentEdits; // note_id -> agent_name for notes being edited by AI
 }
 
 // Actions context: stable references, rarely causes re-renders
@@ -53,7 +53,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [agentEdits, setAgentEdits] = useState<AgentEdits>({});
+
+  // Track recently saved note IDs to ignore file-change events from our own saves
+  const recentlySavedRef = useRef<Set<string>>(new Set());
 
   const refreshNotes = useCallback(async () => {
     if (!notesFolder) return;
@@ -94,9 +96,25 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     async (content: string) => {
       if (!currentNote) return;
       try {
+        // Mark this note as recently saved to ignore file-change events from our own save
+        recentlySavedRef.current.add(currentNote.id);
+
         const updated = await notesService.saveNote(currentNote.id, content);
+
+        // If the note was renamed (ID changed), also mark the new ID
+        if (updated.id !== currentNote.id) {
+          recentlySavedRef.current.add(updated.id);
+        }
+
         setCurrentNote(updated);
         await refreshNotes();
+
+        // Clear the recently saved flag after a short delay
+        // (longer than the file watcher debounce of 500ms)
+        setTimeout(() => {
+          recentlySavedRef.current.delete(currentNote.id);
+          recentlySavedRef.current.delete(updated.id);
+        }, 1000);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save note");
       }
@@ -195,43 +213,27 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     init();
   }, []);
 
-  // Listen for file change events
+  // Listen for file change events and reload current note if it changed externally
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
-    listen("file-change", () => {
-      // Refresh notes when files change externally
-      refreshNotes();
-    }).then((fn) => {
-      unlisten = fn;
-    });
+    listen<{ changed_ids: string[] }>("file-change", (event) => {
+      const changedIds = event.payload.changed_ids || [];
 
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [refreshNotes]);
+      // Filter out notes we recently saved ourselves
+      const externalChanges = changedIds.filter(
+        (id) => !recentlySavedRef.current.has(id)
+      );
 
-  // Listen for agent edits change events
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
+      // Only refresh if there are external changes
+      if (externalChanges.length > 0) {
+        refreshNotes();
 
-    listen<{ edits: AgentEdits }>("agent-edits-change", (event) => {
-      const oldEdits = agentEdits;
-      const newEdits = event.payload.edits;
-
-      // Find notes that stopped being edited
-      for (const noteId of Object.keys(oldEdits)) {
-        if (!(noteId in newEdits)) {
-          // Agent finished editing this note - reload if currently selected
-          if (noteId === selectedNoteId) {
-            notesService.readNote(noteId).then(setCurrentNote).catch(() => {});
-          }
+        // If the currently selected note was changed externally, reload it
+        if (selectedNoteId && externalChanges.includes(selectedNoteId)) {
+          notesService.readNote(selectedNoteId).then(setCurrentNote).catch(() => {});
         }
       }
-
-      setAgentEdits(newEdits);
     }).then((fn) => {
       unlisten = fn;
     });
@@ -241,7 +243,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         unlisten();
       }
     };
-  }, [agentEdits, selectedNoteId]);
+  }, [refreshNotes, selectedNoteId]);
 
   // Refresh notes when folder changes
   useEffect(() => {
@@ -262,7 +264,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       searchQuery,
       searchResults,
       isSearching,
-      agentEdits,
     }),
     [
       notes,
@@ -273,7 +274,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       error,
       searchQuery,
       searchResults,
-      agentEdits,
       isSearching,
     ]
   );

@@ -27,20 +27,20 @@ npm run tauri build  # Build production app
 scratch/
 ├── src/                            # React frontend
 │   ├── components/
-│   │   ├── editor/                 # TipTap editor + extensions
+│   │   ├── editor/                 # TipTap editor + extensions (Wikilink, etc.)
 │   │   ├── layout/                 # Sidebar, main layout
 │   │   ├── notes/                  # NoteList
 │   │   ├── command-palette/        # Cmd+P command palette
+│   │   ├── settings/               # Settings page
 │   │   ├── ui/                     # Shared UI components
 │   │   └── icons/                  # SVG icon components
 │   ├── context/                    # React context (NotesContext, ThemeContext)
+│   ├── lib/                        # Utility functions
 │   └── services/                   # Tauri command wrappers
 ├── src-tauri/                      # Rust backend
 │   ├── src/
-│   │   ├── commands/               # Tauri commands (notes, search, settings)
-│   │   ├── search/                 # Tantivy integration
-│   │   ├── watcher/                # File system watcher
-│   │   └── storage/                # File I/O
+│   │   ├── lib.rs                  # All Tauri commands, state, file watcher
+│   │   └── git.rs                  # Git integration
 │   └── capabilities/default.json   # Tauri permissions
 └── package.json
 ```
@@ -48,18 +48,22 @@ scratch/
 ## Key Patterns
 
 ### Tauri Commands
-All backend operations go through Tauri commands in `src-tauri/src/commands/`. Frontend calls them via `invoke()` from `@tauri-apps/api/core`.
+All backend operations go through Tauri commands defined in `src-tauri/src/lib.rs`. Frontend calls them via `invoke()` from `@tauri-apps/api/core`.
 
 ### State Management
 - `NotesContext` manages all note state, CRUD operations, and search
 - `ThemeContext` handles light/dark/system theme and editor typography settings
 
 ### Settings
-Settings are stored globally in `{APP_DATA}/settings.json`. The settings page (`src/components/settings/`) provides UI for:
+- **App config** (notes folder path): `{APP_DATA}/config.json`
+- **Per-folder settings**: `{NOTES_FOLDER}/.scratch/settings.json`
+
+The settings page provides UI for:
 - Theme mode (light/dark/system)
 - Editor typography (font family, size, bold weight)
+- Git integration (optional)
 
-Power users can edit `settings.json` directly to customize colors.
+Power users can edit the settings JSON directly to customize colors.
 
 ### Editor
 TipTap editor with extensions:
@@ -81,4 +85,8 @@ Tauri v2 uses capability-based permissions. Add new permissions to `src-tauri/ca
 
 ## Notes Storage
 
-Notes are stored as markdown files in a user-selected folder. Each note has a UUID filename with `.md` extension. The first `# Heading` becomes the note title.
+Notes are stored as markdown files in a user-selected folder. Filenames are derived from the note title (sanitized for filesystem safety). The first `# Heading` in the content becomes the note title displayed in the sidebar.
+
+### File Watching
+
+The app watches the notes folder for external changes (e.g., from AI agents or other editors). When a file changes externally, the sidebar updates automatically and the editor reloads the content if the current note was modified.

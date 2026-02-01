@@ -12,6 +12,8 @@ A minimalist markdown note-taking app for Mac, built with Tauri.
 - **Full-text search** - Blazing fast search powered by Tantivy
 - **Wikilinks** - Link notes together with `[[wikilinks]]`
 - **Auto-save** - Changes saved automatically as you type
+- **Live reload** - Detects external file changes (great for AI-assisted editing)
+- **Git integration** - Optional version control for your notes
 - **Dark mode** - Follows system theme or set manually
 - **Typography settings** - Customize font family, size, and weight
 - **Copy as** - Export notes as Markdown, Plain Text, or HTML

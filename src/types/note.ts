@@ -45,6 +45,3 @@ export interface Settings {
   editorFont?: EditorFontSettings;
   gitEnabled?: boolean;
 }
-
-// Agent editing state
-export type AgentEdits = Record<string, string>; // noteId -> agentName

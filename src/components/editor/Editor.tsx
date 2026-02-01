@@ -194,7 +194,7 @@ function FormatBar({
 }
 
 export function Editor() {
-  const { currentNote, saveNote, selectNote, createNote, notes, agentEdits } =
+  const { currentNote, saveNote, selectNote, createNote, notes } =
     useNotes();
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -279,6 +279,8 @@ export function Editor() {
       saveTimeoutRef.current = window.setTimeout(async () => {
         setIsSaving(true);
         try {
+          // Track what we're saving to distinguish from external changes
+          lastSavedContentRef.current = newContent;
           await saveNote(newContent);
           setIsDirty(false);
         } finally {
@@ -381,6 +383,10 @@ export function Editor() {
 
   // Track which note's content is currently loaded in the editor
   const loadedNoteIdRef = useRef<string | null>(null);
+  // Track the modified timestamp of the loaded content
+  const loadedModifiedRef = useRef<number | null>(null);
+  // Track content we last saved (to detect external vs our own changes)
+  const lastSavedContentRef = useRef<string | null>(null);
 
   // Load note content when the current note changes
   useEffect(() => {
@@ -389,19 +395,52 @@ export function Editor() {
       return;
     }
 
-    // Only load content when we have a NEW note to load
-    // (i.e., currentNote.id differs from what's already loaded)
-    if (currentNote.id === loadedNoteIdRef.current) {
+    const isSameNote = currentNote.id === loadedNoteIdRef.current;
+    const isOurSave = currentNote.content === lastSavedContentRef.current;
+    const isExternalChange = isSameNote &&
+      currentNote.modified !== loadedModifiedRef.current &&
+      !isOurSave;
+
+    // Skip if same note and not an external change
+    if (isSameNote && !isExternalChange) {
+      // Still update the modified ref if it changed (our own save)
+      loadedModifiedRef.current = currentNote.modified;
+      return;
+    }
+
+    // If it's our own save with a rename (ID changed but content matches), just update refs
+    if (isOurSave && !isSameNote) {
+      loadedNoteIdRef.current = currentNote.id;
+      loadedModifiedRef.current = currentNote.modified;
       return;
     }
 
     const isNewNote = loadedNoteIdRef.current === null;
-    const wasEmpty =
-      loadedNoteIdRef.current !== null && currentNote.content?.trim() === "";
+    const wasEmpty = !isNewNote && !isExternalChange && currentNote.content?.trim() === "";
     const loadingNoteId = currentNote.id;
+
     loadedNoteIdRef.current = loadingNoteId;
+    loadedModifiedRef.current = currentNote.modified;
 
     isLoadingRef.current = true;
+
+    // For external changes, just update content without scrolling/blurring
+    if (isExternalChange) {
+      const manager = editor.storage.markdown?.manager;
+      if (manager) {
+        try {
+          const parsed = manager.parse(currentNote.content);
+          editor.commands.setContent(parsed);
+        } catch {
+          editor.commands.setContent(currentNote.content);
+        }
+      } else {
+        editor.commands.setContent(currentNote.content);
+      }
+      setIsDirty(false);
+      isLoadingRef.current = false;
+      return;
+    }
 
     // Scroll to top when switching notes
     scrollContainerRef.current?.scrollTo(0, 0);
@@ -568,14 +607,6 @@ export function Editor() {
 
   return (
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
-      {/* Agent editing banner */}
-      {currentNote && agentEdits[currentNote.id] && (
-        <div className="mx-4 mt-2 flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 text-accent text-xs w-fit">
-          <SpinnerIcon className="w-3 h-3 animate-spin" />
-          <span>{agentEdits[currentNote.id]} is editing...</span>
-        </div>
-      )}
-
       {/* Drag region with date and save status */}
       <div
         className="h-10 shrink-0 flex items-end justify-between px-4 pb-1"

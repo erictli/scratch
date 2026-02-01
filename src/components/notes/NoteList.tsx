@@ -1,8 +1,7 @@
-import { useCallback, useMemo, memo, type ReactNode } from "react";
+import { useCallback, useMemo, memo } from "react";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
-import { ListItem, Tooltip } from "../ui";
-import { SpinnerIcon } from "../icons";
+import { ListItem } from "../ui";
 import { cleanTitle } from "../../lib/utils";
 
 function formatDate(timestamp: number): string {
@@ -33,7 +32,6 @@ interface NoteItemProps {
   isSelected: boolean;
   onSelect: (id: string) => void;
   onContextMenu: (e: React.MouseEvent, id: string) => void;
-  agentEditing?: string; // agent name if being edited
 }
 
 const NoteItem = memo(function NoteItem({
@@ -44,22 +42,12 @@ const NoteItem = memo(function NoteItem({
   isSelected,
   onSelect,
   onContextMenu,
-  agentEditing,
 }: NoteItemProps) {
   const handleClick = useCallback(() => onSelect(id), [onSelect, id]);
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => onContextMenu(e, id),
     [onContextMenu, id]
   );
-
-  let statusIcon: ReactNode = undefined;
-  if (agentEditing) {
-    statusIcon = (
-      <Tooltip content={`${agentEditing} is editing...`}>
-        <SpinnerIcon className="w-3 h-3 text-accent animate-spin" />
-      </Tooltip>
-    );
-  }
 
   return (
     <ListItem
@@ -69,7 +57,6 @@ const NoteItem = memo(function NoteItem({
       isSelected={isSelected}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      statusIcon={statusIcon}
     />
   );
 });
@@ -84,7 +71,6 @@ export function NoteList() {
     isLoading,
     searchQuery,
     searchResults,
-    agentEdits,
   } = useNotes();
 
   const handleContextMenu = useCallback(async (e: React.MouseEvent, noteId: string) => {
@@ -156,7 +142,6 @@ export function NoteList() {
           isSelected={selectedNoteId === item.id}
           onSelect={selectNote}
           onContextMenu={handleContextMenu}
-          agentEditing={agentEdits[item.id]}
         />
       ))}
     </div>

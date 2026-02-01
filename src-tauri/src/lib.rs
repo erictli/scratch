@@ -93,20 +93,6 @@ pub struct Settings {
     pub git_enabled: Option<bool>,
 }
 
-// Agent edit entry in agent-state.json
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentEditEntry {
-    pub agent: String,
-    pub started: Option<i64>,
-}
-
-// Agent state file structure (.scratch/agent-state.json)
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AgentState {
-    #[serde(default)]
-    pub editing: HashMap<String, AgentEditEntry>,
-}
-
 // Search result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -297,7 +283,6 @@ pub struct AppState {
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
     pub debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
-    pub agent_edits: Arc<RwLock<HashMap<String, String>>>,  // note_id -> agent_name
 }
 
 impl Default for AppState {
@@ -309,7 +294,6 @@ impl Default for AppState {
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
-            agent_edits: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -433,30 +417,6 @@ fn save_settings(notes_folder: &str, settings: &Settings) -> Result<()> {
     let content = serde_json::to_string_pretty(settings)?;
     std::fs::write(path, content)?;
     Ok(())
-}
-
-// Get agent state file path
-fn get_agent_state_path(notes_folder: &str) -> PathBuf {
-    PathBuf::from(notes_folder).join(".scratch").join("agent-state.json")
-}
-
-// Parse agent state file and return map of note_id -> agent_name
-fn parse_agent_state(notes_folder: &str) -> HashMap<String, String> {
-    let path = get_agent_state_path(notes_folder);
-    if !path.exists() {
-        return HashMap::new();
-    }
-
-    std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<AgentState>(&content).ok())
-        .map(|state| {
-            state.editing
-                .into_iter()
-                .map(|(note_id, entry)| (note_id, entry.agent))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 // Clean up old entries from debounce map (entries older than 5 seconds)
@@ -925,60 +885,22 @@ fn fallback_search(query: &str, state: &State<AppState>) -> Result<Vec<SearchRes
 struct FileChangeEvent {
     kind: String,
     path: String,
-}
-
-// Agent edits change event payload
-#[derive(Clone, Serialize)]
-struct AgentEditsChangeEvent {
-    edits: HashMap<String, String>, // note_id -> agent_name
+    changed_ids: Vec<String>,
 }
 
 fn setup_file_watcher(
     app: AppHandle,
     notes_folder: &str,
     debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
-    agent_edits: Arc<RwLock<HashMap<String, String>>>,
 ) -> Result<FileWatcherState, String> {
     let folder_path = PathBuf::from(notes_folder);
-    let scratch_path = folder_path.join(".scratch");
-    let notes_folder_owned = notes_folder.to_string();
     let app_handle = app.clone();
 
     let watcher = RecommendedWatcher::new(
         move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 for path in event.paths.iter() {
-                    // Check if this is the agent-state.json file
-                    if path.file_name().is_some_and(|n| n == "agent-state.json") {
-                        // Debounce agent state changes
-                        {
-                            let mut map = debounce_map.lock().expect("debounce map mutex");
-                            let now = Instant::now();
-                            if let Some(last) = map.get(path) {
-                                if now.duration_since(*last) < Duration::from_millis(300) {
-                                    continue;
-                                }
-                            }
-                            map.insert(path.clone(), now);
-                        }
-
-                        // Parse the new agent state
-                        let new_edits = parse_agent_state(&notes_folder_owned);
-
-                        // Update the shared state and emit event
-                        {
-                            let mut current = agent_edits.write().expect("agent_edits write lock");
-                            *current = new_edits.clone();
-                        }
-
-                        let _ = app_handle.emit(
-                            "agent-edits-change",
-                            AgentEditsChangeEvent { edits: new_edits },
-                        );
-                        continue;
-                    }
-
-                    // Handle regular .md files
+                    // Handle .md files
                     if path.extension().is_some_and(|ext| ext == "md") {
                         // Debounce with cleanup
                         {
@@ -1005,11 +927,19 @@ fn setup_file_watcher(
                             _ => continue,
                         };
 
+                        // Extract note ID from filename
+                        let note_id = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+
                         let _ = app_handle.emit(
                             "file-change",
                             FileChangeEvent {
                                 kind: kind.to_string(),
                                 path: path.to_string_lossy().into_owned(),
+                                changed_ids: vec![note_id],
                             },
                         );
                     }
@@ -1027,11 +957,6 @@ fn setup_file_watcher(
         .watch(&folder_path, RecursiveMode::NonRecursive)
         .map_err(|e| e.to_string())?;
 
-    // Watch the .scratch folder for agent-state.json
-    if scratch_path.exists() {
-        let _ = watcher.watch(&scratch_path, RecursiveMode::NonRecursive);
-    }
-
     Ok(FileWatcherState { watcher })
 }
 
@@ -1048,18 +973,10 @@ fn start_file_watcher(app: AppHandle, state: State<AppState>) -> Result<(), Stri
     // Clean up debounce map before starting
     cleanup_debounce_map(&state.debounce_map);
 
-    // Load initial agent edits from file
-    let initial_edits = parse_agent_state(&folder);
-    {
-        let mut agent_edits = state.agent_edits.write().expect("agent_edits write lock");
-        *agent_edits = initial_edits;
-    }
-
     let watcher_state = setup_file_watcher(
         app,
         &folder,
         Arc::clone(&state.debounce_map),
-        Arc::clone(&state.agent_edits),
     )?;
 
     let mut file_watcher = state.file_watcher.lock().expect("file watcher mutex");
@@ -1095,11 +1012,6 @@ fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), St
     *index = Some(search_index);
 
     Ok(())
-}
-
-#[tauri::command]
-fn get_agent_edits(state: State<AppState>) -> HashMap<String, String> {
-    state.agent_edits.read().expect("agent_edits read lock").clone()
 }
 
 // Git commands
@@ -1206,7 +1118,6 @@ pub fn run() {
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
-                agent_edits: Arc::new(RwLock::new(HashMap::new())),
             };
             app.manage(state);
             Ok(())
@@ -1225,7 +1136,6 @@ pub fn run() {
             start_file_watcher,
             rebuild_search_index,
             copy_to_clipboard,
-            get_agent_edits,
             git_is_available,
             git_get_status,
             git_init_repo,
