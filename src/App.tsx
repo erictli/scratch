@@ -153,6 +153,12 @@ function AppContent() {
 }
 
 function App() {
+  // Add platform class for OS-specific styling (e.g., keyboard shortcuts)
+  useEffect(() => {
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+    document.documentElement.classList.add(isMac ? "platform-mac" : "platform-other");
+  }, []);
+
   return (
     <ThemeProvider>
       <TooltipProvider>

@@ -103,7 +103,7 @@ body {
 }
 
 .prose a::after {
-  content: "⌘+click to open";
+  content: "Ctrl+click to open";
   position: absolute;
   bottom: 100%;
   left: 50%;
@@ -120,6 +120,11 @@ body {
   transition: opacity 0.15s;
   margin-bottom: 0.25rem;
   z-index: 50;
+}
+
+/* Mac-specific tooltip */
+.platform-mac .prose a::after {
+  content: "⌘+click to open";
 }
 
 .prose a:hover::after {

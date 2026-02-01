@@ -492,15 +492,20 @@ export function Editor() {
         initialUrl: existingUrl,
         onSubmit: (url: string) => {
           if (url.trim()) {
-            editor.chain().focus().setLink({ href: url.trim() }).run();
+            editor
+              .chain()
+              .focus()
+              .extendMarkRange("link")
+              .setLink({ href: url.trim() })
+              .run();
           } else {
-            editor.chain().focus().unsetLink().run();
+            editor.chain().focus().extendMarkRange("link").unsetLink().run();
           }
           linkPopupRef.current?.destroy();
           linkPopupRef.current = null;
         },
         onRemove: () => {
-          editor.chain().focus().unsetLink().run();
+          editor.chain().focus().extendMarkRange("link").unsetLink().run();
           linkPopupRef.current?.destroy();
           linkPopupRef.current = null;
         },
