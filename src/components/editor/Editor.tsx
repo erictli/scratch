@@ -207,6 +207,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
   const currentNoteIdRef = useRef<string | null>(null);
+  // Track pending save content for flush
+  const pendingSaveRef = useRef<{ noteId: string; content: string } | null>(
+    null
+  );
 
   // Keep ref in sync with current note ID
   currentNoteIdRef.current = currentNote?.id ?? null;
@@ -225,6 +229,35 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     []
   );
 
+  // Immediate save function (used for flushing)
+  const saveImmediately = useCallback(
+    async (noteId: string, content: string) => {
+      setIsSaving(true);
+      try {
+        lastSaveRef.current = { noteId, content };
+        await saveNote(content);
+        setIsDirty(false);
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [saveNote]
+  );
+
+  // Flush any pending save immediately
+  const flushPendingSave = useCallback(async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    const pending = pendingSaveRef.current;
+    if (pending) {
+      pendingSaveRef.current = null;
+      await saveImmediately(pending.noteId, pending.content);
+    }
+  }, [saveImmediately]);
+
   // Auto-save with debounce
   const debouncedSave = useCallback(
     async (newContent: string) => {
@@ -234,27 +267,22 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
 
       // Capture the note ID now (before the timeout)
       const savingNoteId = currentNote?.id;
+      if (!savingNoteId) return;
+
+      // Track pending save for potential flush
+      pendingSaveRef.current = { noteId: savingNoteId, content: newContent };
 
       saveTimeoutRef.current = window.setTimeout(async () => {
         // Guard: only save if still on the same note
-        if (savingNoteId && currentNoteIdRef.current !== savingNoteId) {
+        if (currentNoteIdRef.current !== savingNoteId) {
           return;
         }
 
-        setIsSaving(true);
-        try {
-          // Track what we're saving to distinguish from external changes
-          if (savingNoteId) {
-            lastSaveRef.current = { noteId: savingNoteId, content: newContent };
-          }
-          await saveNote(newContent);
-          setIsDirty(false);
-        } finally {
-          setIsSaving(false);
-        }
-      }, 1000);
+        pendingSaveRef.current = null;
+        await saveImmediately(savingNoteId, newContent);
+      }, 300); // Reduced from 1000ms to 300ms
     },
-    [saveNote, currentNote?.id]
+    [saveImmediately, currentNote?.id]
   );
 
   const editor = useEditor({
@@ -379,6 +407,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     }
 
     const isSameNote = currentNote.id === loadedNoteIdRef.current;
+
+    // Flush any pending save before switching to a different note
+    if (!isSameNote && pendingSaveRef.current) {
+      flushPendingSave();
+    }
     const lastSave = lastSaveRef.current;
     // Check if this update is from our own save (same note we saved, content matches)
     const isOurSave =
@@ -478,24 +511,31 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       }
       // For existing notes, don't auto-focus - let user click where they want
     });
-  }, [currentNote, editor]);
+  }, [currentNote, editor, flushPendingSave]);
 
   // Scroll to top on mount (e.g., when returning from settings)
   useEffect(() => {
     scrollContainerRef.current?.scrollTo(0, 0);
   }, []);
 
-  // Cleanup on unmount
+  // Cleanup on unmount - flush pending saves
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      // Flush any pending save before unmounting
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        // Fire and forget - save will complete in background
+        saveNote(pending.content);
+      }
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
       }
     };
-  }, []);
+  }, [saveNote]);
 
   // Link handlers - show inline popup at cursor position
   const handleAddLink = useCallback(() => {

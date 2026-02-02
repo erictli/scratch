@@ -38,6 +38,7 @@ export function ToolbarButton({
         className
       )}
       tabIndex={-1}
+      aria-label={title}
       {...props}
     >
       {children}
@@ -94,6 +95,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
           className
         )}
         tabIndex={-1}
+        aria-label={title}
         {...props}
       >
         {children}
