@@ -10,7 +10,6 @@ A minimalist markdown note-taking app for Mac, built with Tauri.
 - **Markdown-first** - Notes stored as plain `.md` files you own
 - **WYSIWYG editing** - Rich text editing with TipTap, saved as markdown
 - **Full-text search** - Blazing fast search powered by Tantivy
-- **Wikilinks** - Link notes together with `[[wikilinks]]`
 - **Auto-save** - Changes saved automatically as you type
 - **Live reload** - Detects external file changes (great for AI-assisted editing)
 - **Git integration** - Optional version control for your notes
@@ -24,6 +23,7 @@ A minimalist markdown note-taking app for Mac, built with Tauri.
 ### From Source
 
 Prerequisites:
+
 - Node.js 18+
 - Rust 1.70+
 - Xcode Command Line Tools
@@ -55,14 +55,14 @@ The built app will be in `src-tauri/target/release/bundle/`.
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+N` | New note |
-| `Cmd+P` | Command palette |
-| `Cmd+K` | Add/edit link |
-| `Cmd+B` | Bold |
-| `Cmd+I` | Italic |
-| `↑/↓` | Navigate notes |
+| Shortcut | Action          |
+| -------- | --------------- |
+| `Cmd+N`  | New note        |
+| `Cmd+P`  | Command palette |
+| `Cmd+K`  | Add/edit link   |
+| `Cmd+B`  | Bold            |
+| `Cmd+I`  | Italic          |
+| `↑/↓`    | Navigate notes  |
 
 ## Tech Stack
 

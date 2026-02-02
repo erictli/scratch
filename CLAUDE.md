@@ -27,7 +27,7 @@ npm run tauri build  # Build production app
 scratch/
 ├── src/                            # React frontend
 │   ├── components/
-│   │   ├── editor/                 # TipTap editor + extensions (Wikilink, etc.)
+│   │   ├── editor/                 # TipTap editor + extensions
 │   │   ├── layout/                 # Sidebar, main layout
 │   │   ├── notes/                  # NoteList
 │   │   ├── command-palette/        # Cmd+P command palette
