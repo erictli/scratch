@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { useGit } from "../../context/GitContext";
 import { Button, IconButton, Tooltip, Input } from "../ui";
-import { GitBranchIcon, GitCommitIcon, UploadIcon, SpinnerIcon } from "../icons";
+import {
+  GitBranchIcon,
+  GitCommitIcon,
+  UploadIcon,
+  SpinnerIcon,
+} from "../icons";
 
 export function GitStatus() {
   const {
@@ -28,7 +33,11 @@ export function GitStatus() {
   if (status && !status.isRepo) {
     return (
       <Tooltip content="Initialize Git repository">
-        <Button onClick={initRepo} variant="link" className="text-xs h-auto p-0">
+        <Button
+          onClick={initRepo}
+          variant="link"
+          className="text-xs h-auto p-0"
+        >
           Enable Git
         </Button>
       </Tooltip>
@@ -52,19 +61,22 @@ export function GitStatus() {
   };
 
   return (
-    <div className="flex items-center gap-2">
-      {/* Branch name */}
+    <div className="flex items-center gap-1.5">
+      {/* Branch icon with name on hover */}
       {status.currentBranch && (
-        <span className="text-xs text-text-muted flex items-center gap-1">
-          <GitBranchIcon className="w-3 h-3" />
-          {status.currentBranch}
-        </span>
+        <Tooltip content={"Branch: " + status.currentBranch}>
+          <span className="text-text-muted flex items-center">
+            <GitBranchIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+          </span>
+        </Tooltip>
       )}
 
       {/* Changes indicator */}
       {hasChanges && (
-        <Tooltip content={`${status.changedCount} changed`}>
-          <span className="text-xs text-accent">
+        <Tooltip
+          content={`You have ${status.changedCount} uncommitted changes`}
+        >
+          <span className="text-xs text-text-muted">
             {status.changedCount} changes
           </span>
         </Tooltip>
@@ -93,9 +105,9 @@ export function GitStatus() {
                 title="Commit"
               >
                 {isCommitting ? (
-                  <SpinnerIcon className="w-3 h-3 animate-spin" />
+                  <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
                 ) : (
-                  <GitCommitIcon className="w-3 h-3" />
+                  <GitCommitIcon className="w-4.5 h-4.5 stroke-[1.5]" />
                 )}
               </IconButton>
             </div>
@@ -104,7 +116,7 @@ export function GitStatus() {
               onClick={() => setShowCommitInput(true)}
               title="Commit changes"
             >
-              <GitCommitIcon className="w-3 h-3" />
+              <GitCommitIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
           )}
         </>
@@ -115,9 +127,9 @@ export function GitStatus() {
         <Tooltip content={`${status.aheadCount} to push`}>
           <IconButton onClick={push} disabled={isPushing} title="Push">
             {isPushing ? (
-              <SpinnerIcon className="w-3 h-3 animate-spin" />
+              <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
             ) : (
-              <UploadIcon className="w-3 h-3" />
+              <UploadIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             )}
           </IconButton>
         </Tooltip>

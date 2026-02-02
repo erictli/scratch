@@ -1,9 +1,16 @@
+import * as React from "react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Tooltip } from "./Tooltip";
 
 // Re-export components
-export { Tooltip, TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from "./Tooltip";
+export {
+  Tooltip,
+  TooltipProvider,
+  TooltipRoot,
+  TooltipTrigger,
+  TooltipContent,
+} from "./Tooltip";
 export { Button } from "./Button";
 export { Input } from "./Input";
 
@@ -13,18 +20,25 @@ interface ToolbarButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
 }
 
-export function ToolbarButton({ isActive = false, className = "", children, title, ...props }: ToolbarButtonProps) {
+export function ToolbarButton({
+  isActive = false,
+  className = "",
+  children,
+  title,
+  ...props
+}: ToolbarButtonProps) {
   const button = (
     <button
       className={cn(
-        "px-2 py-1 text-sm rounded transition-colors",
+        "h-7 w-7 flex items-center justify-center text-sm rounded transition-colors shrink-0",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
         isActive
-          ? "bg-bg-emphasis text-text"
+          ? "bg-bg-muted text-text"
           : "hover:bg-bg-muted text-text-muted",
         className
       )}
       tabIndex={-1}
+      aria-label={title}
       {...props}
     >
       {children}
@@ -39,32 +53,63 @@ export function ToolbarButton({ isActive = false, className = "", children, titl
 }
 
 // Icon button (for sidebar actions, etc.)
-interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface IconButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
+  variant?: "primary" | "default" | "secondary" | "ghost" | "outline";
+  title?: string;
 }
 
-export function IconButton({ className = "", children, title, ...props }: IconButtonProps) {
-  const button = (
-    <button
-      className={cn(
-        "p-1.5 rounded-md transition-colors",
-        "hover:bg-bg-muted text-text-muted",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-        className
-      )}
-      tabIndex={-1}
-      {...props}
-    >
-      {children}
-    </button>
-  );
+const iconButtonSizes = {
+  xs: "w-6 h-6", // 24px
+  sm: "w-7 h-7", // 28px
+  md: "w-8 h-8", // 32px
+  lg: "w-9 h-9", // 36px
+  xl: "w-10 h-10", // 40px
+};
 
-  if (title) {
-    return <Tooltip content={title}>{button}</Tooltip>;
+const iconButtonVariants = {
+  primary: "bg-accent text-white hover:bg-accent/90",
+  default: "bg-bg-emphasis text-text hover:bg-bg-muted",
+  secondary: "bg-bg-muted text-text hover:bg-bg-emphasis",
+  ghost: "hover:bg-bg-muted text-text-muted hover:text-text",
+  outline:
+    "border border-border text-text-muted hover:bg-bg-muted hover:text-text",
+};
+
+export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
+  (
+    { className, children, title, size = "sm", variant = "ghost", ...props },
+    ref
+  ) => {
+    const button = (
+      <button
+        ref={ref}
+        className={cn(
+          "flex items-center justify-center rounded-md transition-colors",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+          "disabled:pointer-events-none disabled:opacity-50",
+          iconButtonSizes[size],
+          iconButtonVariants[variant],
+          className
+        )}
+        tabIndex={-1}
+        aria-label={title}
+        {...props}
+      >
+        {children}
+      </button>
+    );
+
+    if (title) {
+      return <Tooltip content={title}>{button}</Tooltip>;
+    }
+
+    return button;
   }
-
-  return button;
-}
+);
+IconButton.displayName = "IconButton";
 
 // List item for sidebar
 interface ListItemProps {
@@ -74,10 +119,23 @@ interface ListItemProps {
   isSelected?: boolean;
   onClick?: () => void;
   /** Optional status icon to display next to meta */
-  statusIcon?: ReactNode;
 }
 
-export function ListItem({ title, subtitle, meta, isSelected = false, onClick, onContextMenu, statusIcon }: ListItemProps & { onContextMenu?: (e: React.MouseEvent) => void }) {
+export function ListItem({
+  title,
+  subtitle,
+  meta,
+  isSelected = false,
+  onClick,
+  onContextMenu,
+}: ListItemProps & { onContextMenu?: (e: React.MouseEvent) => void }) {
+  // Clean subtitle: treat whitespace-only or &nbsp; as empty
+  const cleanSubtitle = subtitle
+    ?.replace(/&nbsp;/g, " ")
+    .replace(/\u00A0/g, " ")
+    .trim();
+  const hasSubtitle = cleanSubtitle && cleanSubtitle.length > 0;
+
   return (
     <div
       onClick={onClick}
@@ -85,32 +143,37 @@ export function ListItem({ title, subtitle, meta, isSelected = false, onClick, o
       role="button"
       tabIndex={-1}
       className={cn(
-        "w-full text-left px-4 py-2.5 transition-colors cursor-pointer select-none",
+        "w-full text-left px-2.5 py-2.25 transition-colors cursor-pointer select-none rounded-md",
         "focus:outline-none focus-visible:outline-none",
-        isSelected
-          ? "bg-bg-emphasis"
-          : "hover:bg-bg-muted"
+        isSelected ? "bg-bg-muted" : "hover:bg-bg-muted"
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium truncate text-text">
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn("text-sm font-medium truncate text-text")}>
           {title}
         </span>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {statusIcon}
-          {meta && (
-            <span className="text-xs text-text-muted whitespace-nowrap">
-              {meta}
-            </span>
-          )}
-        </div>
       </div>
-      <p className={cn(
-        "mt-0.5 text-xs line-clamp-1 min-h-[1.25rem]",
-        subtitle ? "text-text-muted" : "text-transparent"
-      )}>
-        {subtitle || "\u00A0"}
-      </p>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {meta && (
+          <div
+            className={cn(
+              "text-xs whitespace-nowrap",
+              isSelected ? "text-text" : "text-text-muted"
+            )}
+          >
+            {meta}
+          </div>
+        )}
+        <p
+          className={cn(
+            "text-xs line-clamp-1 min-h-5",
+            hasSubtitle ? "text-text-muted" : "text-transparent",
+            isSelected ? "opacity-100" : "opacity-70"
+          )}
+        >
+          {hasSubtitle ? cleanSubtitle : "\u00A0"}
+        </p>
+      </div>
     </div>
   );
 }
@@ -124,7 +187,13 @@ interface CommandItemProps {
   onClick?: () => void;
 }
 
-export function CommandItem({ label, subtitle, shortcut, isSelected = false, onClick }: CommandItemProps) {
+export function CommandItem({
+  label,
+  subtitle,
+  shortcut,
+  isSelected = false,
+  onClick,
+}: CommandItemProps) {
   return (
     <div
       onClick={onClick}
@@ -132,26 +201,22 @@ export function CommandItem({ label, subtitle, shortcut, isSelected = false, onC
       tabIndex={-1}
       className={cn(
         "w-full text-left px-4 py-2 flex items-center justify-between transition-colors cursor-pointer",
-        isSelected
-          ? "bg-bg-emphasis text-text"
-          : "text-text hover:bg-bg-muted"
+        isSelected ? "bg-bg-emphasis text-text" : "text-text hover:bg-bg-muted"
       )}
     >
       <div className="flex flex-col min-w-0">
         <span className="font-medium truncate">{label}</span>
         {subtitle && (
-          <span className="text-sm truncate text-text-muted">
-            {subtitle}
-          </span>
+          <span className="text-sm truncate text-text-muted">{subtitle}</span>
         )}
       </div>
       {shortcut && (
-        <kbd className={cn(
-          "text-xs px-2 py-0.5 rounded ml-2",
-          isSelected
-            ? "bg-bg-muted text-text"
-            : "bg-bg-muted text-text-muted"
-        )}>
+        <kbd
+          className={cn(
+            "text-xs px-2 py-0.5 rounded ml-2",
+            isSelected ? "bg-bg-muted text-text" : "bg-bg-muted text-text-muted"
+          )}
+        >
           {shortcut}
         </kbd>
       )}

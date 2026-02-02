@@ -4,9 +4,9 @@ import type { FontFamily } from "../../types/note";
 
 // Font family options
 const fontFamilyOptions: { value: FontFamily; label: string }[] = [
-  { value: "system-sans", label: "System Sans" },
+  { value: "system-sans", label: "Sans" },
   { value: "serif", label: "Serif" },
-  { value: "monospace", label: "Monospace" },
+  { value: "monospace", label: "Mono" },
 ];
 
 // Bold weight options (medium excluded for monospace)

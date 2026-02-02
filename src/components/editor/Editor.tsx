@@ -18,6 +18,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
+import { cn } from "../../lib/utils";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import {
   BoldIcon,
@@ -33,13 +34,12 @@ import {
   QuoteIcon,
   CodeIcon,
   InlineCodeIcon,
-  MinusIcon,
+  SeparatorIcon,
   LinkIcon,
   ImageIcon,
   SpinnerIcon,
-  CheckIcon,
+  CircleCheckIcon,
   CopyIcon,
-  ChevronDownIcon,
   PanelLeftIcon,
 } from "../icons";
 
@@ -67,123 +67,123 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
   if (!editor) return null;
 
   return (
-    <div className="mx-4 my-2 flex items-center gap-0.5 px-3 py-1.5 rounded-lg bg-bg-muted overflow-x-auto">
+    <div className="flex items-center gap-1 px-3 pb-2 border-b border-border overflow-x-auto scrollbar-none">
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBold().run()}
         isActive={editor.isActive("bold")}
         title="Bold (⌘B)"
       >
-        <BoldIcon />
+        <BoldIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleItalic().run()}
         isActive={editor.isActive("italic")}
         title="Italic (⌘I)"
       >
-        <ItalicIcon />
+        <ItalicIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleStrike().run()}
         isActive={editor.isActive("strike")}
-        title="Strikethrough"
+        title="Strikethrough (⌘⇧S)"
       >
-        <StrikethroughIcon />
+        <StrikethroughIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-bg-emphasis mx-1" />
+      <div className="w-px h-4.5 border-l border-border mx-2" />
 
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
         isActive={editor.isActive("heading", { level: 1 })}
-        title="Heading 1"
+        title="Heading 1 (⌘⌥1)"
       >
-        <Heading1Icon />
+        <Heading1Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         isActive={editor.isActive("heading", { level: 2 })}
-        title="Heading 2"
+        title="Heading 2 (⌘⌥2)"
       >
-        <Heading2Icon />
+        <Heading2Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         isActive={editor.isActive("heading", { level: 3 })}
-        title="Heading 3"
+        title="Heading 3 (⌘⌥3)"
       >
-        <Heading3Icon />
+        <Heading3Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}
         isActive={editor.isActive("heading", { level: 4 })}
-        title="Heading 4"
+        title="Heading 4 (⌘⌥4)"
       >
-        <Heading4Icon />
+        <Heading4Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-bg-emphasis mx-1" />
+      <div className="w-px h-4.5 border-l border-border mx-2" />
 
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBulletList().run()}
         isActive={editor.isActive("bulletList")}
-        title="Bullet List"
+        title="Bullet List (⌘⇧8)"
       >
-        <ListIcon />
+        <ListIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
         isActive={editor.isActive("orderedList")}
-        title="Numbered List"
+        title="Numbered List (⌘⇧7)"
       >
-        <ListOrderedIcon />
+        <ListOrderedIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleTaskList().run()}
         isActive={editor.isActive("taskList")}
         title="Task List"
       >
-        <CheckSquareIcon />
+        <CheckSquareIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
         isActive={editor.isActive("blockquote")}
-        title="Blockquote"
+        title="Blockquote (⌘⇧B)"
       >
-        <QuoteIcon />
+        <QuoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleCode().run()}
         isActive={editor.isActive("code")}
-        title="Inline Code"
+        title="Inline Code (⌘E)"
       >
-        <InlineCodeIcon />
+        <InlineCodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
         isActive={editor.isActive("codeBlock")}
-        title="Code Block"
+        title="Code Block (⌘⌥C)"
       >
-        <CodeIcon />
+        <CodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
         isActive={false}
         title="Horizontal Rule"
       >
-        <MinusIcon />
+        <SeparatorIcon />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-bg-emphasis mx-1" />
+      <div className="w-px h-4.5 border-l border-border mx-2" />
 
       <ToolbarButton
         onClick={onAddLink}
         isActive={editor.isActive("link")}
         title="Add Link (⌘K)"
       >
-        <LinkIcon />
+        <LinkIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton onClick={onAddImage} isActive={false} title="Add Image">
-        <ImageIcon />
+        <ImageIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
     </div>
   );
@@ -198,12 +198,19 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const { currentNote, saveNote, createNote } = useNotes();
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Force re-render when selection changes to update toolbar active states
+  const [, setSelectionKey] = useState(0);
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
   const linkPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
   const currentNoteIdRef = useRef<string | null>(null);
+  // Track pending save content for flush
+  const pendingSaveRef = useRef<{ noteId: string; content: string } | null>(
+    null
+  );
 
   // Keep ref in sync with current note ID
   currentNoteIdRef.current = currentNote?.id ?? null;
@@ -222,6 +229,35 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     []
   );
 
+  // Immediate save function (used for flushing)
+  const saveImmediately = useCallback(
+    async (noteId: string, content: string) => {
+      setIsSaving(true);
+      try {
+        lastSaveRef.current = { noteId, content };
+        await saveNote(content);
+        setIsDirty(false);
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [saveNote]
+  );
+
+  // Flush any pending save immediately
+  const flushPendingSave = useCallback(async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    const pending = pendingSaveRef.current;
+    if (pending) {
+      pendingSaveRef.current = null;
+      await saveImmediately(pending.noteId, pending.content);
+    }
+  }, [saveImmediately]);
+
   // Auto-save with debounce
   const debouncedSave = useCallback(
     async (newContent: string) => {
@@ -231,27 +267,22 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
 
       // Capture the note ID now (before the timeout)
       const savingNoteId = currentNote?.id;
+      if (!savingNoteId) return;
+
+      // Track pending save for potential flush
+      pendingSaveRef.current = { noteId: savingNoteId, content: newContent };
 
       saveTimeoutRef.current = window.setTimeout(async () => {
         // Guard: only save if still on the same note
-        if (savingNoteId && currentNoteIdRef.current !== savingNoteId) {
+        if (currentNoteIdRef.current !== savingNoteId) {
           return;
         }
 
-        setIsSaving(true);
-        try {
-          // Track what we're saving to distinguish from external changes
-          if (savingNoteId) {
-            lastSaveRef.current = { noteId: savingNoteId, content: newContent };
-          }
-          await saveNote(newContent);
-          setIsDirty(false);
-        } finally {
-          setIsSaving(false);
-        }
-      }, 1000);
+        pendingSaveRef.current = null;
+        await saveImmediately(savingNoteId, newContent);
+      }, 300); // Reduced from 1000ms to 300ms
     },
-    [saveNote, currentNote?.id]
+    [saveImmediately, currentNote?.id]
   );
 
   const editor = useEditor({
@@ -283,7 +314,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     editorProps: {
       attributes: {
         class:
-          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-8 pt-12 pb-32",
+          "prose prose-lg dark:prose-invert max-w-2xl mx-auto focus:outline-none min-h-full px-6 pt-6 pb-24",
       },
       // Handle cmd/ctrl+click to open links
       handleClick: (_view, _pos, event) => {
@@ -353,6 +384,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       const markdown = getMarkdown(editorInstance);
       debouncedSave(markdown);
     },
+    onSelectionUpdate: () => {
+      // Trigger re-render to update toolbar active states
+      setSelectionKey((k) => k + 1);
+    },
     // Prevent flash of unstyled content during initial render
     immediatelyRender: false,
   });
@@ -372,6 +407,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     }
 
     const isSameNote = currentNote.id === loadedNoteIdRef.current;
+
+    // Flush any pending save before switching to a different note
+    if (!isSameNote && pendingSaveRef.current) {
+      flushPendingSave();
+    }
     const lastSave = lastSaveRef.current;
     // Check if this update is from our own save (same note we saved, content matches)
     const isOurSave =
@@ -471,19 +511,31 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       }
       // For existing notes, don't auto-focus - let user click where they want
     });
-  }, [currentNote, editor]);
+  }, [currentNote, editor, flushPendingSave]);
 
-  // Cleanup on unmount
+  // Scroll to top on mount (e.g., when returning from settings)
+  useEffect(() => {
+    scrollContainerRef.current?.scrollTo(0, 0);
+  }, []);
+
+  // Cleanup on unmount - flush pending saves
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      // Flush any pending save before unmounting
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        // Fire and forget - save will complete in background
+        saveNote(pending.content);
+      }
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
       }
     };
-  }, []);
+  }, [saveNote]);
 
   // Link handlers - show inline popup at cursor position
   const handleAddLink = useCallback(() => {
@@ -609,6 +661,18 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleAddLink]);
 
+  // Keyboard shortcut for Cmd+Shift+C to open copy menu
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "c") {
+        e.preventDefault();
+        setCopyMenuOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // Copy handlers
   const handleCopyMarkdown = useCallback(async () => {
     if (!editor) return;
@@ -647,34 +711,24 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         <div
           className="h-10 shrink-0 flex items-end px-4 pb-1"
           data-tauri-drag-region
-        >
-          {onToggleSidebar && (
-            <IconButton
-              onClick={onToggleSidebar}
-              title={
-                sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
-              }
-              className="titlebar-no-drag"
-            >
-              <PanelLeftIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-        </div>
-        <div className="flex-1 flex items-center justify-center pb-6">
-          <div className="text-center text-text-muted">
+        ></div>
+        <div className="flex-1 flex items-center justify-center pb-8">
+          <div className="text-center text-text-muted select-none">
             <img
               src="/note-dark.png"
               alt="Note"
-              className="w-48 h-auto mx-auto mb-2 invert dark:invert-0"
+              className="w-42 h-auto mx-auto mb-1 invert dark:invert-0"
             />
             <h1 className="text-2xl text-text font-serif mb-1 tracking-[-0.01em] ">
               What's on your mind?
             </h1>
-            <p>Pick up where you left off, or start something new</p>
+            <p className="text-sm">
+              Pick up where you left off, or start something new
+            </p>
             <Button
               onClick={createNote}
               variant="secondary"
-              size="sm"
+              size="md"
               className="mt-4"
             >
               New Note <span className="text-text-muted ml-1">⌘N</span>
@@ -689,10 +743,13 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
       {/* Drag region with sidebar toggle, date and save status */}
       <div
-        className="h-10 shrink-0 flex items-end justify-between px-4 pb-1"
+        className={cn(
+          "h-11 shrink-0 flex items-center justify-between px-3",
+          !sidebarVisible && "pl-22"
+        )}
         data-tauri-drag-region
       >
-        <div className="titlebar-no-drag flex items-center gap-3">
+        <div className="titlebar-no-drag flex items-center gap-1">
           {onToggleSidebar && (
             <IconButton
               onClick={onToggleSidebar}
@@ -700,28 +757,50 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                 sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
               }
             >
-              <PanelLeftIcon className="w-4 h-4" />
+              <PanelLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
           )}
-          <span className="text-xs text-text-muted">
+          <span className="text-xs text-text-muted mb-px">
             {formatDateTime(currentNote.modified)}
           </span>
         </div>
-        <div className="titlebar-no-drag flex items-center gap-2">
-          <DropdownMenu.Root>
-            <Tooltip content="Copy as...">
+        <div className="titlebar-no-drag flex items-center gap-0.5">
+          {isSaving || isDirty ? (
+            <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
+              <div className="h-7 w-7 flex items-center justify-center">
+                <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.5] animate-spin" />
+              </div>
+            </Tooltip>
+          ) : (
+            <Tooltip content="All changes saved">
+              <div className="h-7 w-7 flex items-center justify-center rounded-full">
+                <CircleCheckIcon className="w-4.5 h-4.5 mt-px stroke-[1.5] text-text-muted/40" />
+              </div>
+            </Tooltip>
+          )}
+          <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
+            <Tooltip content="Copy as... (⌘⇧C)">
               <DropdownMenu.Trigger asChild>
-                <button className="flex items-center gap-0.5 text-text-muted hover:text-text transition-colors">
-                  <CopyIcon className="w-3.5 h-3.5" />
-                  <ChevronDownIcon className="w-3 h-3" />
-                </button>
+                <IconButton>
+                  <CopyIcon className="w-4.25 h-4.25 stroke-[1.5]" />
+                </IconButton>
               </DropdownMenu.Trigger>
             </Tooltip>
             <DropdownMenu.Portal>
               <DropdownMenu.Content
-                className="min-w-[140px] bg-bg border border-border rounded-md shadow-lg py-1 z-50"
+                className="min-w-35 bg-bg border border-border rounded-md shadow-lg py-1 z-50"
                 sideOffset={5}
                 align="end"
+                onCloseAutoFocus={(e) => {
+                  // Prevent focus returning to trigger button
+                  e.preventDefault();
+                }}
+                onKeyDown={(e) => {
+                  // Stop arrow keys from bubbling to note list navigation
+                  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                    e.stopPropagation();
+                  }
+                }}
               >
                 <DropdownMenu.Item
                   className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
@@ -744,15 +823,6 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
-          {isSaving || isDirty ? (
-            <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
-              <SpinnerIcon className="w-3.5 h-3.5 text-text-muted animate-spin" />
-            </Tooltip>
-          ) : (
-            <Tooltip content="All changes saved">
-              <CheckIcon className="w-3.5 h-3.5 text-text-muted" />
-            </Tooltip>
-          )}
         </div>
       </div>
 

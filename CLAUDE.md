@@ -27,7 +27,7 @@ npm run tauri build  # Build production app
 scratch/
 ├── src/                            # React frontend
 │   ├── components/
-│   │   ├── editor/                 # TipTap editor + extensions (Wikilink, etc.)
+│   │   ├── editor/                 # TipTap editor + extensions
 │   │   ├── layout/                 # Sidebar, main layout
 │   │   ├── notes/                  # NoteList
 │   │   ├── command-palette/        # Cmd+P command palette
@@ -48,17 +48,21 @@ scratch/
 ## Key Patterns
 
 ### Tauri Commands
+
 All backend operations go through Tauri commands defined in `src-tauri/src/lib.rs`. Frontend calls them via `invoke()` from `@tauri-apps/api/core`.
 
 ### State Management
+
 - `NotesContext` manages all note state, CRUD operations, and search
 - `ThemeContext` handles light/dark/system theme and editor typography settings
 
 ### Settings
+
 - **App config** (notes folder path): `{APP_DATA}/config.json`
 - **Per-folder settings**: `{NOTES_FOLDER}/.scratch/settings.json`
 
 The settings page provides UI for:
+
 - Theme mode (light/dark/system)
 - Editor typography (font family, size, bold weight)
 - Git integration (optional)
@@ -66,13 +70,15 @@ The settings page provides UI for:
 Power users can edit the settings JSON directly to customize colors.
 
 ### Editor
+
 TipTap editor with extensions:
+
 - StarterKit (basic formatting)
 - Markdown (bidirectional conversion)
 - Link, Image, TaskList, TaskItem
-- Custom Wikilink extension for `[[note links]]`
 
 ### Permissions
+
 Tauri v2 uses capability-based permissions. Add new permissions to `src-tauri/capabilities/default.json`. Core permissions use `core:` prefix (e.g., `core:menu:default`).
 
 ## Keyboard Shortcuts

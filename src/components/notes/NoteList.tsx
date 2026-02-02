@@ -1,4 +1,4 @@
-import { useCallback, useMemo, memo } from "react";
+import { useCallback, useMemo, memo, useEffect, useRef } from "react";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
 import { ListItem } from "../ui";
@@ -9,7 +9,11 @@ function formatDate(timestamp: number): string {
   const now = new Date();
 
   // Get start of today, yesterday, etc. (midnight local time)
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  );
   const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
 
   // Today: show time
@@ -23,7 +27,8 @@ function formatDate(timestamp: number): string {
   }
 
   // Calculate days ago
-  const daysAgo = Math.floor((startOfToday.getTime() - date.getTime()) / 86400000) + 1;
+  const daysAgo =
+    Math.floor((startOfToday.getTime() - date.getTime()) / 86400000) + 1;
 
   // 2-6 days ago: show "X days ago"
   if (daysAgo <= 6) {
@@ -36,7 +41,11 @@ function formatDate(timestamp: number): string {
   }
 
   // Different year: show full date
-  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  return date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 // Memoized note item component
@@ -89,25 +98,30 @@ export function NoteList() {
     searchResults,
   } = useNotes();
 
-  const handleContextMenu = useCallback(async (e: React.MouseEvent, noteId: string) => {
-    e.preventDefault();
+  const containerRef = useRef<HTMLDivElement>(null);
 
-    const menu = await Menu.new({
-      items: [
-        await MenuItem.new({
-          text: "Duplicate",
-          action: () => duplicateNote(noteId),
-        }),
-        await PredefinedMenuItem.new({ item: "Separator" }),
-        await MenuItem.new({
-          text: "Delete",
-          action: () => deleteNote(noteId),
-        }),
-      ],
-    });
+  const handleContextMenu = useCallback(
+    async (e: React.MouseEvent, noteId: string) => {
+      e.preventDefault();
 
-    await menu.popup();
-  }, [duplicateNote, deleteNote]);
+      const menu = await Menu.new({
+        items: [
+          await MenuItem.new({
+            text: "Duplicate",
+            action: () => duplicateNote(noteId),
+          }),
+          await PredefinedMenuItem.new({ item: "Separator" }),
+          await MenuItem.new({
+            text: "Delete",
+            action: () => deleteNote(noteId),
+          }),
+        ],
+      });
+
+      await menu.popup();
+    },
+    [duplicateNote, deleteNote]
+  );
 
   // Memoize display items to prevent recalculation on every render
   const displayItems = useMemo(() => {
@@ -122,9 +136,20 @@ export function NoteList() {
     return notes;
   }, [searchQuery, searchResults, notes]);
 
+  // Listen for focus request from editor (when Escape is pressed)
+  useEffect(() => {
+    const handleFocusNoteList = () => {
+      containerRef.current?.focus();
+    };
+
+    window.addEventListener("focus-note-list", handleFocusNoteList);
+    return () =>
+      window.removeEventListener("focus-note-list", handleFocusNoteList);
+  }, []);
+
   if (isLoading && notes.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted">
+      <div className="p-4 text-center text-text-muted select-none">
         Loading...
       </div>
     );
@@ -132,7 +157,7 @@ export function NoteList() {
 
   if (searchQuery.trim() && displayItems.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted">
+      <div className="p-4 text-center text-sm text-text-muted select-none">
         No results found
       </div>
     );
@@ -140,14 +165,18 @@ export function NoteList() {
 
   if (displayItems.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted">
+      <div className="p-4 text-center text-sm text-text-muted select-none">
         No notes yet
       </div>
     );
   }
 
   return (
-    <div className="divide-y divide-border">
+    <div
+      ref={containerRef}
+      tabIndex={0}
+      className="flex flex-col gap-1 p-1.5 outline-none"
+    >
       {displayItems.map((item) => (
         <NoteItem
           key={item.id}

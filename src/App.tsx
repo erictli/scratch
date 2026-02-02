@@ -12,7 +12,16 @@ import { SettingsPage } from "./components/settings";
 type ViewState = "notes" | "settings";
 
 function AppContent() {
-  const { notesFolder, isLoading, createNote, notes, selectedNoteId, selectNote, searchQuery, searchResults } = useNotes();
+  const {
+    notesFolder,
+    isLoading,
+    createNote,
+    notes,
+    selectedNoteId,
+    selectNote,
+    searchQuery,
+    searchResults,
+  } = useNotes();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -39,7 +48,8 @@ function AppContent() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInEditor = target.closest(".ProseMirror");
-      const isInInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+      const isInInput =
+        target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 
       // Trap Tab/Shift+Tab globally - prevent focus navigation
       // TipTap handles indentation internally before event bubbles up
@@ -80,13 +90,17 @@ function AppContent() {
       if (!isInEditor && !isInInput && displayItems.length > 0) {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           e.preventDefault();
-          const currentIndex = displayItems.findIndex(n => n.id === selectedNoteId);
+          const currentIndex = displayItems.findIndex(
+            (n) => n.id === selectedNoteId
+          );
           let newIndex: number;
 
           if (e.key === "ArrowDown") {
-            newIndex = currentIndex < displayItems.length - 1 ? currentIndex + 1 : 0;
+            newIndex =
+              currentIndex < displayItems.length - 1 ? currentIndex + 1 : 0;
           } else {
-            newIndex = currentIndex > 0 ? currentIndex - 1 : displayItems.length - 1;
+            newIndex =
+              currentIndex > 0 ? currentIndex - 1 : displayItems.length - 1;
           }
 
           selectNote(displayItems[newIndex].id);
@@ -108,6 +122,8 @@ function AppContent() {
       if (e.key === "Escape" && isInEditor) {
         e.preventDefault();
         (target as HTMLElement).blur();
+        // Focus the note list for keyboard navigation
+        window.dispatchEvent(new CustomEvent("focus-note-list"));
         return;
       }
     };
@@ -116,8 +132,10 @@ function AppContent() {
     const handleContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       // Allow context menu in editor (prose class) and inputs
-      const isInEditor = target.closest(".prose") || target.closest(".ProseMirror");
-      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+      const isInEditor =
+        target.closest(".prose") || target.closest(".ProseMirror");
+      const isInput =
+        target.tagName === "INPUT" || target.tagName === "TEXTAREA";
       if (!isInEditor && !isInput) {
         e.preventDefault();
       }
@@ -129,7 +147,14 @@ function AppContent() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [createNote, displayItems, selectedNoteId, selectNote, openSettings, toggleSidebar]);
+  }, [
+    createNote,
+    displayItems,
+    selectedNoteId,
+    selectNote,
+    openSettings,
+    toggleSidebar,
+  ]);
 
   const handleClosePalette = useCallback(() => {
     setPaletteOpen(false);
@@ -155,11 +180,18 @@ function AppContent() {
         ) : (
           <>
             {sidebarVisible && <Sidebar onOpenSettings={openSettings} />}
-            <Editor onToggleSidebar={toggleSidebar} sidebarVisible={sidebarVisible} />
+            <Editor
+              onToggleSidebar={toggleSidebar}
+              sidebarVisible={sidebarVisible}
+            />
           </>
         )}
       </div>
-      <CommandPalette open={paletteOpen} onClose={handleClosePalette} onOpenSettings={openSettings} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={handleClosePalette}
+        onOpenSettings={openSettings}
+      />
     </>
   );
 }
@@ -168,7 +200,9 @@ function App() {
   // Add platform class for OS-specific styling (e.g., keyboard shortcuts)
   useEffect(() => {
     const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-    document.documentElement.classList.add(isMac ? "platform-mac" : "platform-other");
+    document.documentElement.classList.add(
+      isMac ? "platform-mac" : "platform-other"
+    );
   }, []);
 
   return (

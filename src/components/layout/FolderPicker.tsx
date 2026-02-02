@@ -31,7 +31,7 @@ export function FolderPicker() {
       <div className="h-10 shrink-0" data-tauri-drag-region />
 
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-center p-8 max-w-lg">
+        <div className="text-center p-8 max-w-lg select-none">
           <img
             src="/folders-dark.png"
             alt="Folders"
@@ -56,7 +56,7 @@ export function FolderPicker() {
             className="animate-fade-in-up"
             style={{ animationDelay: "200ms" }}
           >
-            <Button onClick={handleSelectFolder} size="lg">
+            <Button onClick={handleSelectFolder} size="xl">
               Choose your notes folder
             </Button>
           </div>
