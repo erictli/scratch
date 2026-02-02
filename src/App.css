@@ -23,7 +23,7 @@
   --editor-base-font-size: 16px;
   --editor-bold-weight: 700;
   --editor-line-height: 1.6;
-  --editor-paragraph-spacing: 0em;
+  --editor-paragraph-spacing: 1em;
 
   /* Computed header sizes (set by ThemeContext based on base size) */
   --editor-h1-size: 36px;

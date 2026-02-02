@@ -51,7 +51,6 @@ The built app will be in `src-tauri/target/release/bundle/`.
 2. Create notes with `Cmd+N`
 3. Write in markdown - formatting is rendered as you type
 4. Search notes with the search bar or `Cmd+P`
-5. Link notes using `[[note title]]` syntax
 
 ## Keyboard Shortcuts
 
