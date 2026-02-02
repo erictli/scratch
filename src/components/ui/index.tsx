@@ -1,3 +1,4 @@
+import * as React from "react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Tooltip } from "./Tooltip";
@@ -29,10 +30,10 @@ export function ToolbarButton({
   const button = (
     <button
       className={cn(
-        "px-2 py-1 text-sm rounded transition-colors",
+        "h-7 w-7 flex items-center justify-center text-sm rounded transition-colors shrink-0",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
         isActive
-          ? "bg-bg-emphasis text-text"
+          ? "bg-bg-muted text-text"
           : "hover:bg-bg-muted text-text-muted",
         className
       )}
@@ -51,46 +52,62 @@ export function ToolbarButton({
 }
 
 // Icon button (for sidebar actions, etc.)
-interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface IconButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
+  variant?: "primary" | "default" | "secondary" | "ghost" | "outline";
+  title?: string;
 }
 
 const iconButtonSizes = {
-  sm: "w-6 h-6", // 24x24
-  md: "w-7 h-7", // 28x28
-  lg: "w-8 h-8", // 32x32
+  xs: "w-6 h-6", // 24px
+  sm: "w-7 h-7", // 28px
+  md: "w-8 h-8", // 32px
+  lg: "w-9 h-9", // 36px
+  xl: "w-10 h-10", // 40px
 };
 
-export function IconButton({
-  className = "",
-  children,
-  title,
-  size = "md",
-  ...props
-}: IconButtonProps) {
-  const button = (
-    <button
-      className={cn(
-        "flex items-center justify-center rounded-md transition-colors",
-        "hover:bg-bg-muted text-text-muted",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-bg-muted",
-        iconButtonSizes[size],
-        className
-      )}
-      tabIndex={-1}
-      {...props}
-    >
-      {children}
-    </button>
-  );
+const iconButtonVariants = {
+  primary: "bg-accent text-white hover:bg-accent/90",
+  default: "bg-bg-emphasis text-text hover:bg-bg-muted",
+  secondary: "bg-bg-muted text-text hover:bg-bg-emphasis",
+  ghost: "hover:bg-bg-muted text-text-muted hover:text-text",
+  outline:
+    "border border-border text-text-muted hover:bg-bg-muted hover:text-text",
+};
 
-  if (title) {
-    return <Tooltip content={title}>{button}</Tooltip>;
+export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
+  (
+    { className, children, title, size = "sm", variant = "ghost", ...props },
+    ref
+  ) => {
+    const button = (
+      <button
+        ref={ref}
+        className={cn(
+          "flex items-center justify-center rounded-md transition-colors",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+          "disabled:pointer-events-none disabled:opacity-50",
+          iconButtonSizes[size],
+          iconButtonVariants[variant],
+          className
+        )}
+        tabIndex={-1}
+        {...props}
+      >
+        {children}
+      </button>
+    );
+
+    if (title) {
+      return <Tooltip content={title}>{button}</Tooltip>;
+    }
+
+    return button;
   }
-
-  return button;
-}
+);
+IconButton.displayName = "IconButton";
 
 // List item for sidebar
 interface ListItemProps {
@@ -100,7 +117,6 @@ interface ListItemProps {
   isSelected?: boolean;
   onClick?: () => void;
   /** Optional status icon to display next to meta */
-  statusIcon?: ReactNode;
 }
 
 export function ListItem({
@@ -110,7 +126,6 @@ export function ListItem({
   isSelected = false,
   onClick,
   onContextMenu,
-  statusIcon,
 }: ListItemProps & { onContextMenu?: (e: React.MouseEvent) => void }) {
   return (
     <div
@@ -119,30 +134,37 @@ export function ListItem({
       role="button"
       tabIndex={-1}
       className={cn(
-        "w-full text-left px-4 py-2.5 transition-colors cursor-pointer select-none",
+        "w-full text-left px-2.5 py-2.25 transition-colors cursor-pointer select-none rounded-md",
         "focus:outline-none focus-visible:outline-none",
-        isSelected ? "bg-bg-emphasis" : "hover:bg-bg-muted"
+        isSelected ? "bg-bg-muted" : "hover:bg-bg-muted"
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium truncate text-text">{title}</span>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {statusIcon}
-          {meta && (
-            <span className="text-xs text-text-muted whitespace-nowrap">
-              {meta}
-            </span>
-          )}
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn("text-sm font-medium truncate text-text")}>
+          {title}
+        </span>
       </div>
-      <p
-        className={cn(
-          "mt-0.5 text-xs line-clamp-1 min-h-[1.25rem]",
-          subtitle ? "text-text-muted" : "text-transparent"
+      <div className="flex items-center gap-1.5 shrink-0">
+        {meta && (
+          <div
+            className={cn(
+              "text-xs whitespace-nowrap",
+              isSelected ? "text-text" : "text-text-muted"
+            )}
+          >
+            {meta}
+          </div>
         )}
-      >
-        {subtitle || "\u00A0"}
-      </p>
+        <p
+          className={cn(
+            "text-xs line-clamp-1 min-h-5",
+            subtitle ? "text-text-muted" : "text-transparent",
+            isSelected ? "opacity-100" : "opacity-70"
+          )}
+        >
+          {subtitle || "\u00A0"}
+        </p>
+      </div>
     </div>
   );
 }

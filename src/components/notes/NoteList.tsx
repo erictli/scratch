@@ -144,7 +144,7 @@ export function NoteList() {
 
   if (searchQuery.trim() && displayItems.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted select-none">
+      <div className="p-4 text-center text-sm text-text-muted select-none">
         No results found
       </div>
     );
@@ -152,14 +152,14 @@ export function NoteList() {
 
   if (displayItems.length === 0) {
     return (
-      <div className="p-4 text-center text-text-muted select-none">
+      <div className="p-4 text-center text-sm text-text-muted select-none">
         No notes yet
       </div>
     );
   }
 
   return (
-    <div className="divide-y divide-border">
+    <div className="flex flex-col gap-1 p-1.5">
       {displayItems.map((item) => (
         <NoteItem
           key={item.id}

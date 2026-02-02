@@ -8,12 +8,12 @@
 :root {
   --color-bg: #ffffff;
   --color-bg-secondary: #fafaf9;
-  --color-bg-muted: #f5f5f4;
-  --color-bg-emphasis: #e7e5e4;
+  --color-bg-muted: rgba(28, 25, 23, 0.05);
+  --color-bg-emphasis: rgba(28, 25, 23, 0.08);
   --color-text: #1c1917;
   --color-text-muted: #78716c;
   --color-text-inverse: #fafaf9;
-  --color-border: #e7e5e4;
+  --color-border: rgba(28, 25, 23, 0.08);
   --color-accent: #1c1917;
   --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
 
@@ -246,7 +246,7 @@ html.dark {
   font-weight: var(--editor-bold-weight);
   line-height: 1.2;
   margin-top: 1em;
-  margin-bottom: 0.5em;
+  margin-bottom: 0.3em;
 }
 
 .prose h2 {
@@ -255,14 +255,14 @@ html.dark {
   font-weight: var(--editor-bold-weight);
   line-height: 1.3;
   margin-top: 1em;
-  margin-bottom: 0.5em;
+  margin-bottom: 0.3em;
 }
 
 .prose h3 {
   font-family: var(--editor-font-family);
   font-size: var(--editor-h3-size);
   font-weight: var(--editor-bold-weight);
-  line-height: 1.4;
+  line-height: 1.3;
   margin-top: 1em;
   margin-bottom: 0.5em;
 }
@@ -271,7 +271,8 @@ html.dark {
   font-family: var(--editor-font-family);
   font-size: var(--editor-h4-size);
   font-weight: var(--editor-bold-weight);
-  margin-top: 0.75em;
+  line-height: 1.3;
+  margin-top: 1.25em;
   margin-bottom: 0.5em;
 }
 
@@ -280,6 +281,7 @@ html.dark {
   font-family: var(--editor-font-family);
   font-size: var(--editor-h5-size);
   font-weight: var(--editor-bold-weight);
+  line-height: 1.3;
   margin-top: 0.5em;
   margin-bottom: 0.25em;
 }
@@ -318,7 +320,7 @@ html.dark {
   background-color: var(--color-bg-muted);
   color: var(--color-text);
   border-radius: 0.5rem;
-  padding: 0.75rem 1rem 1rem;
+  padding: 0.75rem 1rem;
   overflow-x: auto;
 }
 

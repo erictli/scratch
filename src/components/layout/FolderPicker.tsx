@@ -56,7 +56,7 @@ export function FolderPicker() {
             className="animate-fade-in-up"
             style={{ animationDelay: "200ms" }}
           >
-            <Button onClick={handleSelectFolder} size="lg">
+            <Button onClick={handleSelectFolder} size="xl">
               Choose your notes folder
             </Button>
           </div>

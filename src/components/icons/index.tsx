@@ -34,8 +34,9 @@ export function XIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: X */}
-      <path d="M18 6 6 18M6 6l12 12" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M18 6l-12 12" />
+      <path d="M6 6l12 12" />
     </svg>
   );
 }
@@ -645,6 +646,43 @@ export function PanelLeftIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       <path d="M9 9v1" />
       <path d="M9 14v1" />
       <path d="M9 19v1" />
+    </svg>
+  );
+}
+
+export function SearchIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
+      <path d="M21 21l-6 -6" />
+    </svg>
+  );
+}
+
+export function SearchOffIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M5.039 5.062a7 7 0 0 0 9.91 9.89m1.584 -2.434a7 7 0 0 0 -9.038 -9.057" />
+      <path d="M3 3l18 18" />
     </svg>
   );
 }

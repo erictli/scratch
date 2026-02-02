@@ -60,7 +60,7 @@ export function GeneralSettingsSection() {
               </p>
             </div>
           </div>
-          <Button onClick={handleChangeFolder} variant="outline" size="sm">
+          <Button onClick={handleChangeFolder} variant="outline" size="lg">
             Change Folder
           </Button>
         </div>

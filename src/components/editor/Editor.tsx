@@ -67,103 +67,103 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
   if (!editor) return null;
 
   return (
-    <div className="mx-4 mt-2 flex items-center gap-0.5 px-3 py-1.5 rounded-lg bg-bg-muted overflow-x-auto scrollbar-none">
+    <div className="flex items-center gap-1 px-3 pb-2 border-b border-border overflow-x-auto scrollbar-none">
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBold().run()}
         isActive={editor.isActive("bold")}
         title="Bold (⌘B)"
       >
-        <BoldIcon />
+        <BoldIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleItalic().run()}
         isActive={editor.isActive("italic")}
         title="Italic (⌘I)"
       >
-        <ItalicIcon />
+        <ItalicIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleStrike().run()}
         isActive={editor.isActive("strike")}
-        title="Strikethrough"
+        title="Strikethrough (⌘⇧S)"
       >
-        <StrikethroughIcon />
+        <StrikethroughIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-bg-emphasis mx-1" />
+      <div className="w-px h-4.5 border-l border-border mx-2" />
 
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
         isActive={editor.isActive("heading", { level: 1 })}
-        title="Heading 1"
+        title="Heading 1 (⌘⌥1)"
       >
-        <Heading1Icon />
+        <Heading1Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         isActive={editor.isActive("heading", { level: 2 })}
-        title="Heading 2"
+        title="Heading 2 (⌘⌥2)"
       >
-        <Heading2Icon />
+        <Heading2Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         isActive={editor.isActive("heading", { level: 3 })}
-        title="Heading 3"
+        title="Heading 3 (⌘⌥3)"
       >
-        <Heading3Icon />
+        <Heading3Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}
         isActive={editor.isActive("heading", { level: 4 })}
-        title="Heading 4"
+        title="Heading 4 (⌘⌥4)"
       >
-        <Heading4Icon />
+        <Heading4Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-bg-emphasis mx-1" />
+      <div className="w-px h-4.5 border-l border-border mx-2" />
 
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBulletList().run()}
         isActive={editor.isActive("bulletList")}
-        title="Bullet List"
+        title="Bullet List (⌘⇧8)"
       >
-        <ListIcon />
+        <ListIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
         isActive={editor.isActive("orderedList")}
-        title="Numbered List"
+        title="Numbered List (⌘⇧7)"
       >
-        <ListOrderedIcon />
+        <ListOrderedIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleTaskList().run()}
         isActive={editor.isActive("taskList")}
         title="Task List"
       >
-        <CheckSquareIcon />
+        <CheckSquareIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
         isActive={editor.isActive("blockquote")}
-        title="Blockquote"
+        title="Blockquote (⌘⇧B)"
       >
-        <QuoteIcon />
+        <QuoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleCode().run()}
         isActive={editor.isActive("code")}
-        title="Inline Code"
+        title="Inline Code (⌘E)"
       >
-        <InlineCodeIcon />
+        <InlineCodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
         isActive={editor.isActive("codeBlock")}
-        title="Code Block"
+        title="Code Block (⌘⌥C)"
       >
-        <CodeIcon />
+        <CodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
@@ -173,17 +173,17 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
         <SeparatorIcon />
       </ToolbarButton>
 
-      <div className="w-px h-5 bg-bg-emphasis mx-1" />
+      <div className="w-px h-4.5 border-l border-border mx-2" />
 
       <ToolbarButton
         onClick={onAddLink}
         isActive={editor.isActive("link")}
         title="Add Link (⌘K)"
       >
-        <LinkIcon />
+        <LinkIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton onClick={onAddImage} isActive={false} title="Add Image">
-        <ImageIcon />
+        <ImageIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
     </div>
   );
@@ -286,7 +286,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     editorProps: {
       attributes: {
         class:
-          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-8 pt-8 pb-32",
+          "prose prose-lg dark:prose-invert max-w-2xl mx-auto focus:outline-none min-h-full px-6 pt-6 pb-24",
       },
       // Handle cmd/ctrl+click to open links
       handleClick: (_view, _pos, event) => {
@@ -677,7 +677,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             <img
               src="/note-dark.png"
               alt="Note"
-              className="w-44 h-auto mx-auto mb-1 invert dark:invert-0"
+              className="w-42 h-auto mx-auto mb-1 invert dark:invert-0"
             />
             <h1 className="text-2xl text-text font-serif mb-1 tracking-[-0.01em] ">
               What's on your mind?
@@ -688,7 +688,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             <Button
               onClick={createNote}
               variant="secondary"
-              size="sm"
+              size="md"
               className="mt-4"
             >
               New Note <span className="text-text-muted ml-1">⌘N</span>
@@ -713,7 +713,6 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           {onToggleSidebar && (
             <IconButton
               onClick={onToggleSidebar}
-              size="md"
               title={
                 sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
               }
@@ -729,21 +728,21 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           {isSaving || isDirty ? (
             <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
               <div className="h-7 w-7 flex items-center justify-center">
-                <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.6] animate-spin" />
+                <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.5] animate-spin" />
               </div>
             </Tooltip>
           ) : (
             <Tooltip content="All changes saved">
               <div className="h-7 w-7 flex items-center justify-center rounded-full">
-                <CircleCheckIcon className="w-4.5 h-4.5 mt-px stroke-[1.6] text-text-muted/40" />
+                <CircleCheckIcon className="w-4.5 h-4.5 mt-px stroke-[1.5] text-text-muted/40" />
               </div>
             </Tooltip>
           )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
             <Tooltip content="Copy as... (⌘⇧C)">
               <DropdownMenu.Trigger asChild>
-                <IconButton size="md">
-                  <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                <IconButton>
+                  <CopyIcon className="w-4.25 h-4.25 stroke-[1.5]" />
                 </IconButton>
               </DropdownMenu.Trigger>
             </Tooltip>
