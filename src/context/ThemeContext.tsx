@@ -81,7 +81,7 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
 
   // Fixed values for line height and spacing
   root.style.setProperty("--editor-line-height", "1.6");
-  root.style.setProperty("--editor-paragraph-spacing", "1em");
+  root.style.setProperty("--editor-paragraph-spacing", "0.875em");
 }
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
