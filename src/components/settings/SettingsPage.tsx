@@ -1,24 +1,45 @@
-import { useState } from "react";
-import { ArrowLeftIcon, FolderIcon, SwatchIcon, GitBranchIcon } from "../icons";
+import { useState, useEffect } from "react";
+import { ArrowLeftIcon, FolderIcon, SwatchIcon } from "../icons";
 import { Button, IconButton } from "../ui";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
-import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
-import { GitSettingsSection } from "./GitSettingsSection";
+import { AppearanceSettingsSection } from "./EditorSettingsSection";
 
 interface SettingsPageProps {
   onBack: () => void;
 }
 
-type SettingsTab = "general" | "appearance" | "git";
+type SettingsTab = "general" | "editor";
 
-const tabs: { id: SettingsTab; label: string; icon: typeof FolderIcon }[] = [
-  { id: "general", label: "General", icon: FolderIcon },
-  { id: "appearance", label: "Appearance", icon: SwatchIcon },
-  { id: "git", label: "Version Control", icon: GitBranchIcon },
+const tabs: {
+  id: SettingsTab;
+  label: string;
+  icon: typeof FolderIcon;
+  shortcut: string;
+}[] = [
+  { id: "general", label: "General", icon: FolderIcon, shortcut: "⌘1" },
+  { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "⌘2" },
 ];
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey) {
+        if (e.key === "1") {
+          e.preventDefault();
+          setActiveTab("general");
+        } else if (e.key === "2") {
+          e.preventDefault();
+          setActiveTab("editor");
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <div className="h-full flex bg-bg w-full">
@@ -48,10 +69,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 onClick={() => setActiveTab(tab.id)}
                 variant={isActive ? "secondary" : "ghost"}
                 size="sm"
-                className="justify-start gap-2.5 h-9"
+                className="justify-between gap-2.5 h-9"
               >
-                <Icon className="w-4.5 h-4.5 stroke-[1.5]" />
-                {tab.label}
+                <div className="flex items-center gap-2.5">
+                  <Icon className="w-4.5 h-4.5 stroke-[1.5]" />
+                  {tab.label}
+                </div>
+                <kbd className="text-2xs text-text-muted">{tab.shortcut}</kbd>
               </Button>
             );
           })}
@@ -67,8 +91,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         <div className="flex-1 overflow-auto">
           <div className="w-full max-w-3xl mx-auto px-8 py-4">
             {activeTab === "general" && <GeneralSettingsSection />}
-            {activeTab === "appearance" && <AppearanceSettingsSection />}
-            {activeTab === "git" && <GitSettingsSection />}
+            {activeTab === "editor" && <AppearanceSettingsSection />}
           </div>
         </div>
       </div>

@@ -38,12 +38,12 @@
 .dark {
   --color-bg: #0c0a09;
   --color-bg-secondary: #1c1917;
-  --color-bg-muted: #292524;
-  --color-bg-emphasis: #44403c;
+  --color-bg-muted: rgba(250, 249, 249, 0.06);
+  --color-bg-emphasis: rgba(250, 249, 249, 0.09);
   --color-text: #fafaf9;
   --color-text-muted: #a8a29e;
   --color-text-inverse: #1c1917;
-  --color-border: #292524;
+  --color-border: rgba(250, 249, 249, 0.08);
   --color-accent: #fafaf9;
   --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
 }
@@ -569,52 +569,3 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
   animation-name: tooltip-slide-in-from-right;
 }
 
-/* Inline link editor popup */
-.link-editor-popup {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  background-color: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  padding: 0.375rem;
-}
-
-.link-editor-input {
-  width: 220px;
-  padding: 0.375rem 0.5rem;
-  font-size: 0.875rem;
-  color: var(--color-text);
-  background-color: var(--color-bg-muted);
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  outline: none;
-}
-
-.link-editor-input:focus {
-  border-color: var(--color-accent);
-}
-
-.link-editor-input::placeholder {
-  color: var(--color-text-muted);
-}
-
-.link-editor-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  color: var(--color-text-muted);
-  background: transparent;
-  border: none;
-  border-radius: 0.25rem;
-  cursor: pointer;
-  transition: background-color 0.1s, color 0.1s;
-}
-
-.link-editor-button:hover {
-  background-color: var(--color-bg-muted);
-  color: var(--color-text);
-}

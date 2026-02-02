@@ -23,6 +23,7 @@ export interface EditorFontSettings {
   baseFontFamily?: FontFamily;
   baseFontSize?: number; // in px, default 16
   boldWeight?: number; // 600, 700, 800 for headings and bold text
+  lineHeight?: number; // default 1.6
 }
 
 // Per-folder settings (stored in .scratch/settings.json)

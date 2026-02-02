@@ -7,6 +7,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "opener:default",
+    "opener:allow-open-url",
     "opener:allow-reveal-item-in-dir",
     "fs:default",
     "fs:allow-read",

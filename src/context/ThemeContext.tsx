@@ -29,6 +29,7 @@ const defaultEditorFontSettings: Required<EditorFontSettings> = {
   baseFontFamily: "system-sans",
   baseFontSize: 15,
   boldWeight: 600,
+  lineHeight: 1.6,
 };
 
 interface ThemeContextType {
@@ -65,11 +66,13 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   const fontFamily = fontFamilyMap[fonts.baseFontFamily];
   const baseSize = fonts.baseFontSize;
   const boldWeight = fonts.boldWeight;
+  const lineHeight = fonts.lineHeight;
 
   // Base font settings
   root.style.setProperty("--editor-font-family", fontFamily);
   root.style.setProperty("--editor-base-font-size", `${baseSize}px`);
   root.style.setProperty("--editor-bold-weight", String(boldWeight));
+  root.style.setProperty("--editor-line-height", String(lineHeight));
 
   // Computed header sizes (based on base)
   root.style.setProperty("--editor-h1-size", `${baseSize * 2.25}px`);
@@ -79,8 +82,7 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   root.style.setProperty("--editor-h5-size", `${baseSize}px`);
   root.style.setProperty("--editor-h6-size", `${baseSize}px`);
 
-  // Fixed values for line height and spacing
-  root.style.setProperty("--editor-line-height", "1.6");
+  // Fixed value for paragraph spacing
   root.style.setProperty("--editor-paragraph-spacing", "0.875em");
 }
 

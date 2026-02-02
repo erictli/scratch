@@ -5,16 +5,29 @@ import {
   useRef,
   useMemo,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
+import { useGit } from "../../context/GitContext";
 import { CommandItem } from "../ui";
 import { cleanTitle } from "../../lib/utils";
+import { duplicateNote } from "../../services/notes";
+import {
+  CopyIcon,
+  SettingsIcon,
+  SwatchIcon,
+  UploadIcon,
+  AddNoteIcon,
+  TrashIcon,
+} from "../icons";
 
 interface Command {
   id: string;
   label: string;
   shortcut?: string;
+  icon?: ReactNode;
   action: () => void;
 }
 
@@ -24,75 +37,183 @@ interface CommandPaletteProps {
   onOpenSettings?: () => void;
 }
 
-export function CommandPalette({ open, onClose, onOpenSettings }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  onClose,
+  onOpenSettings,
+}: CommandPaletteProps) {
   const {
     notes,
     selectNote,
     createNote,
     deleteNote,
     currentNote,
+    refreshNotes,
   } = useNotes();
   const { theme, setTheme } = useTheme();
+  const { status, gitAvailable, commit, push } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Memoize commands array
-  const commands = useMemo<Command[]>(() => [
-    {
-      id: "new-note",
-      label: "New Note",
-      shortcut: "⌘N",
-      action: () => {
-        createNote();
-        onClose();
+  const commands = useMemo<Command[]>(() => {
+    const baseCommands: Command[] = [
+      {
+        id: "new-note",
+        label: "New Note",
+        shortcut: "⌘ N",
+        icon: <AddNoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          createNote();
+          onClose();
+        },
       },
-    },
-    {
-      id: "delete-note",
-      label: "Delete Current Note",
-      action: () => {
-        if (currentNote) {
-          deleteNote(currentNote.id);
+      {
+        id: "settings",
+        label: "Settings",
+        shortcut: "⌘ ,",
+        icon: <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          onOpenSettings?.();
+          onClose();
+        },
+      },
+      {
+        id: "theme-light",
+        label: `Switch Theme to Light Mode`,
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setTheme("light");
+          onClose();
+        },
+      },
+      {
+        id: "theme-dark",
+        label: `Switch Theme to Dark Mode`,
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setTheme("dark");
+          onClose();
+        },
+      },
+      {
+        id: "theme-system",
+        label: `Switch Theme to System Mode`,
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setTheme("system");
+          onClose();
+        },
+      },
+    ];
+
+    // Add note-specific commands if a note is selected
+    if (currentNote) {
+      baseCommands.push(
+        {
+          id: "duplicate-note",
+          label: "Duplicate Current Note",
+          icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              const newNote = await duplicateNote(currentNote.id);
+              await refreshNotes();
+              selectNote(newNote.id);
+              onClose();
+            } catch (error) {
+              console.error("Failed to duplicate note:", error);
+            }
+          },
+        },
+        {
+          id: "delete-note",
+          label: "Delete Current Note",
+          icon: <TrashIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: () => {
+            deleteNote(currentNote.id);
+            onClose();
+          },
+        },
+        {
+          id: "copy-markdown",
+          label: "Copy Note as Markdown",
+          icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              await invoke("copy_to_clipboard", { text: currentNote.content });
+              onClose();
+            } catch (error) {
+              console.error("Failed to copy markdown:", error);
+            }
+          },
+        },
+        {
+          id: "copy-plain",
+          label: "Copy Note as Plain Text",
+          icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              // Remove markdown formatting for plain text
+              const plainText = currentNote.content
+                .replace(/^#{1,6}\s+/gm, "") // Remove headers
+                .replace(/\*\*(.+?)\*\*/g, "$1") // Remove bold
+                .replace(/\*(.+?)\*/g, "$1") // Remove italic
+                .replace(/\[(.+?)\]\(.+?\)/g, "$1") // Remove links, keep text
+                .replace(/`(.+?)`/g, "$1") // Remove inline code
+                .replace(/^[-*+]\s+/gm, "") // Remove list markers
+                .replace(/^\d+\.\s+/gm, "") // Remove numbered list markers
+                .replace(/^>\s+/gm, ""); // Remove blockquotes
+              await invoke("copy_to_clipboard", { text: plainText });
+              onClose();
+            } catch (error) {
+              console.error("Failed to copy plain text:", error);
+            }
+          },
         }
-        onClose();
-      },
-    },
-    {
-      id: "settings",
-      label: "Settings",
-      shortcut: "⌘,",
-      action: () => {
-        onOpenSettings?.();
-        onClose();
-      },
-    },
-    {
-      id: "theme-light",
-      label: `Theme: Light${theme === "light" ? " ✓" : ""}`,
-      action: () => {
-        setTheme("light");
-        onClose();
-      },
-    },
-    {
-      id: "theme-dark",
-      label: `Theme: Dark${theme === "dark" ? " ✓" : ""}`,
-      action: () => {
-        setTheme("dark");
-        onClose();
-      },
-    },
-    {
-      id: "theme-system",
-      label: `Theme: System${theme === "system" ? " ✓" : ""}`,
-      action: () => {
-        setTheme("system");
-        onClose();
-      },
-    },
-  ], [createNote, currentNote, deleteNote, onClose, onOpenSettings, setTheme, theme]);
+      );
+    }
+
+    // Add git commands if git is available and initialized
+    if (gitAvailable && status?.isRepo) {
+      const canPush = status?.hasRemote && (status?.aheadCount ?? 0) > 0;
+
+      if (canPush) {
+        baseCommands.push({
+          id: "git-push",
+          label: `Git: Push (${status?.aheadCount} commit${
+            status?.aheadCount === 1 ? "" : "s"
+          })`,
+          icon: <UploadIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              await push();
+              onClose();
+            } catch (error) {
+              console.error("Failed to push:", error);
+            }
+          },
+        });
+      }
+    }
+
+    return baseCommands;
+  }, [
+    createNote,
+    currentNote,
+    deleteNote,
+    onClose,
+    onOpenSettings,
+    setTheme,
+    theme,
+    gitAvailable,
+    status,
+    commit,
+    push,
+    selectNote,
+    refreshNotes,
+  ]);
 
   // Memoize filtered notes
   const filteredNotes = useMemo(() => {
@@ -113,25 +234,29 @@ export function CommandPalette({ open, onClose, onOpenSettings }: CommandPalette
   }, [query, commands]);
 
   // Memoize all items (notes first, then commands)
-  const allItems = useMemo(() => [
-    ...filteredNotes.slice(0, 10).map((note) => ({
-      type: "note" as const,
-      id: note.id,
-      label: cleanTitle(note.title),
-      preview: note.preview,
-      action: () => {
-        selectNote(note.id);
-        onClose();
-      },
-    })),
-    ...filteredCommands.map((cmd) => ({
-      type: "command" as const,
-      id: cmd.id,
-      label: cmd.label,
-      shortcut: cmd.shortcut,
-      action: cmd.action,
-    })),
-  ], [filteredNotes, filteredCommands, selectNote, onClose]);
+  const allItems = useMemo(
+    () => [
+      ...filteredNotes.slice(0, 10).map((note) => ({
+        type: "note" as const,
+        id: note.id,
+        label: cleanTitle(note.title),
+        preview: note.preview,
+        action: () => {
+          selectNote(note.id);
+          onClose();
+        },
+      })),
+      ...filteredCommands.map((cmd) => ({
+        type: "command" as const,
+        id: cmd.id,
+        label: cmd.label,
+        shortcut: cmd.shortcut,
+        icon: cmd.icon,
+        action: cmd.action,
+      })),
+    ],
+    [filteredNotes, filteredCommands, selectNote, onClose]
+  );
 
   // Reset state when opened
   useEffect(() => {
@@ -153,7 +278,7 @@ export function CommandPalette({ open, onClose, onOpenSettings }: CommandPalette
       const selectedItem = listRef.current.querySelector(
         `[data-index="${selectedIndex}"]`
       );
-      selectedItem?.scrollIntoView({ block: "nearest" });
+      selectedItem?.scrollIntoView({ block: "center", behavior: "smooth" });
     }
   }, [selectedIndex]);
 
@@ -188,7 +313,7 @@ export function CommandPalette({ open, onClose, onOpenSettings }: CommandPalette
   const notesCount = Math.min(filteredNotes.length, 10);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center py-11 px-4">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
@@ -196,9 +321,9 @@ export function CommandPalette({ open, onClose, onOpenSettings }: CommandPalette
       />
 
       {/* Palette */}
-      <div className="relative w-full max-w-lg bg-bg-secondary rounded-xl shadow-2xl overflow-hidden border border-border animate-slide-down">
+      <div className="relative w-full h-full max-h-108 max-w-2xl bg-bg rounded-xl shadow-2xl overflow-hidden border border-border animate-slide-down flex flex-col">
         {/* Search input */}
-        <div className="border-b border-border">
+        <div className="border-b border-border flex-none">
           <input
             ref={inputRef}
             type="text"
@@ -206,41 +331,47 @@ export function CommandPalette({ open, onClose, onOpenSettings }: CommandPalette
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search notes or type a command..."
-            className="w-full px-4 py-3 text-lg bg-transparent outline-none text-text placeholder-text-muted"
+            className="w-full px-4.5 py-3.5 text-[17px] bg-transparent outline-none text-text placeholder-text-muted/50"
           />
         </div>
 
         {/* Results */}
-        <div ref={listRef} className="max-h-80 overflow-y-auto">
+        <div ref={listRef} className="overflow-y-auto h-full p-2.5 flex-1">
           {allItems.length === 0 ? (
-            <div className="p-4 text-center text-text-muted">
+            <div className="text-sm font-medium opacity-50 text-text-muted p-2">
               No results found
             </div>
           ) : (
             <>
               {/* Notes section */}
               {filteredNotes.length > 0 && (
-                <div>
-                  <div className="px-4 py-2 text-xs font-medium text-text-muted uppercase tracking-wider">
+                <div className="space-y-0.5 mb-5">
+                  <div className="text-sm font-medium text-text-muted px-2.5 py-1.5">
                     Notes
                   </div>
-                  {filteredNotes.slice(0, 10).map((note, i) => (
-                    <div key={note.id} data-index={i}>
-                      <CommandItem
-                        label={cleanTitle(note.title)}
-                        subtitle={note.preview}
-                        isSelected={selectedIndex === i}
-                        onClick={allItems[i].action}
-                      />
-                    </div>
-                  ))}
+                  {filteredNotes.slice(0, 10).map((note, i) => {
+                    const title = cleanTitle(note.title);
+                    const firstLetter = title.charAt(0).toUpperCase();
+                    return (
+                      <div key={note.id} data-index={i}>
+                        <CommandItem
+                          label={title}
+                          subtitle={note.preview}
+                          iconText={firstLetter}
+                          variant="note"
+                          isSelected={selectedIndex === i}
+                          onClick={allItems[i].action}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
               {/* Commands section */}
               {filteredCommands.length > 0 && (
-                <div>
-                  <div className="px-4 py-2 text-xs font-medium text-text-muted uppercase tracking-wider border-t border-border">
+                <div className="space-y-0.5">
+                  <div className="text-sm font-medium text-text-muted px-2.5 py-1.5">
                     Commands
                   </div>
                   {filteredCommands.map((cmd, i) => {
@@ -250,6 +381,7 @@ export function CommandPalette({ open, onClose, onOpenSettings }: CommandPalette
                         <CommandItem
                           label={cmd.label}
                           shortcut={cmd.shortcut}
+                          icon={cmd.icon}
                           isSelected={selectedIndex === index}
                           onClick={cmd.action}
                         />

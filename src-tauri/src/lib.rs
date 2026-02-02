@@ -1,4 +1,5 @@
 use anyhow::Result;
+use base64::Engine;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -966,6 +967,114 @@ fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn save_clipboard_image(
+    base64_data: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    // Decode base64
+    let image_data = base64::engine::general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    // Create assets folder path
+    let assets_dir = PathBuf::from(&folder).join("assets");
+    fs::create_dir_all(&assets_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Generate unique filename with timestamp
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let mut target_name = format!("screenshot-{}.png", timestamp);
+    let mut counter = 1;
+    let mut target_path = assets_dir.join(&target_name);
+
+    while target_path.exists() {
+        target_name = format!("screenshot-{}-{}.png", timestamp, counter);
+        target_path = assets_dir.join(&target_name);
+        counter += 1;
+    }
+
+    // Write the file
+    fs::write(&target_path, &image_data)
+        .await
+        .map_err(|e| format!("Failed to write image: {}", e))?;
+
+    // Return relative path
+    Ok(format!("assets/{}", target_name))
+}
+
+#[tauri::command]
+async fn copy_image_to_assets(
+    source_path: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    let source = PathBuf::from(&source_path);
+    if !source.exists() {
+        return Err("Source image file does not exist".to_string());
+    }
+
+    // Get file extension
+    let extension = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .ok_or("Invalid file extension")?;
+
+    // Get original filename (without extension)
+    let original_name = source
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("image");
+
+    // Sanitize the filename
+    let sanitized_name = sanitize_filename(original_name);
+
+    // Create assets folder path
+    let assets_dir = PathBuf::from(&folder).join("assets");
+    fs::create_dir_all(&assets_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Generate unique filename
+    let mut target_name = format!("{}.{}", sanitized_name, extension);
+    let mut counter = 1;
+    let mut target_path = assets_dir.join(&target_name);
+
+    while target_path.exists() {
+        target_name = format!("{}-{}.{}", sanitized_name, counter, extension);
+        target_path = assets_dir.join(&target_name);
+        counter += 1;
+    }
+
+    // Copy the file
+    fs::copy(&source, &target_path)
+        .await
+        .map_err(|e| format!("Failed to copy image: {}", e))?;
+
+    // Return both relative path and filename for frontend to construct the URL
+    Ok(format!("assets/{}", target_name))
+}
+
+#[tauri::command]
 fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
@@ -1190,6 +1299,8 @@ pub fn run() {
             start_file_watcher,
             rebuild_search_index,
             copy_to_clipboard,
+            copy_image_to_assets,
+            save_clipboard_image,
             git_is_available,
             git_get_status,
             git_init_repo,
