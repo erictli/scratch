@@ -30,7 +30,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         {/* Header with back button and Settings title */}
         <div className="flex items-center justify-between px-3 pb-2 border-b border-border shrink-0">
           <div className="flex items-center gap-1">
-            <IconButton onClick={onBack} title="Back">
+            <IconButton onClick={onBack} title="Back (⌘,)">
               <ArrowLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
             <div className="font-medium text-base">Settings</div>

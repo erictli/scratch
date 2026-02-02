@@ -89,7 +89,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         className={cn(
           "flex items-center justify-center rounded-md transition-colors",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
-          "disabled:pointer-events-none disabled:opacity-50",
+          "disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
           iconButtonSizes[size],
           iconButtonVariants[variant],
           className

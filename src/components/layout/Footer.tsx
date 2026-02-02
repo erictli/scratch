@@ -1,20 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, memo } from "react";
 import { useGit } from "../../context/GitContext";
 import { Button, IconButton, Tooltip, Input } from "../ui";
 import {
   GitBranchIcon,
+  GitBranchDeletedIcon,
   GitCommitIcon,
   UploadIcon,
   SpinnerIcon,
   SettingsIcon,
-  XIcon,
+  ArrowRightIcon,
+  CloudCheckIcon,
 } from "../icons";
 
 interface FooterProps {
   onOpenSettings?: () => void;
 }
 
-export function Footer({ onOpenSettings }: FooterProps) {
+export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
   const {
     status,
     isLoading,
@@ -33,11 +35,13 @@ export function Footer({ onOpenSettings }: FooterProps) {
   const commitInputRef = useRef<HTMLInputElement>(null);
 
   // Commit handlers
-  const openCommit = useCallback(() => {
+  const toggleCommit = useCallback(() => {
     if (!commitOpen) {
       setCommitOpen(true);
     } else {
-      commitInputRef.current?.focus();
+      // Close and clear
+      setCommitOpen(false);
+      setCommitMessage("");
     }
   }, [commitOpen]);
 
@@ -103,40 +107,28 @@ export function Footer({ onOpenSettings }: FooterProps) {
     }
 
     const hasChanges = status.changedCount > 0;
-    const canPush = status.hasRemote && status.aheadCount > 0;
 
     return (
       <div className="flex items-center gap-1.5">
         {/* Branch icon with name on hover */}
-        {status.currentBranch && (
+        {status.currentBranch ? (
           <Tooltip content={"Branch: " + status.currentBranch}>
             <span className="text-text-muted flex items-center">
               <GitBranchIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+            </span>
+          </Tooltip>
+        ) : (
+          <Tooltip content="No branch (set up git in settings)">
+            <span className="text-text-muted flex items-center">
+              <GitBranchDeletedIcon className="w-4.5 h-4.5 stroke-[1.5] opacity-50" />
             </span>
           </Tooltip>
         )}
 
         {/* Changes indicator */}
         {hasChanges && (
-          <Tooltip
-            content={`You have ${status.changedCount} uncommitted changes`}
-          >
-            <span className="text-xs text-text-muted/70">
-              {status.changedCount} changes
-            </span>
-          </Tooltip>
-        )}
-
-        {/* Push indicator and button */}
-        {canPush && (
-          <Tooltip content={`${status.aheadCount} to push`}>
-            <IconButton onClick={push} disabled={isPushing} title="Push">
-              {isPushing ? (
-                <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
-              ) : (
-                <UploadIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-              )}
-            </IconButton>
+          <Tooltip content="You have uncommitted changes">
+            <span className="text-xs text-text-muted/70">Files changed</span>
           </Tooltip>
         )}
 
@@ -146,9 +138,9 @@ export function Footer({ onOpenSettings }: FooterProps) {
             <Button
               onClick={clearError}
               variant="link"
-              className="text-xs h-auto p-0 text-red-500 hover:text-red-600"
+              className="text-xs h-auto p-0 text-orange-500 hover:text-orange-600 hover:no-underline"
             >
-              Error
+              An error occurred
             </Button>
           </Tooltip>
         )}
@@ -156,9 +148,11 @@ export function Footer({ onOpenSettings }: FooterProps) {
     );
   };
 
-  // Determine if commit button should be shown
+  // Determine what buttons to show
   const hasChanges = (status?.changedCount ?? 0) > 0;
   const showCommitButton = gitAvailable && status?.isRepo && hasChanges;
+  const canPush = status?.hasRemote && (status?.aheadCount ?? 0) > 0;
+  const showCloudCheck = status?.hasRemote && !hasChanges && !canPush;
 
   return (
     <div className="shrink-0 border-t border-border flex flex-col">
@@ -175,13 +169,15 @@ export function Footer({ onOpenSettings }: FooterProps) {
               placeholder="Commit message..."
               className="h-9 pr-8 text-sm"
             />
-            {commitMessage && !isCommitting && (
+            {!isCommitting && (
               <button
-                onClick={() => setCommitMessage("")}
+                onClick={handleCommit}
+                disabled={!commitMessage.trim()}
                 tabIndex={-1}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Commit"
               >
-                <XIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+                <ArrowRightIcon className="w-4.5 h-4.5 stroke-[1.5]" />
               </button>
             )}
             {isCommitting && (
@@ -194,19 +190,42 @@ export function Footer({ onOpenSettings }: FooterProps) {
       )}
 
       {/* Footer bar with git status and action buttons */}
-      <div className="px-3 pt-2.5 pb-3 flex items-center justify-between">
+      <div className="pl-4 pr-3 pt-2 pb-2.5 flex items-center justify-between">
         {renderGitStatus()}
-        <div className="flex items-center gap-0.75">
+        <div className="flex items-center gap-0.5">
+          {/* Push button or cloud check icon */}
+          {canPush && (
+            <Tooltip
+              content={`${status?.aheadCount} commit${
+                status?.aheadCount === 1 ? " to push" : "s to push"
+              }`}
+            >
+              <IconButton onClick={push} disabled={isPushing} title="Push">
+                {isPushing ? (
+                  <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
+                ) : (
+                  <UploadIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+                )}
+              </IconButton>
+            </Tooltip>
+          )}
+          {showCloudCheck && (
+            <Tooltip content="Synced with remote">
+              <span className="text-text-muted flex items-center justify-center h-6 w-6">
+                <CloudCheckIcon className="w-4.5 h-4.5 stroke-[1.5] opacity-50" />
+              </span>
+            </Tooltip>
+          )}
           {showCommitButton && (
-            <IconButton onClick={openCommit} title="Commit changes">
+            <IconButton onClick={toggleCommit} title="Commit changes">
               <GitCommitIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
           )}
-          <IconButton onClick={onOpenSettings} title="Settings (⌘,)">
+          <IconButton onClick={onOpenSettings} title="Settings (⌘, to toggle)">
             <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />
           </IconButton>
         </div>
       </div>
     </div>
   );
-}
+});

@@ -47,7 +47,13 @@ export function GitProvider({ children }: { children: ReactNode }) {
   const refreshStatus = useCallback(async () => {
     if (!notesFolder) return;
 
-    setIsLoading(true);
+    // Only show loading if we don't have a status yet (initial load)
+    // This prevents blinking on subsequent refreshes
+    const isInitialLoad = status === null;
+    if (isInitialLoad) {
+      setIsLoading(true);
+    }
+
     try {
       const newStatus = await gitService.getGitStatus();
       setStatus(newStatus);
@@ -57,9 +63,11 @@ export function GitProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setLastError(err instanceof Error ? err.message : "Failed to get git status");
     } finally {
-      setIsLoading(false);
+      if (isInitialLoad) {
+        setIsLoading(false);
+      }
     }
-  }, [notesFolder]);
+  }, [notesFolder, status]);
 
   const initRepo = useCallback(async () => {
     try {

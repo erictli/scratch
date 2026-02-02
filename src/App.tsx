@@ -30,8 +30,8 @@ function AppContent() {
     setSidebarVisible((prev) => !prev);
   }, []);
 
-  const openSettings = useCallback(() => {
-    setView("settings");
+  const toggleSettings = useCallback(() => {
+    setView((prev) => (prev === "settings" ? "notes" : "settings"));
   }, []);
 
   const closeSettings = useCallback(() => {
@@ -65,10 +65,10 @@ function AppContent() {
         return;
       }
 
-      // Cmd+, - Open settings
+      // Cmd+, - Toggle settings
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        openSettings();
+        toggleSettings();
         return;
       }
 
@@ -152,7 +152,7 @@ function AppContent() {
     displayItems,
     selectedNoteId,
     selectNote,
-    openSettings,
+    toggleSettings,
     toggleSidebar,
   ]);
 
@@ -179,7 +179,7 @@ function AppContent() {
           <SettingsPage onBack={closeSettings} />
         ) : (
           <>
-            {sidebarVisible && <Sidebar onOpenSettings={openSettings} />}
+            {sidebarVisible && <Sidebar onOpenSettings={toggleSettings} />}
             <Editor
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible}
@@ -190,7 +190,7 @@ function AppContent() {
       <CommandPalette
         open={paletteOpen}
         onClose={handleClosePalette}
-        onOpenSettings={openSettings}
+        onOpenSettings={toggleSettings}
       />
     </>
   );
