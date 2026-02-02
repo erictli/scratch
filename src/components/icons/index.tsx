@@ -471,9 +471,10 @@ export function ArrowLeftIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: ArrowLeft - for navigation back */}
-      <path d="m12 19-7-7 7-7" />
-      <path d="M19 12H5" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M5 12l14 0" />
+      <path d="M5 12l6 6" />
+      <path d="M5 12l6 -6" />
     </svg>
   );
 }
@@ -496,7 +497,7 @@ export function SettingsIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   );
 }
 
-export function PaletteIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+export function SwatchIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
       className={className}
@@ -507,12 +508,11 @@ export function PaletteIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: Palette */}
-      <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
-      <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
-      <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
-      <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
-      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.555C21.965 6.012 17.461 2 12 2z" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M19 3h-4a2 2 0 0 0 -2 2v12a4 4 0 0 0 8 0v-12a2 2 0 0 0 -2 -2" />
+      <path d="M13 7.35l-2 -2a2 2 0 0 0 -2.828 0l-2.828 2.828a2 2 0 0 0 0 2.828l9 9" />
+      <path d="M7.3 13h-2.3a2 2 0 0 0 -2 2v4a2 2 0 0 0 2 2h12" />
+      <path d="M17 17l0 .01" />
     </svg>
   );
 }
@@ -528,8 +528,8 @@ export function FolderIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Lucide: Folder */}
-      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M5 19l2.757 -7.351a1 1 0 0 1 .936 -.649h12.307a1 1 0 0 1 .986 1.164l-.996 5.211a2 2 0 0 1 -1.964 1.625h-14.026a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2h4l3 3h7a2 2 0 0 1 2 2v2" />
     </svg>
   );
 }
@@ -683,6 +683,25 @@ export function SearchOffIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       <path stroke="none" d="M0 0h24v24H0z" fill="none" />
       <path d="M5.039 5.062a7 7 0 0 0 9.91 9.89m1.584 -2.434a7 7 0 0 0 -9.038 -9.057" />
       <path d="M3 3l18 18" />
+    </svg>
+  );
+}
+
+export function ExternalLinkIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6" />
+      <path d="M11 13l9 -9" />
+      <path d="M15 4h5v5" />
     </svg>
   );
 }

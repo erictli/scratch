@@ -52,14 +52,14 @@ export function AppearanceSettingsSection() {
     <div className="space-y-8">
       {/* Theme Mode Section */}
       <section>
-        <h2 className="text-sm font-medium text-text-muted mb-4">Theme</h2>
+        <h2 className="text-xl font-medium mb-3">Theme</h2>
         <div className="flex gap-2">
           {(["light", "dark", "system"] as const).map((mode) => (
             <Button
               key={mode}
               onClick={() => setTheme(mode)}
-              variant={theme === mode ? "default" : "secondary"}
-              size="sm"
+              variant={theme === mode ? "primary" : "secondary"}
+              size="md"
               className="flex-1"
             >
               {mode.charAt(0).toUpperCase() + mode.slice(1)}
@@ -78,14 +78,10 @@ export function AppearanceSettingsSection() {
 
       {/* Editor Typography Section */}
       <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-medium text-text-muted">Typography</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xl font-medium">Typography</h2>
           {hasCustomFonts && (
-            <Button
-              onClick={resetEditorFontSettings}
-              variant="link"
-              className="text-xs h-auto p-0 text-accent"
-            >
+            <Button onClick={resetEditorFontSettings} variant="ghost" size="sm">
               Reset to defaults
             </Button>
           )}
@@ -150,8 +146,8 @@ export function AppearanceSettingsSection() {
         </div>
 
         {/* Preview */}
-        <div className="mt-4 bg-bg-secondary rounded-lg border border-border p-6">
-          <h3 className="text-xs font-medium text-text-muted mb-4 uppercase tracking-wider">
+        <div className="mt-4 rounded-lg border border-border p-6">
+          <h3 className="text-2xs font-medium text-text-muted mb-4 uppercase tracking-wider">
             Preview
           </h3>
           <div className="prose prose-lg dark:prose-invert max-w-none">

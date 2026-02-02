@@ -1,8 +1,9 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Button } from "../ui";
-import { FolderIcon } from "../icons";
+import { FolderIcon, ExternalLinkIcon } from "../icons";
 
 export function GeneralSettingsSection() {
   const { notesFolder, setNotesFolder } = useNotes();
@@ -27,6 +28,15 @@ export function GeneralSettingsSection() {
     }
   };
 
+  const handleOpenFolder = async () => {
+    if (!notesFolder) return;
+    try {
+      await revealItemInDir(notesFolder);
+    } catch (err) {
+      console.error("Failed to open folder:", err);
+    }
+  };
+
   // Format path for display - truncate middle if too long
   const formatPath = (path: string | null): string => {
     if (!path) return "Not set";
@@ -42,32 +52,37 @@ export function GeneralSettingsSection() {
   return (
     <div className="space-y-8">
       <section>
-        <h2 className="text-sm font-medium text-text-muted mb-4">
-          Notes Folder
-        </h2>
-        <div className="bg-bg-secondary rounded-lg border border-border p-4 space-y-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-md bg-bg-muted">
-              <FolderIcon className="w-5 h-5 text-text-muted" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-text font-medium">Storage Location</p>
-              <p
-                className="text-sm text-text-muted truncate"
-                title={notesFolder || undefined}
-              >
-                {formatPath(notesFolder)}
-              </p>
-            </div>
+        <h2 className="text-xl font-medium">Folder Location</h2>
+        <p className="text-sm text-text-muted mb-3">
+          Your notes are stored as markdown files in this folder
+        </p>
+        <div className="flex items-center gap-3 p-2.5 rounded-lg bg-bg-secondary border border-border mb-3">
+          <div className="p-2 rounded-md bg-bg-muted">
+            <FolderIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
           </div>
-          <Button onClick={handleChangeFolder} variant="outline" size="lg">
+          <p
+            className="text-sm text-text-muted truncate"
+            title={notesFolder || undefined}
+          >
+            {formatPath(notesFolder)}
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button onClick={handleChangeFolder} variant="secondary" size="md">
             Change Folder
           </Button>
+          {notesFolder && (
+            <Button
+              onClick={handleOpenFolder}
+              variant="ghost"
+              size="md"
+              className="gap-1.5"
+            >
+              <ExternalLinkIcon className="w-4 h-4" />
+              Open in Finder
+            </Button>
+          )}
         </div>
-        <p className="mt-3 text-xs text-text-muted">
-          Your notes are stored as markdown files in this folder. Changing the
-          folder will load notes from the new location.
-        </p>
       </section>
     </div>
   );
