@@ -127,6 +127,13 @@ export function ListItem({
   onClick,
   onContextMenu,
 }: ListItemProps & { onContextMenu?: (e: React.MouseEvent) => void }) {
+  // Clean subtitle: treat whitespace-only or &nbsp; as empty
+  const cleanSubtitle = subtitle
+    ?.replace(/&nbsp;/g, " ")
+    .replace(/\u00A0/g, " ")
+    .trim();
+  const hasSubtitle = cleanSubtitle && cleanSubtitle.length > 0;
+
   return (
     <div
       onClick={onClick}
@@ -158,11 +165,11 @@ export function ListItem({
         <p
           className={cn(
             "text-xs line-clamp-1 min-h-5",
-            subtitle ? "text-text-muted" : "text-transparent",
+            hasSubtitle ? "text-text-muted" : "text-transparent",
             isSelected ? "opacity-100" : "opacity-70"
           )}
         >
-          {subtitle || "\u00A0"}
+          {hasSubtitle ? cleanSubtitle : "\u00A0"}
         </p>
       </div>
     </div>

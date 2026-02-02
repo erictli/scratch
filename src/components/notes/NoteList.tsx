@@ -1,4 +1,4 @@
-import { useCallback, useMemo, memo } from "react";
+import { useCallback, useMemo, memo, useEffect, useRef } from "react";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
 import { ListItem } from "../ui";
@@ -98,6 +98,8 @@ export function NoteList() {
     searchResults,
   } = useNotes();
 
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const handleContextMenu = useCallback(
     async (e: React.MouseEvent, noteId: string) => {
       e.preventDefault();
@@ -134,6 +136,17 @@ export function NoteList() {
     return notes;
   }, [searchQuery, searchResults, notes]);
 
+  // Listen for focus request from editor (when Escape is pressed)
+  useEffect(() => {
+    const handleFocusNoteList = () => {
+      containerRef.current?.focus();
+    };
+
+    window.addEventListener("focus-note-list", handleFocusNoteList);
+    return () =>
+      window.removeEventListener("focus-note-list", handleFocusNoteList);
+  }, []);
+
   if (isLoading && notes.length === 0) {
     return (
       <div className="p-4 text-center text-text-muted select-none">
@@ -159,7 +172,11 @@ export function NoteList() {
   }
 
   return (
-    <div className="flex flex-col gap-1 p-1.5">
+    <div
+      ref={containerRef}
+      tabIndex={0}
+      className="flex flex-col gap-1 p-1.5 outline-none"
+    >
       {displayItems.map((item) => (
         <NoteItem
           key={item.id}
