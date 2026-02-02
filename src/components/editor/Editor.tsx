@@ -18,6 +18,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
+import { cn } from "../../lib/utils";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import {
   BoldIcon,
@@ -39,7 +40,6 @@ import {
   SpinnerIcon,
   CircleCheckIcon,
   CopyIcon,
-  ChevronDownIcon,
   PanelLeftIcon,
 } from "../icons";
 
@@ -198,6 +198,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const { currentNote, saveNote, createNote } = useNotes();
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Force re-render when selection changes to update toolbar active states
+  const [, setSelectionKey] = useState(0);
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
   const linkPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
@@ -352,6 +355,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       setIsDirty(true);
       const markdown = getMarkdown(editorInstance);
       debouncedSave(markdown);
+    },
+    onSelectionUpdate: () => {
+      // Trigger re-render to update toolbar active states
+      setSelectionKey((k) => k + 1);
     },
     // Prevent flash of unstyled content during initial render
     immediatelyRender: false,
@@ -614,6 +621,18 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleAddLink]);
 
+  // Keyboard shortcut for Cmd+Shift+C to open copy menu
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "c") {
+        e.preventDefault();
+        setCopyMenuOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // Copy handlers
   const handleCopyMarkdown = useCallback(async () => {
     if (!editor) return;
@@ -658,7 +677,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             <img
               src="/note-dark.png"
               alt="Note"
-              className="w-44 h-auto mx-auto mb-2 invert dark:invert-0"
+              className="w-44 h-auto mx-auto mb-1 invert dark:invert-0"
             />
             <h1 className="text-2xl text-text font-serif mb-1 tracking-[-0.01em] ">
               What's on your mind?
@@ -684,39 +703,65 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
       {/* Drag region with sidebar toggle, date and save status */}
       <div
-        className="h-10 shrink-0 flex items-end justify-between px-4 pb-1"
+        className={cn(
+          "h-11 shrink-0 flex items-center justify-between px-3",
+          !sidebarVisible && "pl-22"
+        )}
         data-tauri-drag-region
       >
-        <div className="titlebar-no-drag flex items-center gap-3">
+        <div className="titlebar-no-drag flex items-center gap-1">
           {onToggleSidebar && (
             <IconButton
               onClick={onToggleSidebar}
+              size="md"
               title={
                 sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
               }
             >
-              <PanelLeftIcon />
+              <PanelLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
           )}
-          <span className="text-xs text-text-muted">
+          <span className="text-xs text-text-muted mb-px">
             {formatDateTime(currentNote.modified)}
           </span>
         </div>
-        <div className="titlebar-no-drag flex items-center gap-2">
-          <DropdownMenu.Root>
-            <Tooltip content="Copy as...">
+        <div className="titlebar-no-drag flex items-center gap-0.5">
+          {isSaving || isDirty ? (
+            <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
+              <div className="h-7 w-7 flex items-center justify-center">
+                <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.6] animate-spin" />
+              </div>
+            </Tooltip>
+          ) : (
+            <Tooltip content="All changes saved">
+              <div className="h-7 w-7 flex items-center justify-center rounded-full">
+                <CircleCheckIcon className="w-4.5 h-4.5 mt-px stroke-[1.6] text-text-muted/40" />
+              </div>
+            </Tooltip>
+          )}
+          <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
+            <Tooltip content="Copy as... (⌘⇧C)">
               <DropdownMenu.Trigger asChild>
-                <button className="flex items-center gap-0.5 text-text-muted hover:text-text transition-colors">
-                  <CopyIcon />
-                  <ChevronDownIcon className="w-3.5 h-3.5 stroke-[2.5]" />
-                </button>
+                <IconButton size="md">
+                  <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                </IconButton>
               </DropdownMenu.Trigger>
             </Tooltip>
             <DropdownMenu.Portal>
               <DropdownMenu.Content
-                className="min-w-[140px] bg-bg border border-border rounded-md shadow-lg py-1 z-50"
+                className="min-w-35 bg-bg border border-border rounded-md shadow-lg py-1 z-50"
                 sideOffset={5}
                 align="end"
+                onCloseAutoFocus={(e) => {
+                  // Prevent focus returning to trigger button
+                  e.preventDefault();
+                }}
+                onKeyDown={(e) => {
+                  // Stop arrow keys from bubbling to note list navigation
+                  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                    e.stopPropagation();
+                  }
+                }}
               >
                 <DropdownMenu.Item
                   className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
@@ -739,15 +784,6 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
-          {isSaving || isDirty ? (
-            <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
-              <SpinnerIcon className="w-4.5 h-4.5 text-text-muted animate-spin" />
-            </Tooltip>
-          ) : (
-            <Tooltip content="All changes saved">
-              <CircleCheckIcon className="w-4.5 h-4.5 text-text-muted" />
-            </Tooltip>
-          )}
         </div>
       </div>
 

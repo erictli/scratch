@@ -17,15 +17,17 @@ type ThemeMode = "light" | "dark" | "system";
 
 // Font family CSS values
 const fontFamilyMap: Record<FontFamily, string> = {
-  "system-sans": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
-  serif: "ui-serif, Georgia, Cambria, \"Times New Roman\", Times, serif",
-  monospace: "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
+  "system-sans":
+    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
+  monospace:
+    "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
 };
 
 // Default editor font settings (simplified)
 const defaultEditorFontSettings: Required<EditorFontSettings> = {
   baseFontFamily: "system-sans",
-  baseFontSize: 16,
+  baseFontSize: 15,
   boldWeight: 600,
 };
 

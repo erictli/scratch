@@ -3,7 +3,13 @@ import { cn } from "../../lib/utils";
 import { Tooltip } from "./Tooltip";
 
 // Re-export components
-export { Tooltip, TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from "./Tooltip";
+export {
+  Tooltip,
+  TooltipProvider,
+  TooltipRoot,
+  TooltipTrigger,
+  TooltipContent,
+} from "./Tooltip";
 export { Button } from "./Button";
 export { Input } from "./Input";
 
@@ -13,7 +19,13 @@ interface ToolbarButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
 }
 
-export function ToolbarButton({ isActive = false, className = "", children, title, ...props }: ToolbarButtonProps) {
+export function ToolbarButton({
+  isActive = false,
+  className = "",
+  children,
+  title,
+  ...props
+}: ToolbarButtonProps) {
   const button = (
     <button
       className={cn(
@@ -41,15 +53,29 @@ export function ToolbarButton({ isActive = false, className = "", children, titl
 // Icon button (for sidebar actions, etc.)
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
+  size?: "sm" | "md" | "lg";
 }
 
-export function IconButton({ className = "", children, title, ...props }: IconButtonProps) {
+const iconButtonSizes = {
+  sm: "w-6 h-6", // 24x24
+  md: "w-7 h-7", // 28x28
+  lg: "w-8 h-8", // 32x32
+};
+
+export function IconButton({
+  className = "",
+  children,
+  title,
+  size = "md",
+  ...props
+}: IconButtonProps) {
   const button = (
     <button
       className={cn(
-        "p-1.5 rounded-md transition-colors",
+        "flex items-center justify-center rounded-md transition-colors",
         "hover:bg-bg-muted text-text-muted",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-bg-muted",
+        iconButtonSizes[size],
         className
       )}
       tabIndex={-1}
@@ -77,7 +103,15 @@ interface ListItemProps {
   statusIcon?: ReactNode;
 }
 
-export function ListItem({ title, subtitle, meta, isSelected = false, onClick, onContextMenu, statusIcon }: ListItemProps & { onContextMenu?: (e: React.MouseEvent) => void }) {
+export function ListItem({
+  title,
+  subtitle,
+  meta,
+  isSelected = false,
+  onClick,
+  onContextMenu,
+  statusIcon,
+}: ListItemProps & { onContextMenu?: (e: React.MouseEvent) => void }) {
   return (
     <div
       onClick={onClick}
@@ -87,15 +121,11 @@ export function ListItem({ title, subtitle, meta, isSelected = false, onClick, o
       className={cn(
         "w-full text-left px-4 py-2.5 transition-colors cursor-pointer select-none",
         "focus:outline-none focus-visible:outline-none",
-        isSelected
-          ? "bg-bg-emphasis"
-          : "hover:bg-bg-muted"
+        isSelected ? "bg-bg-emphasis" : "hover:bg-bg-muted"
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium truncate text-text">
-          {title}
-        </span>
+        <span className="text-sm font-medium truncate text-text">{title}</span>
         <div className="flex items-center gap-1.5 shrink-0">
           {statusIcon}
           {meta && (
@@ -105,10 +135,12 @@ export function ListItem({ title, subtitle, meta, isSelected = false, onClick, o
           )}
         </div>
       </div>
-      <p className={cn(
-        "mt-0.5 text-xs line-clamp-1 min-h-[1.25rem]",
-        subtitle ? "text-text-muted" : "text-transparent"
-      )}>
+      <p
+        className={cn(
+          "mt-0.5 text-xs line-clamp-1 min-h-[1.25rem]",
+          subtitle ? "text-text-muted" : "text-transparent"
+        )}
+      >
         {subtitle || "\u00A0"}
       </p>
     </div>
@@ -124,7 +156,13 @@ interface CommandItemProps {
   onClick?: () => void;
 }
 
-export function CommandItem({ label, subtitle, shortcut, isSelected = false, onClick }: CommandItemProps) {
+export function CommandItem({
+  label,
+  subtitle,
+  shortcut,
+  isSelected = false,
+  onClick,
+}: CommandItemProps) {
   return (
     <div
       onClick={onClick}
@@ -132,26 +170,22 @@ export function CommandItem({ label, subtitle, shortcut, isSelected = false, onC
       tabIndex={-1}
       className={cn(
         "w-full text-left px-4 py-2 flex items-center justify-between transition-colors cursor-pointer",
-        isSelected
-          ? "bg-bg-emphasis text-text"
-          : "text-text hover:bg-bg-muted"
+        isSelected ? "bg-bg-emphasis text-text" : "text-text hover:bg-bg-muted"
       )}
     >
       <div className="flex flex-col min-w-0">
         <span className="font-medium truncate">{label}</span>
         {subtitle && (
-          <span className="text-sm truncate text-text-muted">
-            {subtitle}
-          </span>
+          <span className="text-sm truncate text-text-muted">{subtitle}</span>
         )}
       </div>
       {shortcut && (
-        <kbd className={cn(
-          "text-xs px-2 py-0.5 rounded ml-2",
-          isSelected
-            ? "bg-bg-muted text-text"
-            : "bg-bg-muted text-text-muted"
-        )}>
+        <kbd
+          className={cn(
+            "text-xs px-2 py-0.5 rounded ml-2",
+            isSelected ? "bg-bg-muted text-text" : "bg-bg-muted text-text-muted"
+          )}
+        >
           {shortcut}
         </kbd>
       )}
