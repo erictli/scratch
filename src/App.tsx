@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { NotesProvider, useNotes } from "./context/NotesContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
-import { TooltipProvider } from "./components/ui/Tooltip";
+import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Editor } from "./components/editor/Editor";
 import { FolderPicker } from "./components/layout/FolderPicker";
@@ -207,6 +207,7 @@ function App() {
 
   return (
     <ThemeProvider>
+      <Toaster />
       <TooltipProvider>
         <NotesProvider>
           <GitProvider>

@@ -7,17 +7,29 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
-import { CommandItem } from "../ui";
+import {
+  CommandItem,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui";
 import { cleanTitle } from "../../lib/utils";
 import { duplicateNote } from "../../services/notes";
 import {
   CopyIcon,
   SettingsIcon,
   SwatchIcon,
+  GitCommitIcon,
   UploadIcon,
   AddNoteIcon,
   TrashIcon,
@@ -54,6 +66,8 @@ export function CommandPalette({
   const { status, gitAvailable, commit, push } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -132,7 +146,8 @@ export function CommandPalette({
           label: "Delete Current Note",
           icon: <TrashIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: () => {
-            deleteNote(currentNote.id);
+            setNoteToDelete(currentNote.id);
+            setDeleteDialogOpen(true);
             onClose();
           },
         },
@@ -142,10 +157,12 @@ export function CommandPalette({
           icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
-              await invoke("copy_to_clipboard", { text: currentNote.content });
+              await writeText(currentNote.content);
+              toast.success("Copied as Markdown");
               onClose();
             } catch (error) {
               console.error("Failed to copy markdown:", error);
+              toast.error("Failed to copy");
             }
           },
         },
@@ -165,10 +182,12 @@ export function CommandPalette({
                 .replace(/^[-*+]\s+/gm, "") // Remove list markers
                 .replace(/^\d+\.\s+/gm, "") // Remove numbered list markers
                 .replace(/^>\s+/gm, ""); // Remove blockquotes
-              await invoke("copy_to_clipboard", { text: plainText });
+              await writeText(plainText);
+              toast.success("Copied as plain text");
               onClose();
             } catch (error) {
               console.error("Failed to copy plain text:", error);
+              toast.error("Failed to copy");
             }
           },
         }
@@ -177,7 +196,26 @@ export function CommandPalette({
 
     // Add git commands if git is available and initialized
     if (gitAvailable && status?.isRepo) {
+      const hasChanges = (status?.changedCount ?? 0) > 0;
       const canPush = status?.hasRemote && (status?.aheadCount ?? 0) > 0;
+
+      if (hasChanges) {
+        baseCommands.push({
+          id: "git-commit",
+          label: "Git: Quick Commit",
+          icon: <GitCommitIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              await commit("Quick commit from Scratch");
+              toast.success("Changes committed");
+              onClose();
+            } catch (error) {
+              console.error("Failed to commit:", error);
+              toast.error("Failed to commit");
+            }
+          },
+        });
+      }
 
       if (canPush) {
         baseCommands.push({
@@ -189,9 +227,11 @@ export function CommandPalette({
           action: async () => {
             try {
               await push();
+              toast.success("Pushed to remote");
               onClose();
             } catch (error) {
               console.error("Failed to push:", error);
+              toast.error("Failed to push");
             }
           },
         });
@@ -282,6 +322,14 @@ export function CommandPalette({
     }
   }, [selectedIndex]);
 
+  const handleDeleteConfirm = useCallback(() => {
+    if (noteToDelete) {
+      deleteNote(noteToDelete);
+      setNoteToDelete(null);
+      setDeleteDialogOpen(false);
+    }
+  }, [noteToDelete, deleteNote]);
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       switch (e.key) {
@@ -352,11 +400,16 @@ export function CommandPalette({
                   {filteredNotes.slice(0, 10).map((note, i) => {
                     const title = cleanTitle(note.title);
                     const firstLetter = title.charAt(0).toUpperCase();
+                    // Clean subtitle: treat whitespace-only or &nbsp; as empty
+                    const cleanSubtitle = note.preview
+                      ?.replace(/&nbsp;/g, " ")
+                      .replace(/\u00A0/g, " ")
+                      .trim();
                     return (
                       <div key={note.id} data-index={i}>
                         <CommandItem
                           label={title}
-                          subtitle={note.preview}
+                          subtitle={cleanSubtitle}
                           iconText={firstLetter}
                           variant="note"
                           isSelected={selectedIndex === i}
@@ -394,6 +447,25 @@ export function CommandPalette({
           )}
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the
+              note.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

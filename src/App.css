@@ -246,7 +246,7 @@ html.dark {
   font-weight: var(--editor-bold-weight);
   line-height: 1.2;
   margin-top: 1em;
-  margin-bottom: 0.3em;
+  margin-bottom: 0.35em;
 }
 
 .prose h2 {
@@ -255,7 +255,7 @@ html.dark {
   font-weight: var(--editor-bold-weight);
   line-height: 1.3;
   margin-top: 1em;
-  margin-bottom: 0.3em;
+  margin-bottom: 0.35em;
 }
 
 .prose h3 {
@@ -568,4 +568,3 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 .slide-in-from-right-2 {
   animation-name: tooltip-slide-in-from-right;
 }
-

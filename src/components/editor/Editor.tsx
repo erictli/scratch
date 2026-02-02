@@ -17,6 +17,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { toast } from "sonner";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
@@ -785,9 +787,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (!editor) return;
     try {
       const markdown = getMarkdown(editor);
-      await invoke("copy_to_clipboard", { text: markdown });
+      await writeText(markdown);
+      toast.success("Copied as Markdown");
     } catch (error) {
       console.error("Failed to copy markdown:", error);
+      toast.error("Failed to copy");
     }
   }, [editor, getMarkdown]);
 
@@ -795,9 +799,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (!editor) return;
     try {
       const plainText = editor.getText();
-      await invoke("copy_to_clipboard", { text: plainText });
+      await writeText(plainText);
+      toast.success("Copied as plain text");
     } catch (error) {
       console.error("Failed to copy plain text:", error);
+      toast.error("Failed to copy");
     }
   }, [editor]);
 
@@ -805,9 +811,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (!editor) return;
     try {
       const html = editor.getHTML();
-      await invoke("copy_to_clipboard", { text: html });
+      await writeText(html);
+      toast.success("Copied as HTML");
     } catch (error) {
       console.error("Failed to copy HTML:", error);
+      toast.error("Failed to copy");
     }
   }, [editor]);
 

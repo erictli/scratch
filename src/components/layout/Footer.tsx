@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, memo } from "react";
+import { useCallback, memo } from "react";
+import { toast } from "sonner";
 import { useGit } from "../../context/GitContext";
-import { Button, IconButton, Tooltip, Input } from "../ui";
+import { Button, IconButton, Tooltip } from "../ui";
 import {
   GitBranchIcon,
   GitBranchDeletedIcon,
@@ -8,7 +9,6 @@ import {
   UploadIcon,
   SpinnerIcon,
   SettingsIcon,
-  ArrowRightIcon,
   CloudCheckIcon,
 } from "../icons";
 
@@ -30,56 +30,23 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
     clearError,
   } = useGit();
 
-  const [commitOpen, setCommitOpen] = useState(false);
-  const [commitMessage, setCommitMessage] = useState("");
-  const commitInputRef = useRef<HTMLInputElement>(null);
-
-  // Commit handlers
-  const toggleCommit = useCallback(() => {
-    if (!commitOpen) {
-      setCommitOpen(true);
-    } else {
-      // Close and clear
-      setCommitOpen(false);
-      setCommitMessage("");
-    }
-  }, [commitOpen]);
-
-  const closeCommit = useCallback(() => {
-    setCommitOpen(false);
-    setCommitMessage("");
-  }, []);
-
   const handleCommit = useCallback(async () => {
-    if (!commitMessage.trim()) return;
-    const success = await commit(commitMessage);
+    const success = await commit("Quick commit from Scratch");
     if (success) {
-      setCommitMessage("");
-      setCommitOpen(false);
+      toast.success("Changes committed");
+    } else {
+      toast.error("Failed to commit");
     }
-  }, [commitMessage, commit]);
+  }, [commit]);
 
-  const handleCommitKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleCommit();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        closeCommit();
-      }
-    },
-    [handleCommit, closeCommit]
-  );
-
-  // Auto-focus commit input when opened
-  useEffect(() => {
-    if (commitOpen) {
-      requestAnimationFrame(() => {
-        commitInputRef.current?.focus();
-      });
+  const handlePush = useCallback(async () => {
+    const success = await push();
+    if (success) {
+      toast.success("Pushed to remote");
+    } else {
+      toast.error("Failed to push");
     }
-  }, [commitOpen]);
+  }, [push]);
 
   // Git status section
   const renderGitStatus = () => {
@@ -155,40 +122,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
   const showCloudCheck = status?.hasRemote && !hasChanges && !canPush;
 
   return (
-    <div className="shrink-0 border-t border-border flex flex-col">
-      {/* Commit input - appears above footer when open */}
-      {commitOpen && (
-        <div className="px-2 pt-2 bg-bg-secondary">
-          <div className="relative">
-            <Input
-              ref={commitInputRef}
-              type="text"
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              onKeyDown={handleCommitKeyDown}
-              placeholder="Commit message..."
-              className="h-9 pr-8 text-sm"
-            />
-            {!isCommitting && (
-              <button
-                onClick={handleCommit}
-                disabled={!commitMessage.trim()}
-                tabIndex={-1}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Commit"
-              >
-                <ArrowRightIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-              </button>
-            )}
-            {isCommitting && (
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted">
-                <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
+    <div className="shrink-0 border-t border-border">
       {/* Footer bar with git status and action buttons */}
       <div className="pl-4 pr-3 pt-2 pb-2.5 flex items-center justify-between">
         {renderGitStatus()}
@@ -200,7 +134,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
                 status?.aheadCount === 1 ? " to push" : "s to push"
               }`}
             >
-              <IconButton onClick={push} disabled={isPushing} title="Push">
+              <IconButton onClick={handlePush} disabled={isPushing} title="Push">
                 {isPushing ? (
                   <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
                 ) : (
@@ -217,8 +151,12 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
             </Tooltip>
           )}
           {showCommitButton && (
-            <IconButton onClick={toggleCommit} title="Commit changes">
-              <GitCommitIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+            <IconButton onClick={handleCommit} disabled={isCommitting} title="Quick commit">
+              {isCommitting ? (
+                <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
+              ) : (
+                <GitCommitIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+              )}
             </IconButton>
           )}
           <IconButton onClick={onOpenSettings} title="Settings (⌘, to toggle)">

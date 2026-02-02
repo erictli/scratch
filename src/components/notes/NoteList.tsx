@@ -1,7 +1,17 @@
-import { useCallback, useMemo, memo, useEffect, useRef } from "react";
+import { useCallback, useMemo, memo, useEffect, useRef, useState } from "react";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
-import { ListItem } from "../ui";
+import {
+  ListItem,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui";
 import { cleanTitle } from "../../lib/utils";
 
 function formatDate(timestamp: number): string {
@@ -98,7 +108,17 @@ export function NoteList() {
     searchResults,
   } = useNotes();
 
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleDeleteConfirm = useCallback(() => {
+    if (noteToDelete) {
+      deleteNote(noteToDelete);
+      setNoteToDelete(null);
+      setDeleteDialogOpen(false);
+    }
+  }, [noteToDelete, deleteNote]);
 
   const handleContextMenu = useCallback(
     async (e: React.MouseEvent, noteId: string) => {
@@ -113,14 +133,17 @@ export function NoteList() {
           await PredefinedMenuItem.new({ item: "Separator" }),
           await MenuItem.new({
             text: "Delete",
-            action: () => deleteNote(noteId),
+            action: () => {
+              setNoteToDelete(noteId);
+              setDeleteDialogOpen(true);
+            },
           }),
         ],
       });
 
       await menu.popup();
     },
-    [duplicateNote, deleteNote]
+    [duplicateNote]
   );
 
   // Memoize display items to prevent recalculation on every render
@@ -172,23 +195,44 @@ export function NoteList() {
   }
 
   return (
-    <div
-      ref={containerRef}
-      tabIndex={0}
-      className="flex flex-col gap-1 p-1.5 outline-none"
-    >
-      {displayItems.map((item) => (
-        <NoteItem
-          key={item.id}
-          id={item.id}
-          title={item.title}
-          preview={item.preview}
-          modified={item.modified}
-          isSelected={selectedNoteId === item.id}
-          onSelect={selectNote}
-          onContextMenu={handleContextMenu}
-        />
-      ))}
-    </div>
+    <>
+      <div
+        ref={containerRef}
+        tabIndex={0}
+        className="flex flex-col gap-1 p-1.5 outline-none"
+      >
+        {displayItems.map((item) => (
+          <NoteItem
+            key={item.id}
+            id={item.id}
+            title={item.title}
+            preview={item.preview}
+            modified={item.modified}
+            isSelected={selectedNoteId === item.id}
+            onSelect={selectNote}
+            onContextMenu={handleContextMenu}
+          />
+        ))}
+      </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the
+              note.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
