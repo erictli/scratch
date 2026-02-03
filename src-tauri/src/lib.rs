@@ -448,7 +448,7 @@ fn strip_markdown(text: &str) -> String {
         .replace("- [X] ", "");
 
     // Remove list markers at start (-, *, +, 1.)
-    let list_re = regex::Regex::new(r"^(\s*[-+]|\s*\d+\.)\s+").unwrap();
+    let list_re = regex::Regex::new(r"^(\s*[-+*]|\s*\d+\.)\s+").unwrap();
     result = list_re.replace(&result, "").to_string();
 
     result.trim().to_string()
@@ -905,22 +905,31 @@ fn update_settings(
 }
 
 #[tauri::command]
-fn search_notes(query: String, state: State<AppState>) -> Result<Vec<SearchResult>, String> {
+async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
     if query.trim().is_empty() {
         return Ok(vec![]);
     }
 
-    let index = state.search_index.lock().expect("search index mutex");
-    if let Some(ref search_index) = *index {
-        search_index.search(&query, 20).map_err(|e| e.to_string())
+    // Check if search index is available and use it (scoped to drop lock before await)
+    let search_result = {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            Some(search_index.search(&query, 20).map_err(|e| e.to_string()))
+        } else {
+            None
+        }
+    };
+
+    if let Some(result) = search_result {
+        result
     } else {
         // Fallback to simple search if index not available
-        fallback_search(&query, &state)
+        fallback_search(&query, &state).await
     }
 }
 
 // Fallback search when Tantivy index isn't available - searches title and full content
-fn fallback_search(query: &str, state: &State<AppState>) -> Result<Vec<SearchResult>, String> {
+async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -931,46 +940,57 @@ fn fallback_search(query: &str, state: &State<AppState>) -> Result<Vec<SearchRes
         None => return Ok(vec![]),
     };
 
-    let cache = state.notes_cache.read().expect("cache read lock");
+    // Collect cache data upfront to avoid holding lock during async operations
+    let cache_data: Vec<(String, String, String, i64)> = {
+        let cache = state.notes_cache.read().expect("cache read lock");
+        cache
+            .values()
+            .map(|note| {
+                (
+                    note.id.clone(),
+                    note.title.clone(),
+                    note.preview.clone(),
+                    note.modified,
+                )
+            })
+            .collect()
+    };
+
     let query_lower = query.to_lowercase();
+    let mut results: Vec<SearchResult> = Vec::new();
 
-    let mut results: Vec<SearchResult> = cache
-        .values()
-        .filter_map(|note| {
-            let title_lower = note.title.to_lowercase();
+    for (id, title, preview, modified) in cache_data {
+        let title_lower = title.to_lowercase();
 
-            let mut score = 0.0f32;
-            if title_lower.contains(&query_lower) {
-                score += 50.0;
-            }
+        let mut score = 0.0f32;
+        if title_lower.contains(&query_lower) {
+            score += 50.0;
+        }
 
-            // Read file content and search in it
-            let file_path = PathBuf::from(&folder).join(format!("{}.md", &note.id));
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let content_lower = content.to_lowercase();
-                if content_lower.contains(&query_lower) {
-                    // Higher score if in title, lower if only in content
-                    if score == 0.0 {
-                        score += 10.0;
-                    } else {
-                        score += 5.0;
-                    }
+        // Read file content asynchronously and search in it
+        let file_path = PathBuf::from(&folder).join(format!("{}.md", &id));
+        if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
+            let content_lower = content.to_lowercase();
+            if content_lower.contains(&query_lower) {
+                // Higher score if in title, lower if only in content
+                if score == 0.0 {
+                    score += 10.0;
+                } else {
+                    score += 5.0;
                 }
             }
+        }
 
-            if score > 0.0 {
-                Some(SearchResult {
-                    id: note.id.clone(),
-                    title: note.title.clone(),
-                    preview: note.preview.clone(),
-                    modified: note.modified,
-                    score,
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
+        if score > 0.0 {
+            results.push(SearchResult {
+                id,
+                title,
+                preview,
+                modified,
+                score,
+            });
+        }
+    }
 
     results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     results.truncate(20);

@@ -330,7 +330,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     editorProps: {
       attributes: {
         class:
-          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-6 pb-24",
+          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
       },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
