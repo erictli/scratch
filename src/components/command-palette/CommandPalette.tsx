@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -68,6 +68,9 @@ export function CommandPalette({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
+  const [localSearchResults, setLocalSearchResults] = useState<
+    { id: string; title: string; preview: string; modified: number }[]
+  >([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -156,7 +159,7 @@ export function CommandPalette({
           icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
-              await writeText(currentNote.content);
+              await invoke("copy_to_clipboard", { text: currentNote.content });
               toast.success("Copied as Markdown");
               onClose();
             } catch (error) {
@@ -181,7 +184,7 @@ export function CommandPalette({
                 .replace(/^[-*+]\s+/gm, "") // Remove list markers
                 .replace(/^\d+\.\s+/gm, "") // Remove numbered list markers
                 .replace(/^>\s+/gm, ""); // Remove blockquotes
-              await writeText(plainText);
+              await invoke("copy_to_clipboard", { text: plainText });
               toast.success("Copied as plain text");
               onClose();
             } catch (error) {
@@ -254,14 +257,43 @@ export function CommandPalette({
     refreshNotes,
   ]);
 
-  // Memoize filtered notes
+  // Debounced search using Tantivy (local state, doesn't affect sidebar)
+  useEffect(() => {
+    if (!open) return;
+
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setLocalSearchResults([]);
+      return;
+    }
+
+    // Debounce search calls
+    const timer = setTimeout(async () => {
+      try {
+        const results = await invoke<
+          { id: string; title: string; preview: string; modified: number; score: number }[]
+        >("search_notes", { query: trimmed });
+        setLocalSearchResults(results);
+      } catch (err) {
+        console.error("Search failed:", err);
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [query, open]);
+
+  // Clear local search when palette closes
+  useEffect(() => {
+    if (!open) {
+      setLocalSearchResults([]);
+    }
+  }, [open]);
+
+  // Use search results when searching, otherwise show all notes
   const filteredNotes = useMemo(() => {
     if (!query.trim()) return notes;
-    const queryLower = query.toLowerCase();
-    return notes.filter((note) =>
-      note.title.toLowerCase().includes(queryLower)
-    );
-  }, [query, notes]);
+    return localSearchResults;
+  }, [query, notes, localSearchResults]);
 
   // Memoize filtered commands
   const filteredCommands = useMemo(() => {
@@ -340,20 +372,24 @@ export function CommandPalette({
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
+          e.stopPropagation();
           setSelectedIndex((i) => Math.min(i + 1, allItems.length - 1));
           break;
         case "ArrowUp":
           e.preventDefault();
+          e.stopPropagation();
           setSelectedIndex((i) => Math.max(i - 1, 0));
           break;
         case "Enter":
           e.preventDefault();
+          e.stopPropagation();
           if (allItems[selectedIndex]) {
             allItems[selectedIndex].action();
           }
           break;
         case "Escape":
           e.preventDefault();
+          e.stopPropagation();
           onClose();
           break;
       }
@@ -384,6 +420,10 @@ export function CommandPalette({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search notes or type a command..."
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-full px-4.5 py-3.5 text-[17px] bg-transparent outline-none text-text placeholder-text-muted/50"
           />
         </div>

@@ -8,6 +8,7 @@ import { Editor } from "./components/editor/Editor";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
 import { SettingsPage } from "./components/settings";
+import { SpinnerIcon } from "./components/icons";
 
 type ViewState = "notes" | "settings";
 
@@ -178,7 +179,10 @@ function AppContent() {
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-bg-secondary">
-        <div className="text-text-muted">Loading...</div>
+        <div className="text-text-muted/70 text-sm flex items-center gap-1.5 font-medium">
+          <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
+          Initializing Scratch...
+        </div>
       </div>
     );
   }

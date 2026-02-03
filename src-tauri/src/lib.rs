@@ -342,15 +342,116 @@ fn extract_title(content: &str) -> String {
     "Untitled".to_string()
 }
 
-// Utility: Generate preview from content
+// Utility: Generate preview from content (strip markdown formatting)
 fn generate_preview(content: &str) -> String {
+    // Skip the first line (title), find first non-empty line
     for line in content.lines().skip(1) {
         let trimmed = line.trim();
-        if !trimmed.is_empty() && !trimmed.starts_with('#') {
-            return trimmed.chars().take(100).collect();
+        if !trimmed.is_empty() {
+            let stripped = strip_markdown(trimmed);
+            if !stripped.is_empty() {
+                return stripped.chars().take(100).collect();
+            }
         }
     }
     String::new()
+}
+
+// Strip common markdown formatting from text
+fn strip_markdown(text: &str) -> String {
+    let mut result = text.to_string();
+
+    // Remove heading markers (##, ###, etc.)
+    let trimmed = result.trim_start();
+    if trimmed.starts_with('#') {
+        result = trimmed.trim_start_matches('#').trim_start().to_string();
+    }
+
+    // Remove strikethrough (~~text~~) - before other markers
+    while let Some(start) = result.find("~~") {
+        if let Some(end) = result[start + 2..].find("~~") {
+            let inner = &result[start + 2..start + 2 + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+        } else {
+            break;
+        }
+    }
+
+    // Remove bold (**text** or __text__) - before italic
+    while let Some(start) = result.find("**") {
+        if let Some(end) = result[start + 2..].find("**") {
+            let inner = &result[start + 2..start + 2 + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+        } else {
+            break;
+        }
+    }
+    while let Some(start) = result.find("__") {
+        if let Some(end) = result[start + 2..].find("__") {
+            let inner = &result[start + 2..start + 2 + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+        } else {
+            break;
+        }
+    }
+
+    // Remove inline code (`code`)
+    while let Some(start) = result.find('`') {
+        if let Some(end) = result[start + 1..].find('`') {
+            let inner = &result[start + 1..start + 1 + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+        } else {
+            break;
+        }
+    }
+
+    // Remove images ![alt](url) - must come before links
+    let img_re = regex::Regex::new(r"!\[([^\]]*)\]\([^)]+\)").unwrap();
+    result = img_re.replace_all(&result, "$1").to_string();
+
+    // Remove links [text](url)
+    let link_re = regex::Regex::new(r"\[([^\]]+)\]\([^)]+\)").unwrap();
+    result = link_re.replace_all(&result, "$1").to_string();
+
+    // Remove italic (*text* or _text_) - simple approach after bold is removed
+    // Match *text* where text doesn't contain *
+    while let Some(start) = result.find('*') {
+        if let Some(end) = result[start + 1..].find('*') {
+            if end > 0 {
+                let inner = &result[start + 1..start + 1 + end];
+                result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    // Match _text_ where text doesn't contain _
+    while let Some(start) = result.find('_') {
+        if let Some(end) = result[start + 1..].find('_') {
+            if end > 0 {
+                let inner = &result[start + 1..start + 1 + end];
+                result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Remove task list markers
+    result = result
+        .replace("- [ ] ", "")
+        .replace("- [x] ", "")
+        .replace("- [X] ", "");
+
+    // Remove list markers at start (-, *, +, 1.)
+    let list_re = regex::Regex::new(r"^(\s*[-+]|\s*\d+\.)\s+").unwrap();
+    result = list_re.replace(&result, "").to_string();
+
+    result.trim().to_string()
 }
 
 // Get app config file path (in app data directory)
@@ -818,8 +919,18 @@ fn search_notes(query: String, state: State<AppState>) -> Result<Vec<SearchResul
     }
 }
 
-// Fallback search when Tantivy index isn't available
+// Fallback search when Tantivy index isn't available - searches title and full content
 fn fallback_search(query: &str, state: &State<AppState>) -> Result<Vec<SearchResult>, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    let folder = match folder {
+        Some(f) => f,
+        None => return Ok(vec![]),
+    };
+
     let cache = state.notes_cache.read().expect("cache read lock");
     let query_lower = query.to_lowercase();
 
@@ -827,14 +938,24 @@ fn fallback_search(query: &str, state: &State<AppState>) -> Result<Vec<SearchRes
         .values()
         .filter_map(|note| {
             let title_lower = note.title.to_lowercase();
-            let preview_lower = note.preview.to_lowercase();
 
             let mut score = 0.0f32;
             if title_lower.contains(&query_lower) {
                 score += 50.0;
             }
-            if preview_lower.contains(&query_lower) {
-                score += 10.0;
+
+            // Read file content and search in it
+            let file_path = PathBuf::from(&folder).join(format!("{}.md", &note.id));
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                let content_lower = content.to_lowercase();
+                if content_lower.contains(&query_lower) {
+                    // Higher score if in title, lower if only in content
+                    if score == 0.0 {
+                        score += 10.0;
+                    } else {
+                        score += 5.0;
+                    }
+                }
             }
 
             if score > 0.0 {
@@ -911,12 +1032,38 @@ fn setup_file_watcher(
                             .map(|s| s.to_string())
                             .unwrap_or_default();
 
+                        // Update search index for external file changes
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let index = state.search_index.lock().expect("search index mutex");
+                            if let Some(ref search_index) = *index {
+                                match kind {
+                                    "created" | "modified" => {
+                                        // Read file and index it
+                                        if let Ok(content) = std::fs::read_to_string(path) {
+                                            let title = extract_title(&content);
+                                            let modified = std::fs::metadata(path)
+                                                .ok()
+                                                .and_then(|m| m.modified().ok())
+                                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                .map(|d| d.as_secs() as i64)
+                                                .unwrap_or(0);
+                                            let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                        }
+                                    }
+                                    "deleted" => {
+                                        let _ = search_index.delete_note(&note_id);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+
                         let _ = app_handle.emit(
                             "file-change",
                             FileChangeEvent {
                                 kind: kind.to_string(),
                                 path: path.to_string_lossy().into_owned(),
-                                changed_ids: vec![note_id],
+                                changed_ids: vec![note_id.clone()],
                             },
                         );
                     }
