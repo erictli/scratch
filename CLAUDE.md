@@ -66,7 +66,7 @@ scratch/
 │   └── main.tsx                    # React root & providers
 ├── src-tauri/                      # Rust backend
 │   ├── src/
-│   │   ├── lib.rs                  # 22 Tauri commands, state, file watcher, search
+│   │   ├── lib.rs                  # Tauri commands, state, file watcher, search
 │   │   └── git.rs                  # Git CLI wrapper (8 commands)
 │   ├── capabilities/default.json   # Tauri permissions config
 │   └── Cargo.toml                  # Rust dependencies
@@ -137,7 +137,7 @@ TipTap editor with extensions and features:
 - `NoteList` - Scrollable list with context menu and smart date formatting
 - `SettingsPage` - Tabbed settings (General, Appearance, Git)
 
-### Tauri Commands (22 total)
+### Tauri Commands
 
 **Note Management:** `list_notes`, `read_note`, `save_note`, `delete_note`, `create_note`
 
