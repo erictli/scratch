@@ -16,8 +16,8 @@ const tabs: {
   icon: typeof FolderIcon;
   shortcut: string;
 }[] = [
-  { id: "general", label: "General", icon: FolderIcon, shortcut: "⌘1" },
-  { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "⌘2" },
+  { id: "general", label: "General", icon: FolderIcon, shortcut: "1" },
+  { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "2" },
 ];
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
@@ -69,13 +69,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 onClick={() => setActiveTab(tab.id)}
                 variant={isActive ? "secondary" : "ghost"}
                 size="sm"
-                className="justify-between gap-2.5 h-9"
+                className="justify-between gap-2.5 h-10 pr-3.5"
               >
                 <div className="flex items-center gap-2.5">
                   <Icon className="w-4.5 h-4.5 stroke-[1.5]" />
                   {tab.label}
                 </div>
-                <kbd className="text-2xs text-text-muted">{tab.shortcut}</kbd>
+                <div className="text-xs text-text-muted">
+                  <span className="mr-0.5">⌘</span>
+                  {tab.shortcut}
+                </div>
               </Button>
             );
           })}
@@ -89,7 +92,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
         {/* Content - centered with max width */}
         <div className="flex-1 overflow-auto">
-          <div className="w-full max-w-3xl mx-auto px-8 py-4">
+          <div className="w-full max-w-2xl mx-auto px-6 pb-6">
             {activeTab === "general" && <GeneralSettingsSection />}
             {activeTab === "editor" && <AppearanceSettingsSection />}
           </div>

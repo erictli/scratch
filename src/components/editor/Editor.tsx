@@ -361,7 +361,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                 const assetUrl = convertFileSrc(absolutePath);
 
                 // Insert image
-                editorRef.current?.chain().focus().setImage({ src: assetUrl }).run();
+                editorRef.current
+                  ?.chain()
+                  .focus()
+                  .setImage({ src: assetUrl })
+                  .run();
               } catch (error) {
                 console.error("Failed to paste image:", error);
               }

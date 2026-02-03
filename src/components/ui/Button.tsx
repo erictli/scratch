@@ -16,7 +16,7 @@ const buttonSizes = {
 };
 
 const buttonVariants = {
-  primary: "bg-accent text-white hover:bg-accent/90 rounded-md",
+  primary: "bg-accent text-text-inverse hover:bg-accent/90 rounded-md",
   default: "bg-bg-muted text-text hover:bg-bg-emphasis rounded-md",
   secondary: "bg-bg-muted text-text hover:bg-bg-emphasis rounded-md",
   ghost: "hover:bg-bg-muted text-text-muted hover:text-text rounded-md",

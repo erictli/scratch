@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
@@ -16,6 +16,22 @@ function formatRemoteUrl(url: string | null): string {
   const sshMatch = url.match(/:([^/]+\/[^/]+?)(?:\.git)?$/);
   const httpsMatch = url.match(/\/([^/]+\/[^/]+?)(?:\.git)?$/);
   return sshMatch?.[1] || httpsMatch?.[1] || url;
+}
+
+// Convert git remote URL to a browsable web URL
+function getRemoteWebUrl(url: string | null): string | null {
+  if (!url) return null;
+  // SSH: git@github.com:user/repo.git -> https://github.com/user/repo
+  const sshMatch = url.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshMatch) {
+    return `https://${sshMatch[1]}/${sshMatch[2]}`;
+  }
+  // HTTPS: https://github.com/user/repo.git -> https://github.com/user/repo
+  const httpsMatch = url.match(/^(https?:\/\/.+?)(?:\.git)?$/);
+  if (httpsMatch) {
+    return httpsMatch[1];
+  }
+  return null;
 }
 
 export function GeneralSettingsSection() {
@@ -100,11 +116,11 @@ export function GeneralSettingsSection() {
     <div className="space-y-8">
       {/* Folder Location */}
       <section>
-        <h2 className="text-xl font-medium">Folder Location</h2>
-        <p className="text-sm text-text-muted mb-3">
+        <h2 className="text-xl font-medium mb-0.5">Folder Location</h2>
+        <p className="text-sm text-text-muted mb-4">
           Your notes are stored as markdown files in this folder
         </p>
-        <div className="flex items-center gap-3 p-2.5 rounded-lg bg-bg-secondary border border-border mb-3">
+        <div className="flex items-center gap-2.5 p-2.5 rounded-lg border border-border mb-2.5">
           <div className="p-2 rounded-md bg-bg-muted">
             <FolderIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
           </div>
@@ -116,7 +132,7 @@ export function GeneralSettingsSection() {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <Button onClick={handleChangeFolder} variant="secondary" size="md">
+          <Button onClick={handleChangeFolder} variant="outline" size="md">
             Change Folder
           </Button>
           {notesFolder && (
@@ -124,7 +140,7 @@ export function GeneralSettingsSection() {
               onClick={handleOpenFolder}
               variant="ghost"
               size="md"
-              className="gap-1.5"
+              className="gap-1.5 text-text"
             >
               <ExternalLinkIcon className="w-4 h-4" />
               Open in Finder
@@ -134,37 +150,55 @@ export function GeneralSettingsSection() {
       </section>
 
       {/* Divider */}
-      <div className="border-t border-border" />
+      <div className="border-t border-border border-dashed" />
 
       {/* Git Section */}
       <section>
-        <h2 className="text-xl font-medium mb-3">Version Control</h2>
+        <h2 className="text-xl font-medium mb-0.5">Version Control</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Track changes and store backups of your notes using Git
+        </p>
         {!gitAvailable ? (
           <div className="bg-bg-secondary rounded-lg border border-border p-4">
             <p className="text-sm text-text-muted">
-              Git is not available on this system. Install Git to enable version
-              control.
+              Git is not available on this system.{" "}
+              <a
+                href="https://git-scm.com/downloads"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-text-muted border-b border-text-muted/50 hover:text-text hover:border-text cursor-pointer transition-colors"
+              >
+                Install Git
+              </a>{" "}
+              to enable version control.
             </p>
           </div>
         ) : isLoading ? (
-          <div className="bg-bg-secondary rounded-lg border border-border p-4 flex items-center justify-center">
-            <SpinnerIcon className="w-4 h-4 animate-spin text-text-muted" />
+          <div className="rounded-lg border border-border p-4 flex items-center justify-center">
+            <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin text-text-muted" />
           </div>
         ) : !status?.isRepo ? (
           <div className="bg-bg-secondary rounded-lg border border-border p-4">
-            <p className="text-sm text-text mb-4">
+            <p className="text-sm text-text-muted mb-2">
               Enable Git to track changes to your notes with version control.
+              Your changes will be tracked automatically and you can commit and
+              push from the sidebar.
             </p>
-            <Button onClick={initRepo} disabled={isLoading}>
+            <Button
+              onClick={initRepo}
+              disabled={isLoading}
+              variant="outline"
+              size="md"
+            >
               Initialize Git Repository
             </Button>
           </div>
         ) : (
           <>
-            <div className="bg-bg-secondary rounded-lg border border-border p-4 space-y-4">
+            <div className="rounded-lg border border-border p-3 space-y-2.5">
               {/* Branch status */}
               <div className="flex items-center justify-between">
-                <span className="text-sm text-text">Status</span>
+                <span className="text-sm text-text font-medium">Status</span>
                 <span className="text-sm text-text-muted">
                   {status.currentBranch
                     ? `On branch ${status.currentBranch}`
@@ -176,48 +210,70 @@ export function GeneralSettingsSection() {
               {status.hasRemote ? (
                 <>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-text">Remote</span>
-                    <span
-                      className="text-sm text-text-muted truncate max-w-50"
-                      title={status.remoteUrl || undefined}
-                    >
-                      {formatRemoteUrl(status.remoteUrl)}
+                    <span className="text-sm text-text font-medium">
+                      Remote
                     </span>
+                    {getRemoteWebUrl(status.remoteUrl) ? (
+                      <button
+                        onClick={() =>
+                          openUrl(getRemoteWebUrl(status.remoteUrl)!)
+                        }
+                        className="flex items-center gap-0.75 text-sm text-text-muted hover:text-text truncate max-w-50 transition-colors cursor-pointer"
+                        title={status.remoteUrl || undefined}
+                      >
+                        <span className="truncate">
+                          {formatRemoteUrl(status.remoteUrl)}
+                        </span>
+                        <ExternalLinkIcon className="w-3.25 h-3.25 shrink-0" />
+                      </button>
+                    ) : (
+                      <span
+                        className="text-sm text-text-muted truncate max-w-50"
+                        title={status.remoteUrl || undefined}
+                      >
+                        {formatRemoteUrl(status.remoteUrl)}
+                      </span>
+                    )}
                   </div>
 
                   {/* Upstream tracking status */}
                   {status.hasUpstream ? (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-text">Tracking</span>
+                      <span className="text-sm text-text font-medium">
+                        Tracking
+                      </span>
                       <span className="text-sm text-text-muted">
                         origin/{status.currentBranch}
                       </span>
                     </div>
                   ) : (
                     status.currentBranch && (
-                      <div className="pt-3 border-t border-border space-y-3">
+                      <div className="pt-3 border-t border-border border-dashed space-y-0.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-text">Tracking</span>
-                          <span className="text-sm text-amber-500">
+                          <span className="text-sm text-text font-medium">
+                            Tracking
+                          </span>
+                          <span className="text-sm font-medium text-amber-500">
                             Not set up
                           </span>
                         </div>
-                        <p className="text-xs text-text-muted">
-                          Push your commits and set up tracking for the{" "}
-                          {status.currentBranch} branch.
+                        <p className="text-sm text-text-muted mb-2">
+                          Push your commits and set up tracking for the '
+                          {status.currentBranch}' branch.
                         </p>
                         <Button
                           onClick={handlePushWithUpstream}
                           disabled={isPushing}
                           size="sm"
+                          className="mb-1.5"
                         >
                           {isPushing ? (
                             <>
-                              <SpinnerIcon className="w-3 h-3 mr-2 animate-spin" />
+                              <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
                               Pushing...
                             </>
                           ) : (
-                            `Push & Track origin/${status.currentBranch}`
+                            `Push & track '${status.currentBranch}'`
                           )}
                         </Button>
                       </div>
@@ -225,10 +281,12 @@ export function GeneralSettingsSection() {
                   )}
                 </>
               ) : (
-                <div className="pt-3 border-t border-border space-y-3">
+                <div className="pt-3 border-t border-border border-dashed space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-text">Remote</span>
-                    <span className="text-sm text-amber-500">
+                    <span className="text-sm text-text font-medium">
+                      Remote
+                    </span>
+                    <span className="text-sm font-medium text-amber-500">
                       Not connected
                     </span>
                   </div>
@@ -289,10 +347,13 @@ export function GeneralSettingsSection() {
 
               {/* Changes count */}
               {status.changedCount > 0 && (
-                <div className="flex items-center justify-between pt-3 border-t border-border">
-                  <span className="text-sm text-text">Changes</span>
-                  <span className="text-sm text-accent">
-                    {status.changedCount} files
+                <div className="flex items-center justify-between pt-3 border-t border-border border-dashed">
+                  <span className="text-sm text-text font-medium">
+                    Changes to commit
+                  </span>
+                  <span className="text-sm text-text-muted">
+                    {status.changedCount} file
+                    {status.changedCount === 1 ? "" : "s"} changed
                   </span>
                 </div>
               )}
@@ -300,9 +361,12 @@ export function GeneralSettingsSection() {
               {/* Commits to push */}
               {status.aheadCount > 0 && status.hasUpstream && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-text">To push</span>
-                  <span className="text-sm text-accent">
-                    {status.aheadCount} commits
+                  <span className="text-sm text-text font-medium">
+                    Commits to push
+                  </span>
+                  <span className="text-sm text-text-muted">
+                    {status.aheadCount} commit
+                    {status.aheadCount === 1 ? "" : "s"}
                   </span>
                 </div>
               )}
@@ -334,10 +398,6 @@ export function GeneralSettingsSection() {
                 </div>
               )}
             </div>
-            <p className="mt-3 text-xs text-text-muted">
-              Changes are tracked automatically. Use the sidebar to commit and
-              push.
-            </p>
           </>
         )}
       </section>

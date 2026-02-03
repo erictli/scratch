@@ -36,14 +36,14 @@
 
 /* Theme color tokens - Dark mode */
 .dark {
-  --color-bg: #0c0a09;
-  --color-bg-secondary: #1c1917;
-  --color-bg-muted: rgba(250, 249, 249, 0.06);
-  --color-bg-emphasis: rgba(250, 249, 249, 0.09);
+  --color-bg: rgb(22, 20, 19);
+  --color-bg-secondary: rgb(14, 12, 11);
+  --color-bg-muted: rgba(250, 249, 249, 0.05);
+  --color-bg-emphasis: rgba(250, 249, 249, 0.08);
   --color-text: #fafaf9;
   --color-text-muted: #a8a29e;
-  --color-text-inverse: #1c1917;
-  --color-border: rgba(250, 249, 249, 0.08);
+  --color-text-inverse: #0c0a09;
+  --color-border: rgba(250, 249, 249, 0.07);
   --color-accent: #fafaf9;
   --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
 }
