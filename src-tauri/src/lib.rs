@@ -1255,13 +1255,19 @@ async fn open_folder_dialog(
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
-    let mut builder = app.dialog().file().set_can_create_directories(true);
+    // Run blocking dialog on a separate thread to avoid blocking the async runtime
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut builder = app.dialog().file().set_can_create_directories(true);
 
-    if let Some(path) = default_path {
-        builder = builder.set_directory(path);
-    }
+        if let Some(path) = default_path {
+            builder = builder.set_directory(path);
+        }
 
-    let result = builder.blocking_pick_folder();
+        builder.blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| format!("Dialog task failed: {}", e))?;
+
     Ok(result.map(|p| p.to_string()))
 }
 
@@ -1272,10 +1278,43 @@ async fn reveal_in_file_manager(path: String) -> Result<(), String> {
         return Err("Path does not exist".to_string());
     }
 
-    std::process::Command::new("open")
-        .args(["-R", &path])
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows explorer /select requires backslashes
+        let windows_path = path.replace("/", "\\");
+        std::process::Command::new("explorer")
+            .args(["/select,", &windows_path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: open containing directory (most file managers don't support selecting)
+        let parent = path_buf
+            .parent()
+            .ok_or_else(|| "Cannot determine parent directory".to_string())?;
+        let parent_str = parent
+            .to_str()
+            .ok_or_else(|| "Path contains invalid UTF-8".to_string())?;
+        std::process::Command::new("xdg-open")
+            .arg(parent_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        return Err("Unsupported platform".to_string());
+    }
 
     Ok(())
 }
