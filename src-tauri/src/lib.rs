@@ -1119,6 +1119,11 @@ async fn save_clipboard_image(
     base64_data: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
+    // Guard against empty clipboard payload
+    if base64_data.trim().is_empty() {
+        return Err("Clipboard data is empty".to_string());
+    }
+
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config
@@ -1131,6 +1136,11 @@ async fn save_clipboard_image(
     let image_data = base64::engine::general_purpose::STANDARD
         .decode(&base64_data)
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    // Guard against zero-byte files
+    if image_data.is_empty() {
+        return Err("Decoded image data is empty".to_string());
+    }
 
     // Create assets folder path
     let assets_dir = PathBuf::from(&folder).join("assets");

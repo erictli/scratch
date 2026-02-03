@@ -108,6 +108,8 @@ export function GeneralSettingsSection() {
   };
 
   const handleAddRemote = async () => {
+    // Guard against concurrent submissions
+    if (isAddingRemote) return;
     if (!remoteUrl.trim()) return;
     const success = await addRemote(remoteUrl.trim());
     if (success) {
@@ -157,7 +159,7 @@ export function GeneralSettingsSection() {
               className="gap-1.5 text-text"
             >
               <FolderIcon className="w-4 h-4 stroke-[1.7]" />
-              Open in Finder
+              Open Folder
             </Button>
           )}
         </div>
