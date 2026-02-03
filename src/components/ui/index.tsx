@@ -13,6 +13,21 @@ export {
 } from "./Tooltip";
 export { Button } from "./Button";
 export { Input } from "./Input";
+export { Select } from "./Select";
+export { Toaster } from "./Toaster";
+export {
+  AlertDialog,
+  AlertDialogPortal,
+  AlertDialogOverlay,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "./AlertDialog";
 
 // Toolbar button with active state and tooltip
 interface ToolbarButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -89,7 +104,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         className={cn(
           "flex items-center justify-center rounded-md transition-colors",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
-          "disabled:pointer-events-none disabled:opacity-50",
+          "disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
           iconButtonSizes[size],
           iconButtonVariants[variant],
           className
@@ -183,6 +198,9 @@ interface CommandItemProps {
   label: string;
   subtitle?: string;
   shortcut?: string;
+  icon?: ReactNode;
+  iconText?: string;
+  variant?: "note" | "command";
   isSelected?: boolean;
   onClick?: () => void;
 }
@@ -191,6 +209,9 @@ export function CommandItem({
   label,
   subtitle,
   shortcut,
+  icon,
+  iconText,
+  variant = "command",
   isSelected = false,
   onClick,
 }: CommandItemProps) {
@@ -200,20 +221,39 @@ export function CommandItem({
       role="button"
       tabIndex={-1}
       className={cn(
-        "w-full text-left px-4 py-2 flex items-center justify-between transition-colors cursor-pointer",
-        isSelected ? "bg-bg-emphasis text-text" : "text-text hover:bg-bg-muted"
+        "w-full text-left px-3 py-2 rounded-lg flex items-center justify-between transition-colors cursor-pointer",
+        isSelected ? "bg-bg-muted text-text" : "text-text hover:bg-bg-muted"
       )}
     >
-      <div className="flex flex-col min-w-0">
-        <span className="font-medium truncate">{label}</span>
-        {subtitle && (
-          <span className="text-sm truncate text-text-muted">{subtitle}</span>
+      <div className="flex items-center gap-3 min-w-0">
+        {(icon || iconText) && (
+          <div
+            className={cn(
+              "shrink-0 flex items-center justify-center text-text-muted",
+              variant === "note" &&
+                "w-9 h-9 rounded-md bg-bg-emphasis flex items-center justify-center"
+            )}
+          >
+            {iconText ? (
+              <span className="text-xl text-text-muted font-serif">
+                {iconText}
+              </span>
+            ) : (
+              icon
+            )}
+          </div>
         )}
+        <div className="flex flex-col min-w-0">
+          <span className="text-[15px] font-medium truncate">{label}</span>
+          {subtitle && (
+            <span className="text-sm truncate text-text-muted">{subtitle}</span>
+          )}
+        </div>
       </div>
       {shortcut && (
         <kbd
           className={cn(
-            "text-xs px-2 py-0.5 rounded ml-2",
+            "text-xs px-2 py-0.5 rounded-md ml-2",
             isSelected ? "bg-bg-muted text-text" : "bg-bg-muted text-text-muted"
           )}
         >

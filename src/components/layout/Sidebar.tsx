@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNotes } from "../../context/NotesContext";
 import { NoteList } from "../notes/NoteList";
-import { GitStatus } from "../git/GitStatus";
+import { Footer } from "./Footer";
 import { IconButton, Input } from "../ui";
 import {
   PlusIcon,
   XIcon,
   SpinnerIcon,
-  SettingsIcon,
   SearchIcon,
   SearchOffIcon,
 } from "../icons";
@@ -46,14 +45,9 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     [search]
   );
 
-  const openSearch = useCallback(() => {
-    if (!searchOpen) {
-      setSearchOpen(true);
-    } else {
-      // Already open, just focus
-      searchInputRef.current?.focus();
-    }
-  }, [searchOpen]);
+  const toggleSearch = useCallback(() => {
+    setSearchOpen((prev) => !prev);
+  }, []);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
@@ -121,8 +115,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             {notes.length}
           </div>
         </div>
-        <div className="flex items-center gap-0.75">
-          <IconButton onClick={openSearch} title="Search (⌘F)">
+        <div className="flex items-center gap-0.5">
+          <IconButton onClick={toggleSearch} title="Search (⌘F)">
             {searchOpen ? (
               <SearchOffIcon className="w-4.25 h-4.25 stroke-[1.5]" />
             ) : (
@@ -175,13 +169,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         <NoteList />
       </div>
 
-      {/* Footer with git status, note count, and actions */}
-      <div className="px-3 pt-2.5 pb-3 shrink-0 border-t border-border flex items-center justify-between">
-        <GitStatus />
-        <IconButton onClick={onOpenSettings} title="Settings (⌘,)">
-          <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-        </IconButton>
-      </div>
+      {/* Footer with git status, commit, and settings */}
+      <Footer onOpenSettings={onOpenSettings} />
     </div>
   );
 }

@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { NotesProvider, useNotes } from "./context/NotesContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
-import { TooltipProvider } from "./components/ui/Tooltip";
+import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Editor } from "./components/editor/Editor";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
 import { SettingsPage } from "./components/settings";
+import { SpinnerIcon } from "./components/icons";
 
 type ViewState = "notes" | "settings";
 
@@ -21,6 +22,7 @@ function AppContent() {
     selectNote,
     searchQuery,
     searchResults,
+    reloadCurrentNote,
   } = useNotes();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
@@ -30,8 +32,8 @@ function AppContent() {
     setSidebarVisible((prev) => !prev);
   }, []);
 
-  const openSettings = useCallback(() => {
-    setView("settings");
+  const toggleSettings = useCallback(() => {
+    setView((prev) => (prev === "settings" ? "notes" : "settings"));
   }, []);
 
   const closeSettings = useCallback(() => {
@@ -51,7 +53,19 @@ function AppContent() {
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 
-      // Trap Tab/Shift+Tab globally - prevent focus navigation
+      // Cmd+, - Toggle settings (always works, even in settings)
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        toggleSettings();
+        return;
+      }
+
+      // Block all other shortcuts when in settings view
+      if (view === "settings") {
+        return;
+      }
+
+      // Trap Tab/Shift+Tab in notes view only - prevent focus navigation
       // TipTap handles indentation internally before event bubbles up
       if (e.key === "Tab") {
         e.preventDefault();
@@ -62,13 +76,6 @@ function AppContent() {
       if ((e.metaKey || e.ctrlKey) && e.key === "p") {
         e.preventDefault();
         setPaletteOpen(true);
-        return;
-      }
-
-      // Cmd+, - Open settings
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault();
-        openSettings();
         return;
       }
 
@@ -83,6 +90,13 @@ function AppContent() {
       if ((e.metaKey || e.ctrlKey) && e.key === "n") {
         e.preventDefault();
         createNote();
+        return;
+      }
+
+      // Cmd+R - Reload current note (pull external changes)
+      if ((e.metaKey || e.ctrlKey) && e.key === "r") {
+        e.preventDefault();
+        reloadCurrentNote();
         return;
       }
 
@@ -150,10 +164,12 @@ function AppContent() {
   }, [
     createNote,
     displayItems,
+    reloadCurrentNote,
     selectedNoteId,
     selectNote,
-    openSettings,
+    toggleSettings,
     toggleSidebar,
+    view,
   ]);
 
   const handleClosePalette = useCallback(() => {
@@ -163,7 +179,10 @@ function AppContent() {
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-bg-secondary">
-        <div className="text-text-muted">Loading...</div>
+        <div className="text-text-muted/70 text-sm flex items-center gap-1.5 font-medium">
+          <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
+          Initializing Scratch...
+        </div>
       </div>
     );
   }
@@ -179,7 +198,7 @@ function AppContent() {
           <SettingsPage onBack={closeSettings} />
         ) : (
           <>
-            {sidebarVisible && <Sidebar onOpenSettings={openSettings} />}
+            {sidebarVisible && <Sidebar onOpenSettings={toggleSettings} />}
             <Editor
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible}
@@ -190,7 +209,7 @@ function AppContent() {
       <CommandPalette
         open={paletteOpen}
         onClose={handleClosePalette}
-        onOpenSettings={openSettings}
+        onOpenSettings={toggleSettings}
       />
     </>
   );
@@ -207,6 +226,7 @@ function App() {
 
   return (
     <ThemeProvider>
+      <Toaster />
       <TooltipProvider>
         <NotesProvider>
           <GitProvider>

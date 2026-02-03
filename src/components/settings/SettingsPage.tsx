@@ -1,39 +1,65 @@
-import { useState } from "react";
-import { ArrowLeftIcon, FolderIcon, PaletteIcon, GitBranchIcon } from "../icons";
+import { useState, useEffect } from "react";
+import { ArrowLeftIcon, FolderIcon, SwatchIcon } from "../icons";
 import { Button, IconButton } from "../ui";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
-import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
-import { GitSettingsSection } from "./GitSettingsSection";
+import { AppearanceSettingsSection } from "./EditorSettingsSection";
 
 interface SettingsPageProps {
   onBack: () => void;
 }
 
-type SettingsTab = "general" | "appearance" | "git";
+type SettingsTab = "general" | "editor";
 
-const tabs: { id: SettingsTab; label: string; icon: typeof FolderIcon }[] = [
-  { id: "general", label: "General", icon: FolderIcon },
-  { id: "appearance", label: "Appearance", icon: PaletteIcon },
-  { id: "git", label: "Version Control", icon: GitBranchIcon },
+const tabs: {
+  id: SettingsTab;
+  label: string;
+  icon: typeof FolderIcon;
+  shortcut: string;
+}[] = [
+  { id: "general", label: "General", icon: FolderIcon, shortcut: "1" },
+  { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "2" },
 ];
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 
-  return (
-    <div className="h-full flex flex-col bg-bg">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
-        <IconButton onClick={onBack} title="Back">
-          <ArrowLeftIcon className="w-5 h-5" />
-        </IconButton>
-        <h1 className="text-lg font-semibold text-text">Settings</h1>
-      </div>
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey) {
+        if (e.key === "1") {
+          e.preventDefault();
+          setActiveTab("general");
+        } else if (e.key === "2") {
+          e.preventDefault();
+          setActiveTab("editor");
+        }
+      }
+    };
 
-      {/* Content with sidebar */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <nav className="w-48 border-r border-border p-3 flex flex-col gap-1">
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  return (
+    <div className="h-full flex bg-bg w-full">
+      {/* Sidebar - matches main Notes sidebar */}
+      <div className="w-64 h-full bg-bg-secondary border-r border-border flex flex-col select-none">
+        {/* Drag region */}
+        <div className="h-11 shrink-0" data-tauri-drag-region></div>
+
+        {/* Header with back button and Settings title */}
+        <div className="flex items-center justify-between px-3 pb-2 border-b border-border shrink-0">
+          <div className="flex items-center gap-1">
+            <IconButton onClick={onBack} title="Back (⌘,)">
+              <ArrowLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+            </IconButton>
+            <div className="font-medium text-base">Settings</div>
+          </div>
+        </div>
+
+        {/* Navigation tabs */}
+        <nav className="flex-1 p-2 flex flex-col gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -43,21 +69,32 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 onClick={() => setActiveTab(tab.id)}
                 variant={isActive ? "secondary" : "ghost"}
                 size="sm"
-                className="justify-start gap-2.5"
+                className="justify-between gap-2.5 h-10 pr-3.5"
               >
-                <Icon className="w-4 h-4" />
-                {tab.label}
+                <div className="flex items-center gap-2.5">
+                  <Icon className="w-4.5 h-4.5 stroke-[1.5]" />
+                  {tab.label}
+                </div>
+                <div className="text-xs text-text-muted">
+                  <span className="mr-0.5">⌘</span>
+                  {tab.shortcut}
+                </div>
               </Button>
             );
           })}
         </nav>
+      </div>
 
-        {/* Main content */}
+      {/* Main content area */}
+      <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+        {/* Drag region */}
+        <div className="h-11 shrink-0" data-tauri-drag-region></div>
+
+        {/* Content - centered with max width */}
         <div className="flex-1 overflow-auto">
-          <div className="max-w-xl p-8">
+          <div className="w-full max-w-3xl mx-auto px-6 pb-6">
             {activeTab === "general" && <GeneralSettingsSection />}
-            {activeTab === "appearance" && <AppearanceSettingsSection />}
-            {activeTab === "git" && <GitSettingsSection />}
+            {activeTab === "editor" && <AppearanceSettingsSection />}
           </div>
         </div>
       </div>

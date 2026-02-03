@@ -13,8 +13,21 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { Markdown } from "@tiptap/markdown";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
-import { open } from "@tauri-apps/plugin-dialog";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { join } from "@tauri-apps/api/path";
+import { toast } from "sonner";
+
+// Validate URL scheme for safe opening
+function isAllowedUrlScheme(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return ["http:", "https:", "mailto:"].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
@@ -41,6 +54,7 @@ import {
   CircleCheckIcon,
   CopyIcon,
   PanelLeftIcon,
+  RefreshCwIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -195,8 +209,14 @@ interface EditorProps {
 }
 
 export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
-  const { currentNote, saveNote, createNote } = useNotes();
-  const [isDirty, setIsDirty] = useState(false);
+  const {
+    currentNote,
+    saveNote,
+    createNote,
+    hasExternalChanges,
+    reloadCurrentNote,
+    reloadVersion,
+  } = useNotes();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
@@ -207,10 +227,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
   const currentNoteIdRef = useRef<string | null>(null);
-  // Track pending save content for flush
-  const pendingSaveRef = useRef<{ noteId: string; content: string } | null>(
-    null
-  );
+  // Track if we need to save (use ref to avoid computing markdown on every keystroke)
+  const needsSaveRef = useRef(false);
 
   // Keep ref in sync with current note ID
   currentNoteIdRef.current = currentNote?.id ?? null;
@@ -235,8 +253,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       setIsSaving(true);
       try {
         lastSaveRef.current = { noteId, content };
-        await saveNote(content);
-        setIsDirty(false);
+        await saveNote(content, noteId);
       } finally {
         setIsSaving(false);
       }
@@ -244,46 +261,45 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     [saveNote]
   );
 
-  // Flush any pending save immediately
+  // Flush any pending save immediately (saves to the note currently loaded in editor)
   const flushPendingSave = useCallback(async () => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
 
-    const pending = pendingSaveRef.current;
-    if (pending) {
-      pendingSaveRef.current = null;
-      await saveImmediately(pending.noteId, pending.content);
+    // Use loadedNoteIdRef (the note in the editor) not currentNoteIdRef (which may have changed)
+    if (needsSaveRef.current && editorRef.current && loadedNoteIdRef.current) {
+      needsSaveRef.current = false;
+      const markdown = getMarkdown(editorRef.current);
+      await saveImmediately(loadedNoteIdRef.current, markdown);
     }
-  }, [saveImmediately]);
+  }, [saveImmediately, getMarkdown]);
 
-  // Auto-save with debounce
-  const debouncedSave = useCallback(
-    async (newContent: string) => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
+  // Schedule a debounced save (markdown computed only when timer fires)
+  const scheduleSave = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    const savingNoteId = currentNote?.id;
+    if (!savingNoteId) return;
+
+    needsSaveRef.current = true;
+
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      if (currentNoteIdRef.current !== savingNoteId || !needsSaveRef.current) {
+        return;
       }
 
-      // Capture the note ID now (before the timeout)
-      const savingNoteId = currentNote?.id;
-      if (!savingNoteId) return;
-
-      // Track pending save for potential flush
-      pendingSaveRef.current = { noteId: savingNoteId, content: newContent };
-
-      saveTimeoutRef.current = window.setTimeout(async () => {
-        // Guard: only save if still on the same note
-        if (currentNoteIdRef.current !== savingNoteId) {
-          return;
-        }
-
-        pendingSaveRef.current = null;
-        await saveImmediately(savingNoteId, newContent);
-      }, 300); // Reduced from 1000ms to 300ms
-    },
-    [saveImmediately, currentNote?.id]
-  );
+      // Compute markdown only now, when we actually save
+      if (editorRef.current) {
+        needsSaveRef.current = false;
+        const markdown = getMarkdown(editorRef.current);
+        await saveImmediately(savingNoteId, markdown);
+      }
+    }, 500);
+  }, [saveImmediately, getMarkdown, currentNote?.id]);
 
   const editor = useEditor({
     extensions: [
@@ -314,24 +330,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     editorProps: {
       attributes: {
         class:
-          "prose prose-lg dark:prose-invert max-w-2xl mx-auto focus:outline-none min-h-full px-6 pt-6 pb-24",
-      },
-      // Handle cmd/ctrl+click to open links
-      handleClick: (_view, _pos, event) => {
-        // Only handle cmd/ctrl+click
-        if (!event.metaKey && !event.ctrlKey) return false;
-
-        const target = event.target as HTMLElement;
-        const link = target.closest("a");
-        if (link) {
-          const href = link.getAttribute("href");
-          if (href) {
-            event.preventDefault();
-            window.open(href, "_blank", "noopener,noreferrer");
-            return true;
-          }
-        }
-        return false;
+          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
       },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
@@ -342,9 +341,59 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         }
         return false;
       },
-      // Handle markdown paste
+      // Handle markdown and image paste
       handlePaste: (_view, event) => {
-        const text = event.clipboardData?.getData("text/plain");
+        const clipboardData = event.clipboardData;
+        if (!clipboardData) return false;
+
+        // Check for images first
+        const items = Array.from(clipboardData.items);
+        const imageItem = items.find((item) => item.type.startsWith("image/"));
+
+        if (imageItem) {
+          const blob = imageItem.getAsFile();
+          if (blob) {
+            // Convert blob to base64 and handle async operations
+            const reader = new FileReader();
+            reader.onload = async () => {
+              const base64 = (reader.result as string).split(",")[1]; // Remove data:image/...;base64, prefix
+
+              try {
+                // Save clipboard image
+                const relativePath = await invoke<string>(
+                  "save_clipboard_image",
+                  { base64Data: base64 }
+                );
+
+                // Get notes folder and construct absolute path using Tauri's join
+                const notesFolder = await invoke<string>("get_notes_folder");
+                const absolutePath = await join(notesFolder, relativePath);
+
+                // Convert to Tauri asset URL
+                const assetUrl = convertFileSrc(absolutePath);
+
+                // Insert image
+                editorRef.current
+                  ?.chain()
+                  .focus()
+                  .setImage({ src: assetUrl })
+                  .run();
+              } catch (error) {
+                console.error("Failed to paste image:", error);
+                toast.error("Failed to paste image");
+              }
+            };
+            reader.onerror = () => {
+              console.error("Failed to read clipboard image:", reader.error);
+              toast.error("Failed to read clipboard image");
+            };
+            reader.readAsDataURL(blob);
+            return true; // Handled
+          }
+        }
+
+        // Handle markdown text paste
+        const text = clipboardData.getData("text/plain");
         if (!text) return false;
 
         // Check if text looks like markdown (has common markdown patterns)
@@ -378,11 +427,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     onCreate: ({ editor: editorInstance }) => {
       editorRef.current = editorInstance;
     },
-    onUpdate: ({ editor: editorInstance }) => {
+    onUpdate: () => {
       if (isLoadingRef.current) return;
-      setIsDirty(true);
-      const markdown = getMarkdown(editorInstance);
-      debouncedSave(markdown);
+      scheduleSave();
     },
     onSelectionUpdate: () => {
       // Trigger re-render to update toolbar active states
@@ -398,6 +445,39 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const loadedModifiedRef = useRef<number | null>(null);
   // Track the last save (note ID and content) to detect our own saves vs external changes
   const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
+  // Track reloadVersion to detect manual refreshes
+  const lastReloadVersionRef = useRef(0);
+
+  // Prevent links from opening unless Cmd/Ctrl+Click
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleLinkClick = (e: MouseEvent) => {
+      const link = (e.target as HTMLElement).closest("a");
+
+      if (link) {
+        e.preventDefault(); // Always prevent default link behavior
+
+        // If Cmd/Ctrl is pressed, open in browser
+        if ((e.metaKey || e.ctrlKey) && link.href) {
+          if (isAllowedUrlScheme(link.href)) {
+            openUrl(link.href).catch((error) =>
+              console.error("Failed to open link:", error)
+            );
+          } else {
+            toast.error("Cannot open links with this URL scheme");
+          }
+        }
+      }
+    };
+
+    const editorElement = editor.view.dom;
+    editorElement.addEventListener("click", handleLinkClick);
+
+    return () => {
+      editorElement.removeEventListener("click", handleLinkClick);
+    };
+  }, [editor]);
 
   // Load note content when the current note changes
   useEffect(() => {
@@ -409,68 +489,58 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     const isSameNote = currentNote.id === loadedNoteIdRef.current;
 
     // Flush any pending save before switching to a different note
-    if (!isSameNote && pendingSaveRef.current) {
+    if (!isSameNote && needsSaveRef.current) {
       flushPendingSave();
     }
-    const lastSave = lastSaveRef.current;
-    // Check if this update is from our own save (same note we saved, content matches)
-    const isOurSave =
-      lastSave &&
-      (lastSave.noteId === currentNote.id ||
-        lastSave.noteId === loadedNoteIdRef.current) &&
-      lastSave.content === currentNote.content;
-    const isExternalChange =
-      isSameNote &&
-      currentNote.modified !== loadedModifiedRef.current &&
-      !isOurSave;
+    // Check if this is a manual reload (user clicked Refresh button or pressed Cmd+R)
+    const isManualReload = reloadVersion !== lastReloadVersionRef.current;
 
-    // Skip if same note and not an external change
-    if (isSameNote && !isExternalChange) {
-      // Still update the modified ref if it changed (our own save)
+    if (isSameNote) {
+      if (isManualReload) {
+        // Manual reload - update the editor content
+        lastReloadVersionRef.current = reloadVersion;
+        loadedModifiedRef.current = currentNote.modified;
+        isLoadingRef.current = true;
+        const manager = editor.storage.markdown?.manager;
+        if (manager) {
+          try {
+            const parsed = manager.parse(currentNote.content);
+            editor.commands.setContent(parsed);
+          } catch {
+            editor.commands.setContent(currentNote.content);
+          }
+        } else {
+          editor.commands.setContent(currentNote.content);
+        }
+        isLoadingRef.current = false;
+        return;
+      }
+      // Just a save - update refs but don't reload content
       loadedModifiedRef.current = currentNote.modified;
       return;
     }
 
-    // If it's our own save with a rename (ID changed but content matches), just update refs
-    // This happens when the title changes and the file gets renamed
+    // Handle note rename (ID changed but we were editing this note)
+    // Check both: lastSave matches loaded note AND content matches (same note, just renamed)
+    const lastSave = lastSaveRef.current;
     if (
-      isOurSave &&
-      !isSameNote &&
-      lastSave?.noteId === loadedNoteIdRef.current
+      lastSave?.noteId === loadedNoteIdRef.current &&
+      lastSave?.content === currentNote.content
     ) {
       loadedNoteIdRef.current = currentNote.id;
       loadedModifiedRef.current = currentNote.modified;
-      lastSaveRef.current = null; // Clear after handling rename
+      lastSaveRef.current = null;
       return;
     }
 
     const isNewNote = loadedNoteIdRef.current === null;
-    const wasEmpty =
-      !isNewNote && !isExternalChange && currentNote.content?.trim() === "";
+    const wasEmpty = !isNewNote && currentNote.content?.trim() === "";
     const loadingNoteId = currentNote.id;
 
     loadedNoteIdRef.current = loadingNoteId;
     loadedModifiedRef.current = currentNote.modified;
 
     isLoadingRef.current = true;
-
-    // For external changes, just update content without scrolling/blurring
-    if (isExternalChange) {
-      const manager = editor.storage.markdown?.manager;
-      if (manager) {
-        try {
-          const parsed = manager.parse(currentNote.content);
-          editor.commands.setContent(parsed);
-        } catch {
-          editor.commands.setContent(currentNote.content);
-        }
-      } else {
-        editor.commands.setContent(currentNote.content);
-      }
-      setIsDirty(false);
-      isLoadingRef.current = false;
-      return;
-    }
 
     // Blur editor before setting content to prevent ghost cursor
     editor.commands.blur();
@@ -488,8 +558,6 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     } else {
       editor.commands.setContent(currentNote.content);
     }
-
-    setIsDirty(false);
 
     // Scroll to top after content is set (must be after setContent to work reliably)
     scrollContainerRef.current?.scrollTo(0, 0);
@@ -514,7 +582,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       }
       // For existing notes, don't auto-focus - let user click where they want
     });
-  }, [currentNote, editor, flushPendingSave]);
+  }, [currentNote, editor, flushPendingSave, reloadVersion]);
 
   // Scroll to top on mount (e.g., when returning from settings)
   useEffect(() => {
@@ -528,17 +596,21 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         clearTimeout(saveTimeoutRef.current);
       }
       // Flush any pending save before unmounting
-      const pending = pendingSaveRef.current;
-      if (pending) {
-        pendingSaveRef.current = null;
+      if (needsSaveRef.current && editorRef.current) {
+        needsSaveRef.current = false;
+        const manager = editorRef.current.storage.markdown?.manager;
+        const markdown = manager
+          ? manager.serialize(editorRef.current.getJSON())
+          : editorRef.current.getText();
         // Fire and forget - save will complete in background
-        saveNote(pending.content);
+        saveNote(markdown);
       }
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
       }
     };
-  }, [saveNote]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run cleanup on unmount, not when saveNote changes
 
   // Link handlers - show inline popup at cursor position
   const handleAddLink = useCallback(() => {
@@ -555,33 +627,44 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
 
     // Get selection bounds for popup placement using DOM Range for accurate multi-line support
     const { from, to } = editor.state.selection;
+    const hasSelection = from !== to;
 
     // Create a virtual element at the selection for tippy to anchor to
     const virtualElement = {
       getBoundingClientRect: () => {
-        // Try to get accurate bounds using DOM Range
-        const startPos = editor.view.domAtPos(from);
-        const endPos = editor.view.domAtPos(to);
+        // For selections with text, use DOM Range for accurate bounds
+        if (hasSelection) {
+          const startPos = editor.view.domAtPos(from);
+          const endPos = editor.view.domAtPos(to);
 
-        if (startPos && endPos) {
-          const range = document.createRange();
-          range.setStart(startPos.node, startPos.offset);
-          range.setEnd(endPos.node, endPos.offset);
-          return range.getBoundingClientRect();
+          if (startPos && endPos) {
+            try {
+              const range = document.createRange();
+              range.setStart(startPos.node, startPos.offset);
+              range.setEnd(endPos.node, endPos.offset);
+              return range.getBoundingClientRect();
+            } catch (e) {
+              // Fallback if range creation fails
+              console.error("Range creation failed:", e);
+            }
+          }
         }
 
-        // Fallback to coordsAtPos for collapsed selections
+        // For collapsed cursor, use coordsAtPos with proper viewport positioning
         const coords = editor.view.coordsAtPos(from);
+
+        // Create a DOMRect-like object with proper positioning
         return {
-          width: 0,
-          height: coords.bottom - coords.top,
+          width: 2,
+          height: 20,
           top: coords.top,
           left: coords.left,
-          right: coords.left,
+          right: coords.right,
           bottom: coords.bottom,
           x: coords.left,
           y: coords.top,
-        };
+          toJSON: () => ({}),
+        } as DOMRect;
       },
     };
 
@@ -589,14 +672,32 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     const component = new ReactRenderer(LinkEditor, {
       props: {
         initialUrl: existingUrl,
-        onSubmit: (url: string) => {
+        // Only show text input if there's no selection AND not editing an existing link
+        initialText: hasSelection || existingUrl ? undefined : "",
+        onSubmit: (url: string, text?: string) => {
           if (url.trim()) {
-            editor
-              .chain()
-              .focus()
-              .extendMarkRange("link")
-              .setLink({ href: url.trim() })
-              .run();
+            if (text !== undefined) {
+              // No selection case - insert new link with text
+              if (text.trim()) {
+                editor
+                  .chain()
+                  .focus()
+                  .insertContent({
+                    type: "text",
+                    text: text.trim(),
+                    marks: [{ type: "link", attrs: { href: url.trim() } }],
+                  })
+                  .run();
+              }
+            } else {
+              // Has selection - apply link to selection
+              editor
+                .chain()
+                .focus()
+                .extendMarkRange("link")
+                .setLink({ href: url.trim() })
+                .run();
+            }
           } else {
             editor.chain().focus().extendMarkRange("link").unsetLink().run();
           }
@@ -637,7 +738,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   // Image handler
   const handleAddImage = useCallback(async () => {
     if (!editor) return;
-    const selected = await open({
+    const selected = await openDialog({
       multiple: false,
       filters: [
         {
@@ -647,22 +748,43 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       ],
     });
     if (selected) {
-      const src = convertFileSrc(selected as string);
-      editor.chain().focus().setImage({ src }).run();
+      try {
+        // Copy image to assets folder and get relative path (assets/filename.ext)
+        const relativePath = await invoke<string>("copy_image_to_assets", {
+          sourcePath: selected as string,
+        });
+
+        // Get notes folder and construct absolute path using Tauri's join
+        const notesFolder = await invoke<string>("get_notes_folder");
+        const absolutePath = await join(notesFolder, relativePath);
+
+        // Convert to Tauri asset URL
+        const assetUrl = convertFileSrc(absolutePath);
+
+        // Insert image with asset URL
+        editor.chain().focus().setImage({ src: assetUrl }).run();
+      } catch (error) {
+        console.error("Failed to add image:", error);
+      }
     }
   }, [editor]);
 
-  // Keyboard shortcut for Cmd+K to add link
+  // Keyboard shortcut for Cmd+K to add link (only when editor is focused)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        handleAddLink();
+        // Only handle if we're in the editor
+        const target = e.target as HTMLElement;
+        const isInEditor = target.closest(".ProseMirror");
+        if (isInEditor && editor) {
+          e.preventDefault();
+          handleAddLink();
+        }
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleAddLink]);
+  }, [handleAddLink, editor]);
 
   // Keyboard shortcut for Cmd+Shift+C to open copy menu
   useEffect(() => {
@@ -682,8 +804,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     try {
       const markdown = getMarkdown(editor);
       await invoke("copy_to_clipboard", { text: markdown });
+      toast.success("Copied as Markdown");
     } catch (error) {
       console.error("Failed to copy markdown:", error);
+      toast.error("Failed to copy");
     }
   }, [editor, getMarkdown]);
 
@@ -692,8 +816,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     try {
       const plainText = editor.getText();
       await invoke("copy_to_clipboard", { text: plainText });
+      toast.success("Copied as plain text");
     } catch (error) {
       console.error("Failed to copy plain text:", error);
+      toast.error("Failed to copy");
     }
   }, [editor]);
 
@@ -702,8 +828,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     try {
       const html = editor.getHTML();
       await invoke("copy_to_clipboard", { text: html });
+      toast.success("Copied as HTML");
     } catch (error) {
       console.error("Failed to copy HTML:", error);
+      toast.error("Failed to copy");
     }
   }, [editor]);
 
@@ -768,8 +896,18 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           </span>
         </div>
         <div className="titlebar-no-drag flex items-center gap-0.5">
-          {isSaving || isDirty ? (
-            <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
+          {hasExternalChanges ? (
+            <Tooltip content="External changes detected (⌘R to refresh)">
+              <button
+                onClick={reloadCurrentNote}
+                className="h-7 px-2 flex items-center gap-1 text-xs text-orange-500 hover:bg-orange-500/10 rounded transition-colors font-medium"
+              >
+                <RefreshCwIcon className="w-4 h-4 stroke-[1.6]" />
+                <span>Refresh</span>
+              </button>
+            </Tooltip>
+          ) : isSaving ? (
+            <Tooltip content="Saving...">
               <div className="h-7 w-7 flex items-center justify-center">
                 <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.5] animate-spin" />
               </div>

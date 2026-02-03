@@ -16,8 +16,8 @@ const buttonSizes = {
 };
 
 const buttonVariants = {
-  primary: "bg-accent text-white hover:bg-accent/90 rounded-md",
-  default: "bg-bg-emphasis text-text hover:bg-bg-muted rounded-md",
+  primary: "bg-accent text-text-inverse hover:bg-accent/90 rounded-md",
+  default: "bg-bg-muted text-text hover:bg-bg-emphasis rounded-md",
   secondary: "bg-bg-muted text-text hover:bg-bg-emphasis rounded-md",
   ghost: "hover:bg-bg-muted text-text-muted hover:text-text rounded-md",
   outline:
@@ -31,7 +31,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         className={cn(
           "inline-flex items-center justify-center whitespace-nowrap font-medium transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+          "focus-visible:outline focus-visible:outline-accent",
           "disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
           buttonSizes[size],
           buttonVariants[variant],

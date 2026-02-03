@@ -1,4 +1,5 @@
 use anyhow::Result;
+use base64::Engine;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -75,6 +76,7 @@ pub struct EditorFontSettings {
     pub base_font_family: Option<String>, // "system-sans" | "serif" | "monospace"
     pub base_font_size: Option<f32>,      // in px, default 16
     pub bold_weight: Option<i32>,         // 600, 700, 800 for headings and bold
+    pub line_height: Option<f32>,         // default 1.6
 }
 
 // App config (stored in app data directory - just the notes folder path)
@@ -340,15 +342,116 @@ fn extract_title(content: &str) -> String {
     "Untitled".to_string()
 }
 
-// Utility: Generate preview from content
+// Utility: Generate preview from content (strip markdown formatting)
 fn generate_preview(content: &str) -> String {
+    // Skip the first line (title), find first non-empty line
     for line in content.lines().skip(1) {
         let trimmed = line.trim();
-        if !trimmed.is_empty() && !trimmed.starts_with('#') {
-            return trimmed.chars().take(100).collect();
+        if !trimmed.is_empty() {
+            let stripped = strip_markdown(trimmed);
+            if !stripped.is_empty() {
+                return stripped.chars().take(100).collect();
+            }
         }
     }
     String::new()
+}
+
+// Strip common markdown formatting from text
+fn strip_markdown(text: &str) -> String {
+    let mut result = text.to_string();
+
+    // Remove heading markers (##, ###, etc.)
+    let trimmed = result.trim_start();
+    if trimmed.starts_with('#') {
+        result = trimmed.trim_start_matches('#').trim_start().to_string();
+    }
+
+    // Remove strikethrough (~~text~~) - before other markers
+    while let Some(start) = result.find("~~") {
+        if let Some(end) = result[start + 2..].find("~~") {
+            let inner = &result[start + 2..start + 2 + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+        } else {
+            break;
+        }
+    }
+
+    // Remove bold (**text** or __text__) - before italic
+    while let Some(start) = result.find("**") {
+        if let Some(end) = result[start + 2..].find("**") {
+            let inner = &result[start + 2..start + 2 + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+        } else {
+            break;
+        }
+    }
+    while let Some(start) = result.find("__") {
+        if let Some(end) = result[start + 2..].find("__") {
+            let inner = &result[start + 2..start + 2 + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+        } else {
+            break;
+        }
+    }
+
+    // Remove inline code (`code`)
+    while let Some(start) = result.find('`') {
+        if let Some(end) = result[start + 1..].find('`') {
+            let inner = &result[start + 1..start + 1 + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+        } else {
+            break;
+        }
+    }
+
+    // Remove images ![alt](url) - must come before links
+    let img_re = regex::Regex::new(r"!\[([^\]]*)\]\([^)]+\)").unwrap();
+    result = img_re.replace_all(&result, "$1").to_string();
+
+    // Remove links [text](url)
+    let link_re = regex::Regex::new(r"\[([^\]]+)\]\([^)]+\)").unwrap();
+    result = link_re.replace_all(&result, "$1").to_string();
+
+    // Remove italic (*text* or _text_) - simple approach after bold is removed
+    // Match *text* where text doesn't contain *
+    while let Some(start) = result.find('*') {
+        if let Some(end) = result[start + 1..].find('*') {
+            if end > 0 {
+                let inner = &result[start + 1..start + 1 + end];
+                result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    // Match _text_ where text doesn't contain _
+    while let Some(start) = result.find('_') {
+        if let Some(end) = result[start + 1..].find('_') {
+            if end > 0 {
+                let inner = &result[start + 1..start + 1 + end];
+                result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Remove task list markers
+    result = result
+        .replace("- [ ] ", "")
+        .replace("- [x] ", "")
+        .replace("- [X] ", "");
+
+    // Remove list markers at start (-, *, +, 1.)
+    let list_re = regex::Regex::new(r"^(\s*[-+*]|\s*\d+\.)\s+").unwrap();
+    result = list_re.replace(&result, "").to_string();
+
+    result.trim().to_string()
 }
 
 // Get app config file path (in app data directory)
@@ -802,52 +905,92 @@ fn update_settings(
 }
 
 #[tauri::command]
-fn search_notes(query: String, state: State<AppState>) -> Result<Vec<SearchResult>, String> {
+async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
     if query.trim().is_empty() {
         return Ok(vec![]);
     }
 
-    let index = state.search_index.lock().expect("search index mutex");
-    if let Some(ref search_index) = *index {
-        search_index.search(&query, 20).map_err(|e| e.to_string())
+    // Check if search index is available and use it (scoped to drop lock before await)
+    let search_result = {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            Some(search_index.search(&query, 20).map_err(|e| e.to_string()))
+        } else {
+            None
+        }
+    };
+
+    if let Some(result) = search_result {
+        result
     } else {
         // Fallback to simple search if index not available
-        fallback_search(&query, &state)
+        fallback_search(&query, &state).await
     }
 }
 
-// Fallback search when Tantivy index isn't available
-fn fallback_search(query: &str, state: &State<AppState>) -> Result<Vec<SearchResult>, String> {
-    let cache = state.notes_cache.read().expect("cache read lock");
+// Fallback search when Tantivy index isn't available - searches title and full content
+async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    let folder = match folder {
+        Some(f) => f,
+        None => return Ok(vec![]),
+    };
+
+    // Collect cache data upfront to avoid holding lock during async operations
+    let cache_data: Vec<(String, String, String, i64)> = {
+        let cache = state.notes_cache.read().expect("cache read lock");
+        cache
+            .values()
+            .map(|note| {
+                (
+                    note.id.clone(),
+                    note.title.clone(),
+                    note.preview.clone(),
+                    note.modified,
+                )
+            })
+            .collect()
+    };
+
     let query_lower = query.to_lowercase();
+    let mut results: Vec<SearchResult> = Vec::new();
 
-    let mut results: Vec<SearchResult> = cache
-        .values()
-        .filter_map(|note| {
-            let title_lower = note.title.to_lowercase();
-            let preview_lower = note.preview.to_lowercase();
+    for (id, title, preview, modified) in cache_data {
+        let title_lower = title.to_lowercase();
 
-            let mut score = 0.0f32;
-            if title_lower.contains(&query_lower) {
-                score += 50.0;
-            }
-            if preview_lower.contains(&query_lower) {
-                score += 10.0;
-            }
+        let mut score = 0.0f32;
+        if title_lower.contains(&query_lower) {
+            score += 50.0;
+        }
 
-            if score > 0.0 {
-                Some(SearchResult {
-                    id: note.id.clone(),
-                    title: note.title.clone(),
-                    preview: note.preview.clone(),
-                    modified: note.modified,
-                    score,
-                })
-            } else {
-                None
+        // Read file content asynchronously and search in it
+        let file_path = PathBuf::from(&folder).join(format!("{}.md", &id));
+        if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
+            let content_lower = content.to_lowercase();
+            if content_lower.contains(&query_lower) {
+                // Higher score if in title, lower if only in content
+                if score == 0.0 {
+                    score += 10.0;
+                } else {
+                    score += 5.0;
+                }
             }
-        })
-        .collect();
+        }
+
+        if score > 0.0 {
+            results.push(SearchResult {
+                id,
+                title,
+                preview,
+                modified,
+                score,
+            });
+        }
+    }
 
     results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     results.truncate(20);
@@ -909,12 +1052,38 @@ fn setup_file_watcher(
                             .map(|s| s.to_string())
                             .unwrap_or_default();
 
+                        // Update search index for external file changes
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let index = state.search_index.lock().expect("search index mutex");
+                            if let Some(ref search_index) = *index {
+                                match kind {
+                                    "created" | "modified" => {
+                                        // Read file and index it
+                                        if let Ok(content) = std::fs::read_to_string(path) {
+                                            let title = extract_title(&content);
+                                            let modified = std::fs::metadata(path)
+                                                .ok()
+                                                .and_then(|m| m.modified().ok())
+                                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                .map(|d| d.as_secs() as i64)
+                                                .unwrap_or(0);
+                                            let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                        }
+                                    }
+                                    "deleted" => {
+                                        let _ = search_index.delete_note(&note_id);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+
                         let _ = app_handle.emit(
                             "file-change",
                             FileChangeEvent {
                                 kind: kind.to_string(),
                                 path: path.to_string_lossy().into_owned(),
-                                changed_ids: vec![note_id],
+                                changed_ids: vec![note_id.clone()],
                             },
                         );
                     }
@@ -966,6 +1135,124 @@ fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn save_clipboard_image(
+    base64_data: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    // Guard against empty clipboard payload
+    if base64_data.trim().is_empty() {
+        return Err("Clipboard data is empty".to_string());
+    }
+
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    // Decode base64
+    let image_data = base64::engine::general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    // Guard against zero-byte files
+    if image_data.is_empty() {
+        return Err("Decoded image data is empty".to_string());
+    }
+
+    // Create assets folder path
+    let assets_dir = PathBuf::from(&folder).join("assets");
+    fs::create_dir_all(&assets_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Generate unique filename with timestamp
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let mut target_name = format!("screenshot-{}.png", timestamp);
+    let mut counter = 1;
+    let mut target_path = assets_dir.join(&target_name);
+
+    while target_path.exists() {
+        target_name = format!("screenshot-{}-{}.png", timestamp, counter);
+        target_path = assets_dir.join(&target_name);
+        counter += 1;
+    }
+
+    // Write the file
+    fs::write(&target_path, &image_data)
+        .await
+        .map_err(|e| format!("Failed to write image: {}", e))?;
+
+    // Return relative path
+    Ok(format!("assets/{}", target_name))
+}
+
+#[tauri::command]
+async fn copy_image_to_assets(
+    source_path: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    let source = PathBuf::from(&source_path);
+    if !source.exists() {
+        return Err("Source image file does not exist".to_string());
+    }
+
+    // Get file extension
+    let extension = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .ok_or("Invalid file extension")?;
+
+    // Get original filename (without extension)
+    let original_name = source
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("image");
+
+    // Sanitize the filename
+    let sanitized_name = sanitize_filename(original_name);
+
+    // Create assets folder path
+    let assets_dir = PathBuf::from(&folder).join("assets");
+    fs::create_dir_all(&assets_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Generate unique filename
+    let mut target_name = format!("{}.{}", sanitized_name, extension);
+    let mut counter = 1;
+    let mut target_path = assets_dir.join(&target_name);
+
+    while target_path.exists() {
+        target_name = format!("{}-{}.{}", sanitized_name, counter, extension);
+        target_path = assets_dir.join(&target_name);
+        counter += 1;
+    }
+
+    // Copy the file
+    fs::copy(&source, &target_path)
+        .await
+        .map_err(|e| format!("Failed to copy image: {}", e))?;
+
+    // Return both relative path and filename for frontend to construct the URL
+    Ok(format!("assets/{}", target_name))
+}
+
+#[tauri::command]
 fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
@@ -987,6 +1274,98 @@ fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), St
     *index = Some(search_index);
 
     Ok(())
+}
+
+// UI helper commands - wrap Tauri plugins for consistent invoke-based API
+
+#[tauri::command]
+async fn open_folder_dialog(
+    app: AppHandle,
+    default_path: Option<String>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // Run blocking dialog on a separate thread to avoid blocking the async runtime
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut builder = app.dialog().file().set_can_create_directories(true);
+
+        if let Some(path) = default_path {
+            builder = builder.set_directory(path);
+        }
+
+        builder.blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| format!("Dialog task failed: {}", e))?;
+
+    Ok(result.map(|p| p.to_string()))
+}
+
+#[tauri::command]
+async fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows explorer /select requires backslashes
+        let windows_path = path.replace("/", "\\");
+        std::process::Command::new("explorer")
+            .args(["/select,", &windows_path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: open containing directory (most file managers don't support selecting)
+        let parent = path_buf
+            .parent()
+            .ok_or_else(|| "Cannot determine parent directory".to_string())?;
+        let parent_str = parent
+            .to_str()
+            .ok_or_else(|| "Path contains invalid UTF-8".to_string())?;
+        std::process::Command::new("xdg-open")
+            .arg(parent_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        return Err("Unsupported platform".to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_url_safe(url: String) -> Result<(), String> {
+    // Validate URL scheme - only allow http, https, mailto
+    let parsed = url::Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
+
+    match parsed.scheme() {
+        "http" | "https" | "mailto" => {}
+        scheme => {
+            return Err(format!(
+                "URL scheme '{}' is not allowed. Only http, https, and mailto are permitted.",
+                scheme
+            ))
+        }
+    }
+
+    // Use system opener
+    open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
 }
 
 // Git commands - run blocking git operations off the main thread
@@ -1190,6 +1569,11 @@ pub fn run() {
             start_file_watcher,
             rebuild_search_index,
             copy_to_clipboard,
+            copy_image_to_assets,
+            save_clipboard_image,
+            open_folder_dialog,
+            reveal_in_file_manager,
+            open_url_safe,
             git_is_available,
             git_get_status,
             git_init_repo,
