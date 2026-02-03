@@ -48,6 +48,15 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
     }
   }, [push]);
 
+  const handleEnableGit = useCallback(async () => {
+    const success = await initRepo();
+    if (success) {
+      toast.success("Git repository initialized");
+    } else {
+      toast.error("Failed to initialize Git");
+    }
+  }, [initRepo]);
+
   // Git status section
   const renderGitStatus = () => {
     if (!gitAvailable) {
@@ -59,9 +68,9 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
       return (
         <Tooltip content="Initialize Git repository">
           <Button
-            onClick={initRepo}
-            variant="link"
-            className="text-xs h-auto p-0"
+            onClick={handleEnableGit}
+            variant="ghost"
+            className="text-xs h-auto p-0 hover:bg-transparent"
           >
             Enable Git
           </Button>
@@ -134,7 +143,11 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
                 status?.aheadCount === 1 ? " to push" : "s to push"
               }`}
             >
-              <IconButton onClick={handlePush} disabled={isPushing} title="Push">
+              <IconButton
+                onClick={handlePush}
+                disabled={isPushing}
+                title="Push"
+              >
                 {isPushing ? (
                   <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
                 ) : (
@@ -151,7 +164,11 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
             </Tooltip>
           )}
           {showCommitButton && (
-            <IconButton onClick={handleCommit} disabled={isCommitting} title="Quick commit">
+            <IconButton
+              onClick={handleCommit}
+              disabled={isCommitting}
+              title="Quick commit"
+            >
               {isCommitting ? (
                 <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
               ) : (

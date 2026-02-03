@@ -25,16 +25,19 @@ interface NotesDataContextValue {
   searchQuery: string;
   searchResults: SearchResult[];
   isSearching: boolean;
+  hasExternalChanges: boolean;
+  reloadVersion: number;
 }
 
 // Actions context: stable references, rarely causes re-renders
 interface NotesActionsContextValue {
   selectNote: (id: string) => Promise<void>;
   createNote: () => Promise<void>;
-  saveNote: (content: string) => Promise<void>;
+  saveNote: (content: string, noteId?: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   duplicateNote: (id: string) => Promise<void>;
   refreshNotes: () => Promise<void>;
+  reloadCurrentNote: () => Promise<void>;
   setNotesFolder: (path: string) => Promise<void>;
   search: (query: string) => Promise<void>;
   clearSearch: () => void;
@@ -53,9 +56,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [hasExternalChanges, setHasExternalChanges] = useState(false);
+  // Increments when user manually refreshes, so Editor knows to reload content
+  const [reloadVersion, setReloadVersion] = useState(0);
 
   // Track recently saved note IDs to ignore file-change events from our own saves
   const recentlySavedRef = useRef<Set<string>>(new Set());
+  // Track pending refresh timeout to debounce refreshes during rapid saves
+  const refreshTimeoutRef = useRef<number | null>(null);
+  // Ref to access selectedNoteId in file watcher without re-registering listener
+  const selectedNoteIdRef = useRef<string | null>(null);
+  selectedNoteIdRef.current = selectedNoteId;
 
   const refreshNotes = useCallback(async () => {
     if (!notesFolder) return;
@@ -67,14 +78,38 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }
   }, [notesFolder]);
 
+  // Debounced refresh - coalesces rapid saves into a single refresh
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+    refreshTimeoutRef.current = window.setTimeout(() => {
+      refreshTimeoutRef.current = null;
+      refreshNotes();
+    }, 300);
+  }, [refreshNotes]);
+
   const selectNote = useCallback(async (id: string) => {
     try {
       // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
+      setHasExternalChanges(false);
       const note = await notesService.readNote(id);
       setCurrentNote(note);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load note");
+    }
+  }, []);
+
+  const reloadCurrentNote = useCallback(async () => {
+    if (!selectedNoteIdRef.current) return;
+    try {
+      const note = await notesService.readNote(selectedNoteIdRef.current);
+      setCurrentNote(note);
+      setHasExternalChanges(false);
+      setReloadVersion((v) => v + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reload note");
     }
   }, []);
 
@@ -93,11 +128,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, [refreshNotes]);
 
   const saveNote = useCallback(
-    async (content: string) => {
-      if (!currentNote) return;
-
-      // Capture the note ID at the start of the save operation
-      const savingNoteId = currentNote.id;
+    async (content: string, noteId?: string) => {
+      // Use provided noteId (for flush saves) or fall back to currentNote.id
+      const savingNoteId = noteId || currentNote?.id;
+      if (!savingNoteId) return;
       let updatedId: string | null = null;
 
       try {
@@ -112,6 +146,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           recentlySavedRef.current.add(updated.id);
         }
 
+        // Clear external changes flag - if it was set by our own save, we want to ignore it
+        setHasExternalChanges(false);
+
         // Only update state if we're still on the same note we started saving
         // This prevents race conditions when user switches notes during save
         setSelectedNoteId((prevId) => {
@@ -124,7 +161,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           return prevId;
         });
 
-        await refreshNotes();
+        // Schedule refresh with debounce - avoids blocking typing during rapid saves
+        scheduleRefresh();
 
         // Clear the recently saved flag after a short delay
         // (longer than the file watcher debounce of 500ms)
@@ -139,7 +177,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (updatedId) recentlySavedRef.current.delete(updatedId);
       }
     },
-    [currentNote, refreshNotes]
+    [currentNote, scheduleRefresh]
   );
 
   const deleteNote = useCallback(
@@ -233,11 +271,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     init();
   }, []);
 
-  // Listen for file change events and reload current note if it changed externally
+  // Listen for file change events and notify if current note changed externally
   useEffect(() => {
+    let isCancelled = false;
     let unlisten: (() => void) | undefined;
 
     listen<{ changed_ids: string[] }>("file-change", (event) => {
+      // Don't process if effect was cleaned up
+      if (isCancelled) return;
+
       const changedIds = event.payload.changed_ids || [];
 
       // Filter out notes we recently saved ourselves
@@ -249,21 +291,28 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       if (externalChanges.length > 0) {
         refreshNotes();
 
-        // If the currently selected note was changed externally, reload it
-        if (selectedNoteId && externalChanges.includes(selectedNoteId)) {
-          notesService.readNote(selectedNoteId).then(setCurrentNote).catch(() => {});
+        // If the currently selected note was changed externally, set flag (don't auto-reload)
+        const currentId = selectedNoteIdRef.current;
+        if (currentId && externalChanges.includes(currentId)) {
+          setHasExternalChanges(true);
         }
       }
     }).then((fn) => {
-      unlisten = fn;
+      if (isCancelled) {
+        // Effect was cleaned up before listener registered, clean up immediately
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
 
     return () => {
+      isCancelled = true;
       if (unlisten) {
         unlisten();
       }
     };
-  }, [refreshNotes, selectedNoteId]);
+  }, [refreshNotes]);
 
   // Refresh notes when folder changes
   useEffect(() => {
@@ -284,6 +333,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       searchQuery,
       searchResults,
       isSearching,
+      hasExternalChanges,
+      reloadVersion,
     }),
     [
       notes,
@@ -295,6 +346,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       searchQuery,
       searchResults,
       isSearching,
+      hasExternalChanges,
+      reloadVersion,
     ]
   );
 
@@ -307,6 +360,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       deleteNote,
       duplicateNote,
       refreshNotes,
+      reloadCurrentNote,
       setNotesFolder,
       search,
       clearSearch,
@@ -318,6 +372,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       deleteNote,
       duplicateNote,
       refreshNotes,
+      reloadCurrentNote,
       setNotesFolder,
       search,
       clearSearch,

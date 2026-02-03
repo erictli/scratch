@@ -21,6 +21,7 @@ function AppContent() {
     selectNote,
     searchQuery,
     searchResults,
+    reloadCurrentNote,
   } = useNotes();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
@@ -91,6 +92,13 @@ function AppContent() {
         return;
       }
 
+      // Cmd+R - Reload current note (pull external changes)
+      if ((e.metaKey || e.ctrlKey) && e.key === "r") {
+        e.preventDefault();
+        reloadCurrentNote();
+        return;
+      }
+
       // Arrow keys for note navigation (when not in editor or input)
       if (!isInEditor && !isInInput && displayItems.length > 0) {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -155,6 +163,7 @@ function AppContent() {
   }, [
     createNote,
     displayItems,
+    reloadCurrentNote,
     selectedNoteId,
     selectNote,
     toggleSettings,

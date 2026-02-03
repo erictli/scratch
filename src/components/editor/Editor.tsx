@@ -45,6 +45,7 @@ import {
   CircleCheckIcon,
   CopyIcon,
   PanelLeftIcon,
+  RefreshCwIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -199,8 +200,14 @@ interface EditorProps {
 }
 
 export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
-  const { currentNote, saveNote, createNote } = useNotes();
-  const [isDirty, setIsDirty] = useState(false);
+  const {
+    currentNote,
+    saveNote,
+    createNote,
+    hasExternalChanges,
+    reloadCurrentNote,
+    reloadVersion,
+  } = useNotes();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
@@ -211,10 +218,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
   const currentNoteIdRef = useRef<string | null>(null);
-  // Track pending save content for flush
-  const pendingSaveRef = useRef<{ noteId: string; content: string } | null>(
-    null
-  );
+  // Track if we need to save (use ref to avoid computing markdown on every keystroke)
+  const needsSaveRef = useRef(false);
 
   // Keep ref in sync with current note ID
   currentNoteIdRef.current = currentNote?.id ?? null;
@@ -239,8 +244,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       setIsSaving(true);
       try {
         lastSaveRef.current = { noteId, content };
-        await saveNote(content);
-        setIsDirty(false);
+        await saveNote(content, noteId);
       } finally {
         setIsSaving(false);
       }
@@ -248,46 +252,45 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     [saveNote]
   );
 
-  // Flush any pending save immediately
+  // Flush any pending save immediately (saves to the note currently loaded in editor)
   const flushPendingSave = useCallback(async () => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
 
-    const pending = pendingSaveRef.current;
-    if (pending) {
-      pendingSaveRef.current = null;
-      await saveImmediately(pending.noteId, pending.content);
+    // Use loadedNoteIdRef (the note in the editor) not currentNoteIdRef (which may have changed)
+    if (needsSaveRef.current && editorRef.current && loadedNoteIdRef.current) {
+      needsSaveRef.current = false;
+      const markdown = getMarkdown(editorRef.current);
+      await saveImmediately(loadedNoteIdRef.current, markdown);
     }
-  }, [saveImmediately]);
+  }, [saveImmediately, getMarkdown]);
 
-  // Auto-save with debounce
-  const debouncedSave = useCallback(
-    async (newContent: string) => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
+  // Schedule a debounced save (markdown computed only when timer fires)
+  const scheduleSave = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    const savingNoteId = currentNote?.id;
+    if (!savingNoteId) return;
+
+    needsSaveRef.current = true;
+
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      if (currentNoteIdRef.current !== savingNoteId || !needsSaveRef.current) {
+        return;
       }
 
-      // Capture the note ID now (before the timeout)
-      const savingNoteId = currentNote?.id;
-      if (!savingNoteId) return;
-
-      // Track pending save for potential flush
-      pendingSaveRef.current = { noteId: savingNoteId, content: newContent };
-
-      saveTimeoutRef.current = window.setTimeout(async () => {
-        // Guard: only save if still on the same note
-        if (currentNoteIdRef.current !== savingNoteId) {
-          return;
-        }
-
-        pendingSaveRef.current = null;
-        await saveImmediately(savingNoteId, newContent);
-      }, 300); // Reduced from 1000ms to 300ms
-    },
-    [saveImmediately, currentNote?.id]
-  );
+      // Compute markdown only now, when we actually save
+      if (editorRef.current) {
+        needsSaveRef.current = false;
+        const markdown = getMarkdown(editorRef.current);
+        await saveImmediately(savingNoteId, markdown);
+      }
+    }, 500);
+  }, [saveImmediately, getMarkdown, currentNote?.id]);
 
   const editor = useEditor({
     extensions: [
@@ -410,11 +413,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     onCreate: ({ editor: editorInstance }) => {
       editorRef.current = editorInstance;
     },
-    onUpdate: ({ editor: editorInstance }) => {
+    onUpdate: () => {
       if (isLoadingRef.current) return;
-      setIsDirty(true);
-      const markdown = getMarkdown(editorInstance);
-      debouncedSave(markdown);
+      scheduleSave();
     },
     onSelectionUpdate: () => {
       // Trigger re-render to update toolbar active states
@@ -430,6 +431,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const loadedModifiedRef = useRef<number | null>(null);
   // Track the last save (note ID and content) to detect our own saves vs external changes
   const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
+  // Track reloadVersion to detect manual refreshes
+  const lastReloadVersionRef = useRef(0);
 
   // Prevent links from opening unless Cmd/Ctrl+Click
   useEffect(() => {
@@ -468,68 +471,58 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     const isSameNote = currentNote.id === loadedNoteIdRef.current;
 
     // Flush any pending save before switching to a different note
-    if (!isSameNote && pendingSaveRef.current) {
+    if (!isSameNote && needsSaveRef.current) {
       flushPendingSave();
     }
-    const lastSave = lastSaveRef.current;
-    // Check if this update is from our own save (same note we saved, content matches)
-    const isOurSave =
-      lastSave &&
-      (lastSave.noteId === currentNote.id ||
-        lastSave.noteId === loadedNoteIdRef.current) &&
-      lastSave.content === currentNote.content;
-    const isExternalChange =
-      isSameNote &&
-      currentNote.modified !== loadedModifiedRef.current &&
-      !isOurSave;
+    // Check if this is a manual reload (user clicked Refresh button or pressed Cmd+R)
+    const isManualReload = reloadVersion !== lastReloadVersionRef.current;
 
-    // Skip if same note and not an external change
-    if (isSameNote && !isExternalChange) {
-      // Still update the modified ref if it changed (our own save)
+    if (isSameNote) {
+      if (isManualReload) {
+        // Manual reload - update the editor content
+        lastReloadVersionRef.current = reloadVersion;
+        loadedModifiedRef.current = currentNote.modified;
+        isLoadingRef.current = true;
+        const manager = editor.storage.markdown?.manager;
+        if (manager) {
+          try {
+            const parsed = manager.parse(currentNote.content);
+            editor.commands.setContent(parsed);
+          } catch {
+            editor.commands.setContent(currentNote.content);
+          }
+        } else {
+          editor.commands.setContent(currentNote.content);
+        }
+        isLoadingRef.current = false;
+        return;
+      }
+      // Just a save - update refs but don't reload content
       loadedModifiedRef.current = currentNote.modified;
       return;
     }
 
-    // If it's our own save with a rename (ID changed but content matches), just update refs
-    // This happens when the title changes and the file gets renamed
+    // Handle note rename (ID changed but we were editing this note)
+    // Check both: lastSave matches loaded note AND content matches (same note, just renamed)
+    const lastSave = lastSaveRef.current;
     if (
-      isOurSave &&
-      !isSameNote &&
-      lastSave?.noteId === loadedNoteIdRef.current
+      lastSave?.noteId === loadedNoteIdRef.current &&
+      lastSave?.content === currentNote.content
     ) {
       loadedNoteIdRef.current = currentNote.id;
       loadedModifiedRef.current = currentNote.modified;
-      lastSaveRef.current = null; // Clear after handling rename
+      lastSaveRef.current = null;
       return;
     }
 
     const isNewNote = loadedNoteIdRef.current === null;
-    const wasEmpty =
-      !isNewNote && !isExternalChange && currentNote.content?.trim() === "";
+    const wasEmpty = !isNewNote && currentNote.content?.trim() === "";
     const loadingNoteId = currentNote.id;
 
     loadedNoteIdRef.current = loadingNoteId;
     loadedModifiedRef.current = currentNote.modified;
 
     isLoadingRef.current = true;
-
-    // For external changes, just update content without scrolling/blurring
-    if (isExternalChange) {
-      const manager = editor.storage.markdown?.manager;
-      if (manager) {
-        try {
-          const parsed = manager.parse(currentNote.content);
-          editor.commands.setContent(parsed);
-        } catch {
-          editor.commands.setContent(currentNote.content);
-        }
-      } else {
-        editor.commands.setContent(currentNote.content);
-      }
-      setIsDirty(false);
-      isLoadingRef.current = false;
-      return;
-    }
 
     // Blur editor before setting content to prevent ghost cursor
     editor.commands.blur();
@@ -547,8 +540,6 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     } else {
       editor.commands.setContent(currentNote.content);
     }
-
-    setIsDirty(false);
 
     // Scroll to top after content is set (must be after setContent to work reliably)
     scrollContainerRef.current?.scrollTo(0, 0);
@@ -573,7 +564,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       }
       // For existing notes, don't auto-focus - let user click where they want
     });
-  }, [currentNote, editor, flushPendingSave]);
+  }, [currentNote, editor, flushPendingSave, reloadVersion]);
 
   // Scroll to top on mount (e.g., when returning from settings)
   useEffect(() => {
@@ -587,11 +578,14 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         clearTimeout(saveTimeoutRef.current);
       }
       // Flush any pending save before unmounting
-      const pending = pendingSaveRef.current;
-      if (pending) {
-        pendingSaveRef.current = null;
+      if (needsSaveRef.current && editorRef.current) {
+        needsSaveRef.current = false;
+        const manager = editorRef.current.storage.markdown?.manager;
+        const markdown = manager
+          ? manager.serialize(editorRef.current.getJSON())
+          : editorRef.current.getText();
         // Fire and forget - save will complete in background
-        saveNote(pending.content);
+        saveNote(markdown);
       }
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
@@ -884,8 +878,18 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           </span>
         </div>
         <div className="titlebar-no-drag flex items-center gap-0.5">
-          {isSaving || isDirty ? (
-            <Tooltip content={isSaving ? "Saving..." : "Unsaved changes"}>
+          {hasExternalChanges ? (
+            <Tooltip content="External changes detected (⌘R to refresh)">
+              <button
+                onClick={reloadCurrentNote}
+                className="h-7 px-2 flex items-center gap-1 text-xs text-orange-500 hover:bg-orange-500/10 rounded transition-colors font-medium"
+              >
+                <RefreshCwIcon className="w-4 h-4 stroke-[1.6]" />
+                <span>Refresh</span>
+              </button>
+            </Tooltip>
+          ) : isSaving ? (
+            <Tooltip content="Saving...">
               <div className="h-7 w-7 flex items-center justify-center">
                 <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.5] animate-spin" />
               </div>
