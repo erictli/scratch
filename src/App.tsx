@@ -58,17 +58,22 @@ function AppContent() {
         return;
       }
 
+      // Cmd+, - Toggle settings (always works, even in settings)
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        toggleSettings();
+        return;
+      }
+
+      // Block all other shortcuts when in settings view
+      if (view === "settings") {
+        return;
+      }
+
       // Cmd+P - Open command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "p") {
         e.preventDefault();
         setPaletteOpen(true);
-        return;
-      }
-
-      // Cmd+, - Toggle settings
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault();
-        toggleSettings();
         return;
       }
 
@@ -154,6 +159,7 @@ function AppContent() {
     selectNote,
     toggleSettings,
     toggleSidebar,
+    view,
   ]);
 
   const handleClosePalette = useCallback(() => {

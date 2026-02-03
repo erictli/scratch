@@ -120,7 +120,7 @@ export function GeneralSettingsSection() {
         <p className="text-sm text-text-muted mb-4">
           Your notes are stored as markdown files in this folder
         </p>
-        <div className="flex items-center gap-2.5 p-2.5 rounded-lg border border-border mb-2.5">
+        <div className="flex items-center gap-2.5 p-2.5 rounded-[10px] border border-border mb-2.5">
           <div className="p-2 rounded-md bg-bg-muted">
             <FolderIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
           </div>
@@ -159,7 +159,7 @@ export function GeneralSettingsSection() {
           Track changes and store backups of your notes using Git
         </p>
         {!gitAvailable ? (
-          <div className="bg-bg-secondary rounded-lg border border-border p-4">
+          <div className="bg-bg-secondary rounded-[10px] border border-border p-4">
             <p className="text-sm text-text-muted">
               Git is not available on this system.{" "}
               <a
@@ -174,11 +174,11 @@ export function GeneralSettingsSection() {
             </p>
           </div>
         ) : isLoading ? (
-          <div className="rounded-lg border border-border p-4 flex items-center justify-center">
+          <div className="rounded-[10px] border border-border p-4 flex items-center justify-center">
             <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin text-text-muted" />
           </div>
         ) : !status?.isRepo ? (
-          <div className="bg-bg-secondary rounded-lg border border-border p-4">
+          <div className="bg-bg-secondary rounded-[10px] border border-border p-4">
             <p className="text-sm text-text-muted mb-2">
               Enable Git to track changes to your notes with version control.
               Your changes will be tracked automatically and you can commit and
@@ -195,7 +195,7 @@ export function GeneralSettingsSection() {
           </div>
         ) : (
           <>
-            <div className="rounded-lg border border-border p-3 space-y-2.5">
+            <div className="rounded-[10px] border border-border p-4 space-y-2.5">
               {/* Branch status */}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-text font-medium">Status</span>

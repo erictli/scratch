@@ -92,7 +92,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
         {/* Content - centered with max width */}
         <div className="flex-1 overflow-auto">
-          <div className="w-full max-w-2xl mx-auto px-6 pb-6">
+          <div className="w-full max-w-3xl mx-auto px-6 pb-6">
             {activeTab === "general" && <GeneralSettingsSection />}
             {activeTab === "editor" && <AppearanceSettingsSection />}
           </div>
