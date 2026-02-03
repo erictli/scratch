@@ -426,7 +426,7 @@ function RemoteInstructions() {
       <ol className="list-decimal list-inside space-y-0.5 pl-1">
         <li>Create a repository on GitHub, GitLab, etc.</li>
         <li>Copy the repository URL (HTTPS or SSH)</li>
-        <li>Click Remote and paste the URL</li>
+        <li>Click "Add Remote" and paste the URL</li>
       </ol>
       <p className="text-text-muted/70 pt-1">
         Example: https://github.com/username/my-notes.git
