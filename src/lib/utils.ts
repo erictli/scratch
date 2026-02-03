@@ -21,10 +21,10 @@ export function cleanTitle(title: string | undefined): string {
     .replace(/~~(.*?)~~/g, "$1")
     // Remove inline code (`code`)
     .replace(/`([^`]+)`/g, "$1")
+    // Remove images ![alt](url) - must come before links to avoid leaving "!"
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
     // Remove links [text](url) - keep only text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    // Remove images ![alt](url)
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
     // Remove non-breaking spaces and other invisible characters
     .replace(/&nbsp;/g, " ")
     .replace(/\u00A0/g, " ")

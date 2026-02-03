@@ -31,13 +31,18 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
   } = useGit();
 
   const handleCommit = useCallback(async () => {
-    const success = await commit("Quick commit from Scratch");
-    if (success) {
-      toast.success("Changes committed");
-    } else {
+    if (isCommitting) return;
+    try {
+      const success = await commit("Quick commit from Scratch");
+      if (success) {
+        toast.success("Changes committed");
+      } else {
+        toast.error("Failed to commit");
+      }
+    } catch {
       toast.error("Failed to commit");
     }
-  }, [commit]);
+  }, [commit, isCommitting]);
 
   const handlePush = useCallback(async () => {
     const success = await push();
@@ -78,28 +83,29 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
       );
     }
 
-    if (!status || isLoading) {
+    // Show spinner only when loading and no error to display
+    if (isLoading && !lastError) {
       return <SpinnerIcon className="w-3 h-3 text-text-muted animate-spin" />;
     }
 
-    const hasChanges = status.changedCount > 0;
+    const hasChanges = status ? status.changedCount > 0 : false;
 
     return (
       <div className="flex items-center gap-1.5">
         {/* Branch icon with name on hover */}
-        {status.currentBranch ? (
+        {status?.currentBranch ? (
           <Tooltip content={"Branch: " + status.currentBranch}>
             <span className="text-text-muted flex items-center">
               <GitBranchIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </span>
           </Tooltip>
-        ) : (
+        ) : status ? (
           <Tooltip content="No branch (set up git in settings)">
             <span className="text-text-muted flex items-center">
               <GitBranchDeletedIcon className="w-4.5 h-4.5 stroke-[1.5] opacity-50" />
             </span>
           </Tooltip>
-        )}
+        ) : null}
 
         {/* Changes indicator */}
         {hasChanges && (

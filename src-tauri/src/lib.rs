@@ -76,6 +76,7 @@ pub struct EditorFontSettings {
     pub base_font_family: Option<String>, // "system-sans" | "serif" | "monospace"
     pub base_font_size: Option<f32>,      // in px, default 16
     pub bold_weight: Option<i32>,         // 600, 700, 800 for headings and bold
+    pub line_height: Option<f32>,         // default 1.6
 }
 
 // App config (stored in app data directory - just the notes folder path)
@@ -1098,6 +1099,59 @@ fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), St
     Ok(())
 }
 
+// UI helper commands - wrap Tauri plugins for consistent invoke-based API
+
+#[tauri::command]
+async fn open_folder_dialog(
+    app: AppHandle,
+    default_path: Option<String>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let mut builder = app.dialog().file().set_can_create_directories(true);
+
+    if let Some(path) = default_path {
+        builder = builder.set_directory(path);
+    }
+
+    let result = builder.blocking_pick_folder();
+    Ok(result.map(|p| p.to_string()))
+}
+
+#[tauri::command]
+async fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    std::process::Command::new("open")
+        .args(["-R", &path])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_url_safe(url: String) -> Result<(), String> {
+    // Validate URL scheme - only allow http, https, mailto
+    let parsed = url::Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
+
+    match parsed.scheme() {
+        "http" | "https" | "mailto" => {}
+        scheme => {
+            return Err(format!(
+                "URL scheme '{}' is not allowed. Only http, https, and mailto are permitted.",
+                scheme
+            ))
+        }
+    }
+
+    // Use system opener
+    open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
+}
+
 // Git commands - run blocking git operations off the main thread
 
 #[tauri::command]
@@ -1301,6 +1355,9 @@ pub fn run() {
             copy_to_clipboard,
             copy_image_to_assets,
             save_clipboard_image,
+            open_folder_dialog,
+            reveal_in_file_manager,
+            open_url_safe,
             git_is_available,
             git_get_status,
             git_init_repo,

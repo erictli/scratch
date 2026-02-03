@@ -66,7 +66,7 @@ scratch/
 │   └── main.tsx                    # React root & providers
 ├── src-tauri/                      # Rust backend
 │   ├── src/
-│   │   ├── lib.rs                  # 19 Tauri commands, state, file watcher, search
+│   │   ├── lib.rs                  # 22 Tauri commands, state, file watcher, search
 │   │   └── git.rs                  # Git CLI wrapper (8 commands)
 │   ├── capabilities/default.json   # Tauri permissions config
 │   └── Cargo.toml                  # Rust dependencies
@@ -92,7 +92,7 @@ All backend operations go through Tauri commands defined in `src-tauri/src/lib.r
 The settings page provides UI for:
 
 - Theme mode (light/dark/system)
-- Editor typography (font family, size, bold weight)
+- Editor typography (font family, size, line height, bold weight)
 - Git integration (optional)
 
 Power users can edit the settings JSON directly to customize colors.
@@ -137,7 +137,7 @@ TipTap editor with extensions and features:
 - `NoteList` - Scrollable list with context menu and smart date formatting
 - `SettingsPage` - Tabbed settings (General, Appearance, Git)
 
-### Tauri Commands (19 total)
+### Tauri Commands (22 total)
 
 **Note Management:** `list_notes`, `read_note`, `save_note`, `delete_note`, `create_note`
 
@@ -149,7 +149,9 @@ TipTap editor with extensions and features:
 
 **Git:** `git_is_available`, `git_get_status`, `git_init_repo`, `git_commit`, `git_push`, `git_add_remote`, `git_push_with_upstream`
 
-**Utilities:** `copy_to_clipboard`
+**Utilities:** `copy_to_clipboard`, `copy_image_to_assets`, `save_clipboard_image`
+
+**UI Helpers:** `open_folder_dialog`, `reveal_in_file_manager`, `open_url_safe` (URL scheme validated)
 
 ### Search Implementation
 
@@ -183,6 +185,9 @@ Current capabilities include:
 - `Cmd+N` - New note
 - `Cmd+P` - Command palette
 - `Cmd+K` - Add/edit link (when in editor)
+- `Cmd+R` - Reload current note (pull external changes)
+- `Cmd+,` - Toggle settings
+- `Cmd+\` - Toggle sidebar
 - `Cmd+B/I` - Bold/Italic
 - Arrow keys - Navigate note list (when focused)
 

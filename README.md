@@ -45,13 +45,16 @@ The built app will be in `src-tauri/target/release/bundle/`.
 
 Scratch is designed to be usable without a mouse. Here are the essentials to get started:
 
-| Shortcut  | Action          |
-| --------- | --------------- |
-| `Cmd+N`   | New note        |
-| `Cmd+P`   | Command palette |
-| `Cmd+K`   | Add/edit link   |
-| `Cmd+B/I` | Bold/Italic     |
-| `↑/↓`     | Navigate notes  |
+| Shortcut  | Action                |
+| --------- | --------------------- |
+| `Cmd+N`   | New note              |
+| `Cmd+P`   | Command palette       |
+| `Cmd+K`   | Add/edit link         |
+| `Cmd+R`   | Reload current note   |
+| `Cmd+,`   | Open settings         |
+| `Cmd+\`   | Toggle sidebar        |
+| `Cmd+B/I` | Bold/Italic           |
+| `↑/↓`     | Navigate notes        |
 
 Many more shortcuts and features are available in the app—explore via the command palette (`Cmd+P`).
 

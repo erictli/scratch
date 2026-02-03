@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "notify",
+ "open",
  "serde",
  "serde_json",
  "tantivy",
@@ -19,6 +20,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tokio",
+ "url",
 ]
 
 [[package]]

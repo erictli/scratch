@@ -1,11 +1,17 @@
 import { useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
 import { Button } from "../ui";
-import { FolderIcon, ExternalLinkIcon, SpinnerIcon, LinkIcon } from "../icons";
+import { Input } from "../ui";
+import {
+  FolderIcon,
+  ExternalLinkIcon,
+  SpinnerIcon,
+  CloudPlusIcon,
+} from "../icons";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -55,29 +61,37 @@ export function GeneralSettingsSection() {
 
   const handleChangeFolder = async () => {
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Choose Notes Folder",
-        defaultPath: notesFolder || undefined,
+      const selected = await invoke<string | null>("open_folder_dialog", {
+        defaultPath: notesFolder || null,
       });
 
-      if (selected && typeof selected === "string") {
+      if (selected) {
         await setNotesFolder(selected);
         // Reload theme/font settings from the new folder's .scratch/settings.json
         await reloadSettings();
       }
     } catch (err) {
       console.error("Failed to select folder:", err);
+      toast.error("Failed to select folder");
     }
   };
 
   const handleOpenFolder = async () => {
     if (!notesFolder) return;
     try {
-      await revealItemInDir(notesFolder);
+      await invoke("reveal_in_file_manager", { path: notesFolder });
     } catch (err) {
       console.error("Failed to open folder:", err);
+      toast.error("Failed to open folder");
+    }
+  };
+
+  const handleOpenUrl = async (url: string) => {
+    try {
+      await invoke("open_url_safe", { url });
+    } catch (err) {
+      console.error("Failed to open URL:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to open URL");
     }
   };
 
@@ -142,7 +156,7 @@ export function GeneralSettingsSection() {
               size="md"
               className="gap-1.5 text-text"
             >
-              <ExternalLinkIcon className="w-4 h-4" />
+              <FolderIcon className="w-4 h-4 stroke-[1.7]" />
               Open in Finder
             </Button>
           )}
@@ -216,7 +230,7 @@ export function GeneralSettingsSection() {
                     {getRemoteWebUrl(status.remoteUrl) ? (
                       <button
                         onClick={() =>
-                          openUrl(getRemoteWebUrl(status.remoteUrl)!)
+                          handleOpenUrl(getRemoteWebUrl(status.remoteUrl)!)
                         }
                         className="flex items-center gap-0.75 text-sm text-text-muted hover:text-text truncate max-w-50 transition-colors cursor-pointer"
                         title={status.remoteUrl || undefined}
@@ -286,14 +300,14 @@ export function GeneralSettingsSection() {
                     <span className="text-sm text-text font-medium">
                       Remote
                     </span>
-                    <span className="text-sm font-medium text-amber-500">
+                    <span className="text-sm font-medium text-orange-500">
                       Not connected
                     </span>
                   </div>
 
                   {showRemoteInput ? (
-                    <div className="space-y-3">
-                      <input
+                    <div className="space-y-2">
+                      <Input
                         type="text"
                         value={remoteUrl}
                         onChange={(e) => setRemoteUrl(e.target.value)}
@@ -302,7 +316,6 @@ export function GeneralSettingsSection() {
                           if (e.key === "Escape") handleCancelRemote();
                         }}
                         placeholder="https://github.com/user/repo.git"
-                        className="w-full px-3 py-2 text-sm bg-bg-muted border border-border rounded-md text-text placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-accent/50"
                         autoFocus
                       />
                       <div className="flex gap-2">
@@ -328,15 +341,16 @@ export function GeneralSettingsSection() {
                           Cancel
                         </Button>
                       </div>
+                      <RemoteInstructions />
                     </div>
                   ) : (
                     <>
                       <Button
                         onClick={() => setShowRemoteInput(true)}
                         variant="outline"
-                        size="sm"
+                        size="md"
                       >
-                        <LinkIcon className="w-3 h-3 mr-2" />
+                        <CloudPlusIcon className="w-4 h-4 stroke-[1.7] mr-1.5" />
                         Add Remote
                       </Button>
                       <RemoteInstructions />
@@ -407,12 +421,12 @@ export function GeneralSettingsSection() {
 
 function RemoteInstructions() {
   return (
-    <div className="text-xs text-text-muted space-y-2 pt-2">
+    <div className="text-sm text-text-muted space-y-1.5 pt-2 pb-1.5">
       <p className="font-medium">To get your remote URL:</p>
-      <ol className="list-decimal list-inside space-y-1 pl-1">
+      <ol className="list-decimal list-inside space-y-0.5 pl-1">
         <li>Create a repository on GitHub, GitLab, etc.</li>
         <li>Copy the repository URL (HTTPS or SSH)</li>
-        <li>Paste it above and click Connect</li>
+        <li>Click Remote and paste the URL</li>
       </ol>
       <p className="text-text-muted/70 pt-1">
         Example: https://github.com/username/my-notes.git

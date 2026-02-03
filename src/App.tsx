@@ -52,13 +52,6 @@ function AppContent() {
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 
-      // Trap Tab/Shift+Tab globally - prevent focus navigation
-      // TipTap handles indentation internally before event bubbles up
-      if (e.key === "Tab") {
-        e.preventDefault();
-        return;
-      }
-
       // Cmd+, - Toggle settings (always works, even in settings)
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
@@ -68,6 +61,13 @@ function AppContent() {
 
       // Block all other shortcuts when in settings view
       if (view === "settings") {
+        return;
+      }
+
+      // Trap Tab/Shift+Tab in notes view only - prevent focus navigation
+      // TipTap handles indentation internally before event bubbles up
+      if (e.key === "Tab") {
+        e.preventDefault();
         return;
       }
 

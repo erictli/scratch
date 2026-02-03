@@ -25,3 +25,5 @@ notify = "6"
 tantivy = "0.22"
 tokio = { version = "1", features = ["fs", "sync"] }
 base64 = "0.22"
+url = "2"
+open = "5"

@@ -112,11 +112,15 @@ export function NoteList() {
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleDeleteConfirm = useCallback(() => {
+  const handleDeleteConfirm = useCallback(async () => {
     if (noteToDelete) {
-      deleteNote(noteToDelete);
-      setNoteToDelete(null);
-      setDeleteDialogOpen(false);
+      try {
+        await deleteNote(noteToDelete);
+        setNoteToDelete(null);
+        setDeleteDialogOpen(false);
+      } catch (error) {
+        console.error("Failed to delete note:", error);
+      }
     }
   }, [noteToDelete, deleteNote]);
 

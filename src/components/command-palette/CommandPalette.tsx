@@ -148,7 +148,6 @@ export function CommandPalette({
           action: () => {
             setNoteToDelete(currentNote.id);
             setDeleteDialogOpen(true);
-            onClose();
           },
         },
         {
@@ -322,13 +321,19 @@ export function CommandPalette({
     }
   }, [selectedIndex]);
 
-  const handleDeleteConfirm = useCallback(() => {
+  const handleDeleteConfirm = useCallback(async () => {
     if (noteToDelete) {
-      deleteNote(noteToDelete);
-      setNoteToDelete(null);
-      setDeleteDialogOpen(false);
+      try {
+        await deleteNote(noteToDelete);
+        setNoteToDelete(null);
+        setDeleteDialogOpen(false);
+        onClose();
+      } catch (error) {
+        console.error("Failed to delete note:", error);
+        toast.error("Failed to delete note");
+      }
     }
-  }, [noteToDelete, deleteNote]);
+  }, [noteToDelete, deleteNote, onClose]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {

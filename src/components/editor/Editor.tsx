@@ -17,8 +17,17 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { toast } from "sonner";
+
+// Validate URL scheme for safe opening
+function isAllowedUrlScheme(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return ["http:", "https:", "mailto:"].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
@@ -371,7 +380,12 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                   .run();
               } catch (error) {
                 console.error("Failed to paste image:", error);
+                toast.error("Failed to paste image");
               }
+            };
+            reader.onerror = () => {
+              console.error("Failed to read clipboard image:", reader.error);
+              toast.error("Failed to read clipboard image");
             };
             reader.readAsDataURL(blob);
             return true; // Handled
@@ -446,9 +460,13 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
 
         // If Cmd/Ctrl is pressed, open in browser
         if ((e.metaKey || e.ctrlKey) && link.href) {
-          openUrl(link.href).catch((error) =>
-            console.error("Failed to open link:", error)
-          );
+          if (isAllowedUrlScheme(link.href)) {
+            openUrl(link.href).catch((error) =>
+              console.error("Failed to open link:", error)
+            );
+          } else {
+            toast.error("Cannot open links with this URL scheme");
+          }
         }
       }
     };
@@ -785,7 +803,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (!editor) return;
     try {
       const markdown = getMarkdown(editor);
-      await writeText(markdown);
+      await invoke("copy_to_clipboard", { text: markdown });
       toast.success("Copied as Markdown");
     } catch (error) {
       console.error("Failed to copy markdown:", error);
@@ -797,7 +815,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (!editor) return;
     try {
       const plainText = editor.getText();
-      await writeText(plainText);
+      await invoke("copy_to_clipboard", { text: plainText });
       toast.success("Copied as plain text");
     } catch (error) {
       console.error("Failed to copy plain text:", error);
@@ -809,7 +827,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (!editor) return;
     try {
       const html = editor.getHTML();
-      await writeText(html);
+      await invoke("copy_to_clipboard", { text: html });
       toast.success("Copied as HTML");
     } catch (error) {
       console.error("Failed to copy HTML:", error);

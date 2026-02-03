@@ -28,6 +28,19 @@ export function AppearanceSettingsSection() {
     resetEditorFontSettings,
   } = useTheme();
 
+  // Validated numeric change handler
+  const handleNumericChange = (
+    field: "baseFontSize" | "lineHeight",
+    value: string,
+    min: number,
+    max: number
+  ) => {
+    const parsed = parseFloat(value);
+    if (!Number.isFinite(parsed)) return;
+    const clamped = Math.min(Math.max(parsed, min), max);
+    setEditorFontSetting(field, clamped);
+  };
+
   // Check if settings differ from defaults
   const hasCustomFonts =
     editorFontSettings.baseFontFamily !== "system-sans" ||
@@ -118,7 +131,7 @@ export function AppearanceSettingsSection() {
                 max="24"
                 value={editorFontSettings.baseFontSize}
                 onChange={(e) =>
-                  setEditorFontSetting("baseFontSize", Number(e.target.value))
+                  handleNumericChange("baseFontSize", e.target.value, 12, 24)
                 }
                 className="w-full h-9 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
@@ -154,7 +167,7 @@ export function AppearanceSettingsSection() {
                 step="0.1"
                 value={editorFontSettings.lineHeight}
                 onChange={(e) =>
-                  setEditorFontSetting("lineHeight", Number(e.target.value))
+                  handleNumericChange("lineHeight", e.target.value, 1.0, 2.5)
                 }
                 className="w-full h-9 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
