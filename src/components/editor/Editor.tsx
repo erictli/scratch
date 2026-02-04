@@ -284,37 +284,50 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       const lowerText = text.toLowerCase();
       const matches: Array<{ from: number; to: number }> = [];
 
+      console.log("findMatches: searching for", query, "in text length", text.length);
+
       let searchPos = 0;
       while (searchPos < lowerText.length && matches.length < 500) {
         const index = lowerText.indexOf(lowerQuery, searchPos);
         if (index === -1) break;
 
-        // Convert text index to ProseMirror position
-        let pos = 1; // Start at position 1
-        let textIndex = 0;
-        let found = false;
+        console.log("findMatches: found match at text index", index);
 
-        doc.descendants((node) => {
-          if (found) return false;
+        // Convert text index to ProseMirror position
+        // Walk through the document to find the position
+        let currentTextIndex = 0; // Current index in plain text
+        let matchPos: { from: number; to: number } | null = null;
+
+        doc.descendants((node, pos) => {
+          if (matchPos) return false; // Already found
+
           if (node.isText && node.text) {
-            const nodeEnd = textIndex + node.text.length;
-            if (index >= textIndex && index < nodeEnd) {
-              const from = pos + (index - textIndex);
-              const to = from + query.length;
-              matches.push({ from, to });
-              found = true;
+            const nodeStartText = currentTextIndex;
+            const nodeEndText = currentTextIndex + node.text.length;
+
+            // Check if our match falls within this text node
+            if (index >= nodeStartText && index < nodeEndText) {
+              const offsetInNode = index - nodeStartText;
+              matchPos = {
+                from: pos + offsetInNode,
+                to: pos + offsetInNode + query.length,
+              };
+              console.log("findMatches: converted to ProseMirror position", matchPos);
               return false;
             }
-            textIndex = nodeEnd;
-            pos += node.nodeSize;
-          } else {
-            pos += node.nodeSize;
+
+            currentTextIndex += node.text.length;
           }
         });
+
+        if (matchPos) {
+          matches.push(matchPos);
+        }
 
         searchPos = index + 1;
       }
 
+      console.log("findMatches: total matches found", matches.length);
       return matches;
     },
     []
@@ -326,12 +339,25 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       match: { from: number; to: number } | null,
       editorInstance: TiptapEditor | null
     ) => {
-      if (!editorInstance || !match) return;
-      editorInstance
-        .chain()
-        .setTextSelection({ from: match.from, to: match.to })
-        .scrollIntoView()
-        .run();
+      if (!editorInstance || !match) {
+        console.log("highlightMatch: missing editor or match", { editorInstance, match });
+        return;
+      }
+
+      console.log("highlightMatch: selecting text from", match.from, "to", match.to);
+
+      try {
+        editorInstance
+          .chain()
+          .focus()
+          .setTextSelection({ from: match.from, to: match.to })
+          .scrollIntoView()
+          .run();
+
+        console.log("highlightMatch: selection set successfully");
+      } catch (error) {
+        console.error("highlightMatch: error setting selection", error);
+      }
     },
     []
   );
@@ -557,19 +583,32 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const handleSearchChange = useCallback(
     (query: string) => {
       setSearchQuery(query);
-      if (!query.trim()) {
-        setSearchMatches([]);
-      } else {
-        const matches = findMatches(query, editor);
-        setSearchMatches(matches);
-        setCurrentMatchIndex(0);
-        if (matches.length > 0) {
-          highlightMatch(matches[0], editor);
-        }
-      }
     },
-    [editor, findMatches, highlightMatch]
+    []
   );
+
+  // Debounced search effect
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchMatches([]);
+      setCurrentMatchIndex(0);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (!editor) return;
+      const matches = findMatches(searchQuery, editor);
+      console.log("Search matches found:", matches.length, matches);
+      setSearchMatches(matches);
+      setCurrentMatchIndex(0);
+      if (matches.length > 0) {
+        console.log("Highlighting first match:", matches[0]);
+        highlightMatch(matches[0], editor);
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, editor, findMatches, highlightMatch]);
 
   // Prevent links from opening unless Cmd/Ctrl+Click
   useEffect(() => {
