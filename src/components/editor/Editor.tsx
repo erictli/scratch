@@ -78,12 +78,11 @@ interface FormatBarProps {
   editor: TiptapEditor | null;
   onAddLink: () => void;
   onAddImage: () => void;
-  onOpenSearch: () => void;
 }
 
 // FormatBar must re-render with parent to reflect editor.isActive() state changes
 // (editor instance is mutable, so memo would cause stale active states)
-function FormatBar({ editor, onAddLink, onAddImage, onOpenSearch }: FormatBarProps) {
+function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
   if (!editor) return null;
 
   return (
@@ -204,12 +203,6 @@ function FormatBar({ editor, onAddLink, onAddImage, onOpenSearch }: FormatBarPro
       </ToolbarButton>
       <ToolbarButton onClick={onAddImage} isActive={false} title="Add Image">
         <ImageIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-      </ToolbarButton>
-
-      <div className="w-px h-4.5 border-l border-border mx-2" />
-
-      <ToolbarButton onClick={onOpenSearch} isActive={false} title="Find in note (⌘F)">
-        <SearchIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
     </div>
   );
@@ -1091,6 +1084,13 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               </IconButton>
             </Tooltip>
           )}
+          {currentNote && (
+            <Tooltip content="Find in note (⌘F)">
+              <IconButton onClick={() => setSearchOpen(true)}>
+                <SearchIcon className="w-4.25 h-4.25 stroke-[1.5]" />
+              </IconButton>
+            </Tooltip>
+          )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
             <Tooltip content="Copy as... (⌘⇧C)">
               <DropdownMenu.Trigger asChild>
@@ -1144,7 +1144,6 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         editor={editor}
         onAddLink={handleAddLink}
         onAddImage={handleAddImage}
-        onOpenSearch={() => setSearchOpen(true)}
       />
 
       {/* TipTap Editor */}
@@ -1153,7 +1152,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         className="flex-1 overflow-y-auto overflow-x-hidden relative"
       >
         {searchOpen && (
-          <div className="absolute top-4 left-6 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="absolute top-4 right-6 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
             <SearchToolbar
               query={searchQuery}
               onChange={handleSearchChange}
