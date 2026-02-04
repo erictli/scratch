@@ -30,24 +30,31 @@
         "enable": true,
         "scope": {
           "requireLiteralLeadingDot": true,
-          "allow": [
-            "$APPDATA/**",
-            "$HOME/**"
-          ]
+          "allow": ["$APPDATA/**", "$HOME/**"]
         }
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["dmg", "app"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE3RTQ2NTA4QzJGODdFRTYKUldUbWZ2akNDR1hrcDlud3VQSVhuYVU0cDk5V0RkaVFuVElRSGRVMjlFam9IdFVCNnU1ZlVJOXEK",
+      "endpoints": [
+        "https://github.com/erictli/scratch/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }

@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -44,18 +45,26 @@ export function GitProvider({ children }: { children: ReactNode }) {
   const [gitAvailable, setGitAvailable] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
+  // Use refs to avoid dependency cycles
+  const hasLoadedRef = useRef(false);
+  const refreshInFlightRef = useRef(false);
+
   const refreshStatus = useCallback(async () => {
     if (!notesFolder) return;
 
-    // Only show loading if we don't have a status yet (initial load)
-    // This prevents blinking on subsequent refreshes
-    const isInitialLoad = status === null;
+    // Prevent concurrent refreshes from piling up
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+
+    // Only show loading spinner on the very first load
+    const isInitialLoad = !hasLoadedRef.current;
     if (isInitialLoad) {
       setIsLoading(true);
     }
 
     try {
       const newStatus = await gitService.getGitStatus();
+      hasLoadedRef.current = true;
       setStatus(newStatus);
       if (newStatus.error) {
         setLastError(newStatus.error);
@@ -63,11 +72,12 @@ export function GitProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setLastError(err instanceof Error ? err.message : "Failed to get git status");
     } finally {
+      refreshInFlightRef.current = false;
       if (isInitialLoad) {
         setIsLoading(false);
       }
     }
-  }, [notesFolder, status]);
+  }, [notesFolder]);
 
   const initRepo = useCallback(async () => {
     try {
@@ -161,6 +171,10 @@ export function GitProvider({ children }: { children: ReactNode }) {
     gitService.isGitAvailable().then(setGitAvailable);
   }, []);
 
+  // Keep a stable ref so the file-change listener doesn't need to re-register
+  const refreshStatusRef = useRef(refreshStatus);
+  refreshStatusRef.current = refreshStatus;
+
   // Refresh status when folder changes
   useEffect(() => {
     if (notesFolder && gitAvailable) {
@@ -169,6 +183,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
   }, [notesFolder, gitAvailable, refreshStatus]);
 
   // Refresh status on file changes (debounced via existing file watcher)
+  // Uses a ref so the listener is registered only once
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let debounceTimer: number | undefined;
@@ -179,7 +194,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
         clearTimeout(debounceTimer);
       }
       debounceTimer = window.setTimeout(() => {
-        refreshStatus();
+        refreshStatusRef.current();
       }, 1000);
     }).then((fn) => {
       unlisten = fn;
@@ -189,7 +204,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       if (unlisten) unlisten();
       if (debounceTimer) clearTimeout(debounceTimer);
     };
-  }, [refreshStatus]);
+  }, []);
 
   const value = useMemo<GitContextValue>(
     () => ({
