@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
+import * as notesService from "../../services/notes";
+import type { Settings } from "../../types/note";
 import {
   CommandItem,
   AlertDialog,
@@ -33,6 +35,7 @@ import {
   UploadIcon,
   AddNoteIcon,
   TrashIcon,
+  PinIcon,
 } from "../icons";
 
 interface Command {
@@ -61,6 +64,8 @@ export function CommandPalette({
     deleteNote,
     currentNote,
     refreshNotes,
+    pinNote,
+    unpinNote,
   } = useNotes();
   const { theme, setTheme } = useTheme();
   const { status, gitAvailable, commit, push } = useGit();
@@ -71,8 +76,16 @@ export function CommandPalette({
   const [localSearchResults, setLocalSearchResults] = useState<
     { id: string; title: string; preview: string; modified: number }[]
   >([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Load settings when palette opens or current note changes
+  useEffect(() => {
+    if (open) {
+      notesService.getSettings().then(setSettings);
+    }
+  }, [open, currentNote?.id]);
 
   // Memoize commands array
   const commands = useMemo<Command[]>(() => {
@@ -128,7 +141,27 @@ export function CommandPalette({
 
     // Add note-specific commands if a note is selected
     if (currentNote) {
+      const isPinned = settings?.pinnedNoteIds?.includes(currentNote.id) || false;
+
       baseCommands.push(
+        {
+          id: isPinned ? "unpin-note" : "pin-note",
+          label: isPinned ? "Unpin Current Note" : "Pin Current Note",
+          icon: <PinIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              if (isPinned) {
+                await unpinNote(currentNote.id);
+              } else {
+                await pinNote(currentNote.id);
+              }
+              onClose();
+            } catch (error) {
+              console.error("Failed to pin/unpin note:", error);
+              toast.error(`Failed to ${isPinned ? "unpin" : "pin"} note`);
+            }
+          },
+        },
         {
           id: "duplicate-note",
           label: "Duplicate Current Note",
@@ -255,6 +288,9 @@ export function CommandPalette({
     push,
     selectNote,
     refreshNotes,
+    settings,
+    pinNote,
+    unpinNote,
   ]);
 
   // Debounced search using Tantivy (local state, doesn't affect sidebar)

@@ -41,6 +41,8 @@ interface NotesActionsContextValue {
   setNotesFolder: (path: string) => Promise<void>;
   search: (query: string) => Promise<void>;
   clearSearch: () => void;
+  pinNote: (id: string) => Promise<void>;
+  unpinNote: (id: string) => Promise<void>;
 }
 
 const NotesDataContext = createContext<NotesDataContextValue | null>(null);
@@ -144,6 +146,19 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         // If the note was renamed (ID changed), also mark the new ID
         if (updated.id !== savingNoteId) {
           recentlySavedRef.current.add(updated.id);
+
+          // Transfer pin status to new ID
+          const currentSettings = await notesService.getSettings();
+          const pinnedIds = currentSettings.pinnedNoteIds || [];
+          if (pinnedIds.includes(savingNoteId)) {
+            const updatedSettings = {
+              ...currentSettings,
+              pinnedNoteIds: pinnedIds.map((id) =>
+                id === savingNoteId ? updated.id : id
+              ),
+            };
+            await notesService.updateSettings(updatedSettings);
+          }
         }
 
         // Clear external changes flag - if it was set by our own save, we want to ignore it
@@ -184,6 +199,18 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       try {
         await notesService.deleteNote(id);
+
+        // Clean up pinned status for deleted note
+        const currentSettings = await notesService.getSettings();
+        const pinnedIds = currentSettings.pinnedNoteIds || [];
+        if (pinnedIds.includes(id)) {
+          const updatedSettings = {
+            ...currentSettings,
+            pinnedNoteIds: pinnedIds.filter((pinId) => pinId !== id),
+          };
+          await notesService.updateSettings(updatedSettings);
+        }
+
         // Only clear selection if we're deleting the currently selected note
         setSelectedNoteId((prevId) => {
           if (prevId === id) {
@@ -209,6 +236,46 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         setSelectedNoteId(newNote.id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to duplicate note");
+      }
+    },
+    [refreshNotes]
+  );
+
+  const pinNote = useCallback(
+    async (id: string) => {
+      try {
+        const currentSettings = await notesService.getSettings();
+        const pinnedIds = currentSettings.pinnedNoteIds || [];
+
+        if (!pinnedIds.includes(id)) {
+          const updatedSettings = {
+            ...currentSettings,
+            pinnedNoteIds: [...pinnedIds, id],
+          };
+          await notesService.updateSettings(updatedSettings);
+          await refreshNotes();
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to pin note");
+      }
+    },
+    [refreshNotes]
+  );
+
+  const unpinNote = useCallback(
+    async (id: string) => {
+      try {
+        const currentSettings = await notesService.getSettings();
+        const pinnedIds = currentSettings.pinnedNoteIds || [];
+
+        const updatedSettings = {
+          ...currentSettings,
+          pinnedNoteIds: pinnedIds.filter((pinId) => pinId !== id),
+        };
+        await notesService.updateSettings(updatedSettings);
+        await refreshNotes();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to unpin note");
       }
     },
     [refreshNotes]
@@ -364,6 +431,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setNotesFolder,
       search,
       clearSearch,
+      pinNote,
+      unpinNote,
     }),
     [
       selectNote,
@@ -376,6 +445,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setNotesFolder,
       search,
       clearSearch,
+      pinNote,
+      unpinNote,
     ]
   );
 

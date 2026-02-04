@@ -110,9 +110,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         }
       }
       if (settings.editorFont) {
+        // Filter out null/undefined values to preserve defaults
+        const fontSettings = Object.fromEntries(
+          Object.entries(settings.editorFont).filter(([, v]) => v != null)
+        ) as Partial<EditorFontSettings>;
         setEditorFontSettings({
           ...defaultEditorFontSettings,
-          ...settings.editorFont,
+          ...fontSettings,
         });
       }
     } catch {

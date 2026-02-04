@@ -2,7 +2,7 @@ use anyhow::Result;
 use base64::Engine;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -93,6 +93,8 @@ pub struct Settings {
     pub editor_font: Option<EditorFontSettings>,
     #[serde(rename = "gitEnabled")]
     pub git_enabled: Option<bool>,
+    #[serde(rename = "pinnedNoteIds")]
+    pub pinned_note_ids: Option<Vec<String>>,
 }
 
 // Search result
@@ -641,8 +643,27 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         }
     }
 
-    // Sort by modified date, newest first
-    notes.sort_by(|a, b| b.modified.cmp(&a.modified));
+    // Load pinned note IDs from settings
+    let pinned_ids: HashSet<String> = {
+        let settings = state.settings.read().expect("settings read lock");
+        settings
+            .pinned_note_ids
+            .as_ref()
+            .map(|ids| ids.iter().cloned().collect())
+            .unwrap_or_default()
+    };
+
+    // Sort: pinned notes first (by date), then unpinned notes (by date)
+    notes.sort_by(|a, b| {
+        let a_pinned = pinned_ids.contains(&a.id);
+        let b_pinned = pinned_ids.contains(&b.id);
+
+        match (a_pinned, b_pinned) {
+            (true, false) => std::cmp::Ordering::Less,    // a pinned, b not -> a first
+            (false, true) => std::cmp::Ordering::Greater, // b pinned, a not -> b first
+            _ => b.modified.cmp(&a.modified),             // both same status -> sort by date (newest first)
+        }
+    });
 
     // Update cache efficiently
     {

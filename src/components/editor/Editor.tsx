@@ -31,8 +31,11 @@ function isAllowedUrlScheme(url: string): boolean {
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
+import { SearchToolbar } from "./SearchToolbar";
 import { cn } from "../../lib/utils";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
+import * as notesService from "../../services/notes";
+import type { Settings } from "../../types/note";
 import {
   BoldIcon,
   ItalicIcon,
@@ -55,6 +58,8 @@ import {
   CopyIcon,
   PanelLeftIcon,
   RefreshCwIcon,
+  PinIcon,
+  SearchIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -73,11 +78,12 @@ interface FormatBarProps {
   editor: TiptapEditor | null;
   onAddLink: () => void;
   onAddImage: () => void;
+  onOpenSearch: () => void;
 }
 
 // FormatBar must re-render with parent to reflect editor.isActive() state changes
 // (editor instance is mutable, so memo would cause stale active states)
-function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
+function FormatBar({ editor, onAddLink, onAddImage, onOpenSearch }: FormatBarProps) {
   if (!editor) return null;
 
   return (
@@ -199,6 +205,12 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton onClick={onAddImage} isActive={false} title="Add Image">
         <ImageIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
+
+      <div className="w-px h-4.5 border-l border-border mx-2" />
+
+      <ToolbarButton onClick={onOpenSearch} isActive={false} title="Find in note (⌘F)">
+        <SearchIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+      </ToolbarButton>
     </div>
   );
 }
@@ -216,11 +228,21 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     hasExternalChanges,
     reloadCurrentNote,
     reloadVersion,
+    pinNote,
+    unpinNote,
   } = useNotes();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatches, setSearchMatches] = useState<
+    Array<{ from: number; to: number }>
+  >([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const saveTimeoutRef = useRef<number | null>(null);
   const linkPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
@@ -243,6 +265,80 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       }
       // Fallback to plain text
       return editorInstance.getText();
+    },
+    []
+  );
+
+  // Load settings when note changes
+  useEffect(() => {
+    if (currentNote?.id) {
+      notesService.getSettings().then(setSettings);
+    }
+  }, [currentNote?.id]);
+
+  // Calculate if current note is pinned
+  const isPinned =
+    settings?.pinnedNoteIds?.includes(currentNote?.id || "") || false;
+
+  // Find all matches for search query (case-insensitive)
+  const findMatches = useCallback(
+    (query: string, editorInstance: TiptapEditor | null) => {
+      if (!editorInstance || !query.trim()) return [];
+
+      const doc = editorInstance.state.doc;
+      const text = doc.textContent;
+      const lowerQuery = query.toLowerCase();
+      const lowerText = text.toLowerCase();
+      const matches: Array<{ from: number; to: number }> = [];
+
+      let searchPos = 0;
+      while (searchPos < lowerText.length && matches.length < 500) {
+        const index = lowerText.indexOf(lowerQuery, searchPos);
+        if (index === -1) break;
+
+        // Convert text index to ProseMirror position
+        let pos = 1; // Start at position 1
+        let textIndex = 0;
+        let found = false;
+
+        doc.descendants((node) => {
+          if (found) return false;
+          if (node.isText && node.text) {
+            const nodeEnd = textIndex + node.text.length;
+            if (index >= textIndex && index < nodeEnd) {
+              const from = pos + (index - textIndex);
+              const to = from + query.length;
+              matches.push({ from, to });
+              found = true;
+              return false;
+            }
+            textIndex = nodeEnd;
+            pos += node.nodeSize;
+          } else {
+            pos += node.nodeSize;
+          }
+        });
+
+        searchPos = index + 1;
+      }
+
+      return matches;
+    },
+    []
+  );
+
+  // Highlight current search match (simplified approach using selection)
+  const highlightMatch = useCallback(
+    (
+      match: { from: number; to: number } | null,
+      editorInstance: TiptapEditor | null
+    ) => {
+      if (!editorInstance || !match) return;
+      editorInstance
+        .chain()
+        .setTextSelection({ from: match.from, to: match.to })
+        .scrollIntoView()
+        .run();
     },
     []
   );
@@ -447,6 +543,40 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
   // Track reloadVersion to detect manual refreshes
   const lastReloadVersionRef = useRef(0);
+
+  // Search navigation functions (defined after editor is created)
+  const goToNextMatch = useCallback(() => {
+    if (searchMatches.length === 0 || !editor) return;
+    const nextIndex = (currentMatchIndex + 1) % searchMatches.length;
+    setCurrentMatchIndex(nextIndex);
+    highlightMatch(searchMatches[nextIndex], editor);
+  }, [searchMatches, currentMatchIndex, editor, highlightMatch]);
+
+  const goToPreviousMatch = useCallback(() => {
+    if (searchMatches.length === 0 || !editor) return;
+    const prevIndex =
+      (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+    setCurrentMatchIndex(prevIndex);
+    highlightMatch(searchMatches[prevIndex], editor);
+  }, [searchMatches, currentMatchIndex, editor, highlightMatch]);
+
+  // Handle search query change
+  const handleSearchChange = useCallback(
+    (query: string) => {
+      setSearchQuery(query);
+      if (!query.trim()) {
+        setSearchMatches([]);
+      } else {
+        const matches = findMatches(query, editor);
+        setSearchMatches(matches);
+        setCurrentMatchIndex(0);
+        if (matches.length > 0) {
+          highlightMatch(matches[0], editor);
+        }
+      }
+    },
+    [editor, findMatches, highlightMatch]
+  );
 
   // Prevent links from opening unless Cmd/Ctrl+Click
   useEffect(() => {
@@ -798,6 +928,30 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Cmd+F to open search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        const target = e.target as HTMLElement;
+        if (target.closest(".ProseMirror") && editor) {
+          e.preventDefault();
+          setSearchOpen(true);
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [editor]);
+
+  // Clear search on note switch
+  useEffect(() => {
+    if (currentNote?.id) {
+      setSearchOpen(false);
+      setSearchQuery("");
+      setSearchMatches([]);
+    }
+  }, [currentNote?.id]);
+
   // Copy handlers
   const handleCopyMarkdown = useCallback(async () => {
     if (!editor) return;
@@ -919,6 +1073,24 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               </div>
             </Tooltip>
           )}
+          {currentNote && (
+            <Tooltip
+              content={isPinned ? "Unpin note" : "Pin note"}
+            >
+              <IconButton
+                onClick={() =>
+                  isPinned ? unpinNote(currentNote.id) : pinNote(currentNote.id)
+                }
+              >
+                <PinIcon
+                  className={cn(
+                    "w-4.25 h-4.25 stroke-[1.5]",
+                    isPinned && "fill-current"
+                  )}
+                />
+              </IconButton>
+            </Tooltip>
+          )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
             <Tooltip content="Copy as... (⌘⇧C)">
               <DropdownMenu.Trigger asChild>
@@ -972,13 +1144,31 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         editor={editor}
         onAddLink={handleAddLink}
         onAddImage={handleAddImage}
+        onOpenSearch={() => setSearchOpen(true)}
       />
 
       {/* TipTap Editor */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden"
+        className="flex-1 overflow-y-auto overflow-x-hidden relative"
       >
+        {searchOpen && (
+          <div className="absolute top-4 left-6 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
+            <SearchToolbar
+              query={searchQuery}
+              onChange={handleSearchChange}
+              onNext={goToNextMatch}
+              onPrevious={goToPreviousMatch}
+              onClose={() => {
+                setSearchOpen(false);
+                setSearchQuery("");
+                setSearchMatches([]);
+              }}
+              currentMatch={currentMatchIndex + 1}
+              totalMatches={searchMatches.length}
+            />
+          </div>
+        )}
         <EditorContent editor={editor} className="h-full text-text" />
       </div>
     </div>

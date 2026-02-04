@@ -31,4 +31,5 @@ export interface Settings {
   theme: ThemeSettings;
   editorFont?: EditorFontSettings;
   gitEnabled?: boolean;
+  pinnedNoteIds?: string[];
 }
