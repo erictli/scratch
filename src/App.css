@@ -416,12 +416,6 @@ ul[data-type="taskList"] li {
   padding: 0;
 }
 
-/* Nested task lists */
-ul[data-type="taskList"] ul[data-type="taskList"] {
-  margin-top: 0;
-  margin-bottom: 0;
-}
-
 ul[data-type="taskList"] li > label {
   flex-shrink: 0;
   user-select: none;
@@ -450,6 +444,75 @@ ul[data-type="taskList"] li > div > p {
 ul[data-type="taskList"] li[data-checked="true"] > div {
   text-decoration: line-through;
   opacity: 0.6;
+}
+
+/* Task list spacing - breathing room between items */
+ul[data-type="taskList"] > li {
+  padding-top: 0.15em;
+  padding-bottom: 0.15em;
+}
+
+/* Extra spacing between parent items (items that have nested lists) */
+ul[data-type="taskList"] > li:has(> div > ul[data-type="taskList"]) {
+  padding-bottom: 0.25em;
+}
+
+/* Space before a nested task list */
+ul[data-type="taskList"] ul[data-type="taskList"] {
+  margin-top: 0.15em;
+  margin-bottom: 0.15em;
+}
+
+/* Table styles */
+.prose table,
+table.not-prose {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  font-size: var(--editor-base-font-size);
+  color: var(--color-text);
+}
+
+.prose table th,
+.prose table td,
+table.not-prose th,
+table.not-prose td {
+  border: 1px solid var(--color-border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose table th,
+table.not-prose th {
+  font-weight: var(--editor-bold-weight);
+  background-color: var(--color-bg-muted);
+}
+
+.prose table tr:hover td,
+table.not-prose tr:hover td {
+  background-color: var(--color-bg-muted);
+}
+
+/* TipTap table selection styles */
+.selectedCell::after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--color-selection);
+  pointer-events: none;
+}
+
+.prose table td,
+.prose table th,
+table.not-prose td,
+table.not-prose th {
+  position: relative;
 }
 
 /* Radix UI tooltip animations */

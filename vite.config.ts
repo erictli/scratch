@@ -55,6 +55,10 @@ export default defineConfig(async () => ({
             "@tiptap/extension-placeholder",
             "@tiptap/extension-task-list",
             "@tiptap/extension-task-item",
+            "@tiptap/extension-table",
+            "@tiptap/extension-table-row",
+            "@tiptap/extension-table-cell",
+            "@tiptap/extension-table-header",
           ],
           // React core
           "react-vendor": ["react", "react-dom"],
