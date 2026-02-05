@@ -215,6 +215,7 @@ interface EditorProps {
 
 export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const {
+    notes,
     currentNote,
     saveNote,
     createNote,
@@ -262,7 +263,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     []
   );
 
-  // Load settings when note changes
+  // Load settings when note changes or notes are refreshed (e.g., after pin/unpin)
   useEffect(() => {
     if (currentNote?.id) {
       notesService
@@ -277,7 +278,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           );
         });
     }
-  }, [currentNote?.id]);
+  }, [currentNote?.id, notes]);
 
   // Calculate if current note is pinned
   const isPinned =
