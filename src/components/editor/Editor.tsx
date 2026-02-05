@@ -335,6 +335,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     settings?.pinnedNoteIds?.includes(currentNote?.id || "") || false;
 
   // Find all matches for search query (case-insensitive)
+  // Flattens document text first to find matches across formatting boundaries
   const findMatches = useCallback(
     (query: string, editorInstance: TiptapEditor | null) => {
       if (!editorInstance || !query.trim()) return [];
@@ -343,32 +344,44 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       const lowerQuery = query.toLowerCase();
       const matches: Array<{ from: number; to: number }> = [];
 
-      // Search through the entire document content
-      doc.descendants((node, nodePos) => {
+      // Flatten document text and build position mapping
+      const flatText = doc.textBetween(0, doc.content.size, " ", " ");
+      const lowerFlatText = flatText.toLowerCase();
+
+      // Build mapping from flat text index to document position
+      const positionMap: number[] = [];
+      let flatIndex = 0;
+
+      doc.nodesBetween(0, doc.content.size, (node, pos) => {
         if (node.isText && node.text) {
-          const text = node.text;
-          const lowerText = text.toLowerCase();
-
-          let searchPos = 0;
-          while (searchPos < lowerText.length && matches.length < 500) {
-            const index = lowerText.indexOf(lowerQuery, searchPos);
-            if (index === -1) break;
-
-            const matchFrom = nodePos + index;
-            const matchTo = matchFrom + query.length;
-
-            // Make sure the match doesn't extend beyond valid document bounds
-            if (matchTo <= doc.content.size) {
-              matches.push({
-                from: matchFrom,
-                to: matchTo,
-              });
-            }
-
-            searchPos = index + 1;
+          for (let i = 0; i < node.text.length; i++) {
+            positionMap[flatIndex++] = pos + i;
           }
+        } else if (node.isBlock && flatIndex > 0) {
+          // Block separator - map space to last valid position
+          positionMap[flatIndex++] = positionMap[flatIndex - 1] || 0;
         }
       });
+
+      // Find all matches in flattened text
+      let searchPos = 0;
+      while (searchPos < lowerFlatText.length && matches.length < 500) {
+        const index = lowerFlatText.indexOf(lowerQuery, searchPos);
+        if (index === -1) break;
+
+        // Map flat text indices back to document positions
+        const matchFrom = positionMap[index];
+        const matchTo = positionMap[index + query.length - 1];
+
+        if (matchFrom !== undefined && matchTo !== undefined && matchTo < doc.content.size) {
+          matches.push({
+            from: matchFrom,
+            to: matchTo + 1, // +1 because we want the position after the last character
+          });
+        }
+
+        searchPos = index + 1;
+      }
 
       return matches;
     },
@@ -672,9 +685,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       const matches = findMatches(searchQuery, editor);
       setSearchMatches(matches);
       setCurrentMatchIndex(0);
-      if (matches.length > 0) {
-        updateSearchDecorations(matches, 0, editor);
-      }
+      // Always update decorations (clears old highlights when no matches)
+      updateSearchDecorations(matches, 0, editor);
     }, 150);
 
     return () => clearTimeout(timer);
@@ -1319,7 +1331,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                   editor.commands.focus();
                 }
               }}
-              currentMatch={currentMatchIndex + 1}
+              currentMatch={searchMatches.length === 0 ? 0 : currentMatchIndex + 1}
               totalMatches={searchMatches.length}
             />
             </div>

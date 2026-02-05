@@ -122,7 +122,12 @@ export function NoteList() {
 
   // Load settings when notes change
   useEffect(() => {
-    notesService.getSettings().then(setSettings);
+    notesService
+      .getSettings()
+      .then(setSettings)
+      .catch((error) => {
+        console.error("Failed to load settings:", error);
+      });
   }, [notes]);
 
   // Calculate pinned IDs set for efficient lookup
@@ -152,7 +157,16 @@ export function NoteList() {
         items: [
           await MenuItem.new({
             text: isPinned ? "Unpin" : "Pin",
-            action: () => (isPinned ? unpinNote(noteId) : pinNote(noteId)),
+            action: async () => {
+              try {
+                await (isPinned ? unpinNote(noteId) : pinNote(noteId));
+                // Refresh settings after pin/unpin
+                const newSettings = await notesService.getSettings();
+                setSettings(newSettings);
+              } catch (error) {
+                console.error("Failed to pin/unpin note:", error);
+              }
+            },
           }),
           await MenuItem.new({
             text: "Duplicate",
