@@ -265,7 +265,17 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   // Load settings when note changes
   useEffect(() => {
     if (currentNote?.id) {
-      notesService.getSettings().then(setSettings);
+      notesService
+        .getSettings()
+        .then(setSettings)
+        .catch((error) => {
+          console.error("Failed to load settings:", error);
+          toast.error(
+            `Failed to load settings: ${
+              error instanceof Error ? error.message : "Unknown error"
+            }`
+          );
+        });
     }
   }, [currentNote?.id]);
 
@@ -279,23 +289,20 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       if (!editorInstance || !query.trim()) return [];
 
       const doc = editorInstance.state.doc;
-      const text = doc.textContent;
+      // Use textBetween to include block separators
+      const text = doc.textBetween(0, doc.content.size, "\n");
       const lowerQuery = query.toLowerCase();
       const lowerText = text.toLowerCase();
       const matches: Array<{ from: number; to: number }> = [];
-
-      console.log("findMatches: searching for", query, "in text length", text.length);
 
       let searchPos = 0;
       while (searchPos < lowerText.length && matches.length < 500) {
         const index = lowerText.indexOf(lowerQuery, searchPos);
         if (index === -1) break;
 
-        console.log("findMatches: found match at text index", index);
-
         // Convert text index to ProseMirror position
         // Walk through the document to find the position
-        let currentTextIndex = 0; // Current index in plain text
+        let currentTextIndex = 0; // Current index in plain text with separators
         let matchPos: { from: number; to: number } | null = null;
 
         doc.descendants((node, pos) => {
@@ -312,11 +319,13 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                 from: pos + offsetInNode,
                 to: pos + offsetInNode + query.length,
               };
-              console.log("findMatches: converted to ProseMirror position", matchPos);
               return false;
             }
 
             currentTextIndex += node.text.length;
+          } else if (node.isBlock && !node.isTextblock) {
+            // Add separator for block boundaries
+            currentTextIndex += 1;
           }
         });
 
@@ -327,7 +336,6 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         searchPos = index + 1;
       }
 
-      console.log("findMatches: total matches found", matches.length);
       return matches;
     },
     []
@@ -339,12 +347,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       match: { from: number; to: number } | null,
       editorInstance: TiptapEditor | null
     ) => {
-      if (!editorInstance || !match) {
-        console.log("highlightMatch: missing editor or match", { editorInstance, match });
-        return;
-      }
-
-      console.log("highlightMatch: selecting text from", match.from, "to", match.to);
+      if (!editorInstance || !match) return;
 
       try {
         editorInstance
@@ -353,10 +356,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           .setTextSelection({ from: match.from, to: match.to })
           .scrollIntoView()
           .run();
-
-        console.log("highlightMatch: selection set successfully");
       } catch (error) {
-        console.error("highlightMatch: error setting selection", error);
+        console.error("Failed to highlight search match:", error);
       }
     },
     []
@@ -592,17 +593,20 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (!searchQuery.trim()) {
       setSearchMatches([]);
       setCurrentMatchIndex(0);
+      // Collapse selection when clearing search
+      if (editor) {
+        const { from } = editor.state.selection;
+        editor.commands.setTextSelection({ from, to: from });
+      }
       return;
     }
 
     const timer = setTimeout(() => {
       if (!editor) return;
       const matches = findMatches(searchQuery, editor);
-      console.log("Search matches found:", matches.length, matches);
       setSearchMatches(matches);
       setCurrentMatchIndex(0);
       if (matches.length > 0) {
-        console.log("Highlighting first match:", matches[0]);
         highlightMatch(matches[0], editor);
       }
     }, 150);
@@ -981,8 +985,14 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       setSearchOpen(false);
       setSearchQuery("");
       setSearchMatches([]);
+      setCurrentMatchIndex(0);
+      // Collapse selection to remove highlight
+      if (editor) {
+        const { from } = editor.state.selection;
+        editor.commands.setTextSelection({ from, to: from });
+      }
     }
-  }, [currentNote?.id]);
+  }, [currentNote?.id, editor]);
 
   // Copy handlers
   const handleCopyMarkdown = useCallback(async () => {
@@ -1110,9 +1120,28 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               content={isPinned ? "Unpin note" : "Pin note"}
             >
               <IconButton
-                onClick={() =>
-                  isPinned ? unpinNote(currentNote.id) : pinNote(currentNote.id)
-                }
+                onClick={async () => {
+                  if (!currentNote) return;
+                  try {
+                    if (isPinned) {
+                      await unpinNote(currentNote.id);
+                      toast.success("Note unpinned");
+                    } else {
+                      await pinNote(currentNote.id);
+                      toast.success("Note pinned");
+                    }
+                    // Reload settings to update isPinned state
+                    const updatedSettings = await notesService.getSettings();
+                    setSettings(updatedSettings);
+                  } catch (error) {
+                    console.error("Failed to pin/unpin note:", error);
+                    toast.error(
+                      `Failed to ${isPinned ? "unpin" : "pin"} note: ${
+                        error instanceof Error ? error.message : "Unknown error"
+                      }`
+                    );
+                  }
+                }}
               >
                 <PinIcon
                   className={cn(
@@ -1201,6 +1230,12 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                 setSearchOpen(false);
                 setSearchQuery("");
                 setSearchMatches([]);
+                setCurrentMatchIndex(0);
+                // Collapse selection to remove highlight
+                if (editor) {
+                  const { from } = editor.state.selection;
+                  editor.commands.setTextSelection({ from, to: from });
+                }
               }}
               currentMatch={currentMatchIndex + 1}
               totalMatches={searchMatches.length}
