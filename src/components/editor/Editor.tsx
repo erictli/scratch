@@ -12,6 +12,9 @@ import Image from "@tiptap/extension-image";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { Markdown } from "@tiptap/markdown";
+import { Extension } from "@tiptap/core";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -73,6 +76,53 @@ function formatDateTime(timestamp: number): string {
     minute: "2-digit",
   });
 }
+
+// Search highlight extension - adds yellow backgrounds to search matches
+const searchHighlightPluginKey = new PluginKey("searchHighlight");
+
+interface SearchHighlightOptions {
+  matches: Array<{ from: number; to: number }>;
+  currentIndex: number;
+}
+
+const SearchHighlight = Extension.create<SearchHighlightOptions>({
+  name: "searchHighlight",
+
+  addOptions() {
+    return {
+      matches: [],
+      currentIndex: 0,
+    };
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: searchHighlightPluginKey,
+        state: {
+          init: () => DecorationSet.empty,
+          apply: (tr, oldSet) => {
+            // Map decorations through document changes
+            const set = oldSet.map(tr.mapping, tr.doc);
+
+            // Check if we need to update decorations (from transaction meta)
+            const meta = tr.getMeta(searchHighlightPluginKey);
+            if (meta !== undefined) {
+              return meta.decorationSet;
+            }
+
+            return set;
+          },
+        },
+        props: {
+          decorations: (state) => {
+            return searchHighlightPluginKey.getState(state);
+          },
+        },
+      }),
+    ];
+  },
+});
 
 interface FormatBarProps {
   editor: TiptapEditor | null;
@@ -293,80 +343,87 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       const lowerQuery = query.toLowerCase();
       const matches: Array<{ from: number; to: number }> = [];
 
-      // Build a map of text positions to document positions
-      let textIndex = 0;
-      const positionMap: Array<{ textIndex: number; docPos: number }> = [];
-      let isFirstBlock = true;
-
-      doc.descendants((node, pos) => {
+      // Search through the entire document content
+      doc.descendants((node, nodePos) => {
         if (node.isText && node.text) {
-          // Record start position of this text node
-          positionMap.push({ textIndex, docPos: pos });
-          textIndex += node.text.length;
-        } else if (node.isBlock) {
-          // Add newline separator between blocks (except before first block)
-          if (!isFirstBlock) {
-            textIndex += 1;
+          const text = node.text;
+          const lowerText = text.toLowerCase();
+
+          let searchPos = 0;
+          while (searchPos < lowerText.length && matches.length < 500) {
+            const index = lowerText.indexOf(lowerQuery, searchPos);
+            if (index === -1) break;
+
+            const matchFrom = nodePos + index;
+            const matchTo = matchFrom + query.length;
+
+            // Make sure the match doesn't extend beyond valid document bounds
+            if (matchTo <= doc.content.size) {
+              matches.push({
+                from: matchFrom,
+                to: matchTo,
+              });
+            }
+
+            searchPos = index + 1;
           }
-          isFirstBlock = false;
         }
       });
-
-      // Build searchable text with newlines between blocks
-      const text = doc.textBetween(0, doc.content.size, "\n");
-      const lowerText = text.toLowerCase();
-
-      // Find all matches in the text
-      let searchPos = 0;
-      while (searchPos < lowerText.length && matches.length < 500) {
-        const index = lowerText.indexOf(lowerQuery, searchPos);
-        if (index === -1) break;
-
-        // Find the document position for this text index
-        let docPos = 0;
-        for (let i = positionMap.length - 1; i >= 0; i--) {
-          if (positionMap[i].textIndex <= index) {
-            const offset = index - positionMap[i].textIndex;
-            docPos = positionMap[i].docPos + offset;
-            break;
-          }
-        }
-
-        matches.push({
-          from: docPos,
-          to: docPos + query.length,
-        });
-
-        searchPos = index + 1;
-      }
 
       return matches;
     },
     []
   );
 
-  // Highlight current search match using background color (no focus required)
-  const highlightMatch = useCallback(
+  // Update search decorations - applies yellow backgrounds to all matches
+  const updateSearchDecorations = useCallback(
     (
-      match: { from: number; to: number } | null,
+      matches: Array<{ from: number; to: number }>,
+      currentIndex: number,
       editorInstance: TiptapEditor | null
     ) => {
-      if (!editorInstance || !match) return;
+      if (!editorInstance) return;
 
       try {
-        // Set selection (creates a highlight even without focus)
-        editorInstance.commands.setTextSelection({ from: match.from, to: match.to });
+        const { state } = editorInstance;
+        const decorations: Decoration[] = [];
 
-        // Scroll to match using native DOM
-        const { node } = editorInstance.view.domAtPos(match.from);
-        const element = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
+        // Add decorations for all matches
+        matches.forEach((match, index) => {
+          const isActive = index === currentIndex;
+          decorations.push(
+            Decoration.inline(match.from, match.to, {
+              class: isActive
+                ? "bg-yellow-300/50 dark:bg-yellow-400/40" // Brighter yellow for active match
+                : "bg-yellow-300/25 dark:bg-yellow-400/20", // Lighter yellow for inactive matches
+            })
+          );
+        });
 
-        if (element) {
-          // Scroll with offset for better visibility
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const decorationSet = DecorationSet.create(state.doc, decorations);
+
+        // Update decorations via transaction
+        const tr = state.tr.setMeta(searchHighlightPluginKey, {
+          decorationSet,
+        });
+
+        editorInstance.view.dispatch(tr);
+
+        // Scroll to current match
+        if (matches[currentIndex]) {
+          const match = matches[currentIndex];
+          const { node } = editorInstance.view.domAtPos(match.from);
+          const element =
+            node.nodeType === Node.ELEMENT_NODE
+              ? (node as HTMLElement)
+              : node.parentElement;
+
+          if (element) {
+            element.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
         }
       } catch (error) {
-        console.error("Failed to highlight search match:", error);
+        console.error("Failed to update search decorations:", error);
       }
     },
     []
@@ -451,6 +508,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         nested: true,
       }),
       Markdown.configure({}),
+      SearchHighlight.configure({
+        matches: [],
+        currentIndex: 0,
+      }),
     ],
     editorProps: {
       attributes: {
@@ -578,16 +639,16 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (searchMatches.length === 0 || !editor) return;
     const nextIndex = (currentMatchIndex + 1) % searchMatches.length;
     setCurrentMatchIndex(nextIndex);
-    highlightMatch(searchMatches[nextIndex], editor);
-  }, [searchMatches, currentMatchIndex, editor, highlightMatch]);
+    updateSearchDecorations(searchMatches, nextIndex, editor);
+  }, [searchMatches, currentMatchIndex, editor, updateSearchDecorations]);
 
   const goToPreviousMatch = useCallback(() => {
     if (searchMatches.length === 0 || !editor) return;
     const prevIndex =
       (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
     setCurrentMatchIndex(prevIndex);
-    highlightMatch(searchMatches[prevIndex], editor);
-  }, [searchMatches, currentMatchIndex, editor, highlightMatch]);
+    updateSearchDecorations(searchMatches, prevIndex, editor);
+  }, [searchMatches, currentMatchIndex, editor, updateSearchDecorations]);
 
   // Handle search query change
   const handleSearchChange = useCallback((query: string) => {
@@ -599,10 +660,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     if (!searchQuery.trim()) {
       setSearchMatches([]);
       setCurrentMatchIndex(0);
-      // Collapse selection when clearing search
+      // Clear decorations when search is empty
       if (editor) {
-        const { from } = editor.state.selection;
-        editor.commands.setTextSelection({ from, to: from });
+        updateSearchDecorations([], 0, editor);
       }
       return;
     }
@@ -613,12 +673,12 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       setSearchMatches(matches);
       setCurrentMatchIndex(0);
       if (matches.length > 0) {
-        highlightMatch(matches[0], editor);
+        updateSearchDecorations(matches, 0, editor);
       }
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, editor, findMatches, highlightMatch]);
+  }, [searchQuery, editor, findMatches, updateSearchDecorations]);
 
   // Prevent links from opening unless Cmd/Ctrl+Click
   useEffect(() => {
@@ -993,13 +1053,12 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       setSearchQuery("");
       setSearchMatches([]);
       setCurrentMatchIndex(0);
-      // Collapse selection to remove highlight
+      // Clear decorations
       if (editor) {
-        const { from } = editor.state.selection;
-        editor.commands.setTextSelection({ from, to: from });
+        updateSearchDecorations([], 0, editor);
       }
     }
-  }, [currentNote?.id, editor]);
+  }, [currentNote?.id, editor, updateSearchDecorations]);
 
   // Copy handlers
   const handleCopyMarkdown = useCallback(async () => {
@@ -1226,7 +1285,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         className="flex-1 overflow-y-auto overflow-x-hidden relative"
       >
         {searchOpen && (
-          <div className="sticky top-2 right-2 z-10 animate-in fade-in slide-in-from-top-4 duration-200 flex justify-end pointer-events-none">
+          <div className="sticky top-2 z-10 animate-in fade-in slide-in-from-top-4 duration-200 pointer-events-none pr-2 flex justify-end">
             <div className="pointer-events-auto">
               <SearchToolbar
               query={searchQuery}
@@ -1238,14 +1297,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                 setSearchQuery("");
                 setSearchMatches([]);
                 setCurrentMatchIndex(0);
-                // Collapse selection and refocus editor
+                // Clear decorations and refocus editor
                 if (editor) {
-                  const { from } = editor.state.selection;
-                  editor
-                    .chain()
-                    .setTextSelection({ from, to: from })
-                    .focus()
-                    .run();
+                  updateSearchDecorations([], 0, editor);
+                  editor.commands.focus();
                 }
               }}
               currentMatch={currentMatchIndex + 1}
