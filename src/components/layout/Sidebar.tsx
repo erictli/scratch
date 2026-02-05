@@ -98,7 +98,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             {notes.length}
           </div>
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-px">
           <IconButton onClick={toggleSearch} title="Search (⌘F)">
             {searchOpen ? (
               <SearchOffIcon className="w-4.25 h-4.25 stroke-[1.5]" />

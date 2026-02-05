@@ -48,7 +48,7 @@ export function SearchToolbar({
   };
 
   return (
-    <div className="flex items-center gap-1.5 bg-bg border border-border rounded-lg shadow-lg p-1.5">
+    <div className="flex items-center gap-1.5 bg-bg border border-border rounded-lg shadow-lg p-1">
       <Input
         ref={inputRef}
         type="text"
@@ -59,17 +59,17 @@ export function SearchToolbar({
         onKeyDown={handleKeyDown}
       />
 
-      <span className="text-xs text-text-muted whitespace-nowrap px-1">
-        {totalMatches > 0 ? `${currentMatch}/${totalMatches}` : "No matches"}
+      <span className="text-xs text-text-muted whitespace-nowrap px-1 min-w-17">
+        {totalMatches > 0 ? `${currentMatch}/${totalMatches}` : "Not found"}
       </span>
 
-      <div className="flex items-center gap-0.5 ml-1">
+      <div className="flex items-center gap-px ml-1">
         <IconButton
           onClick={onPrevious}
           disabled={totalMatches === 0}
           title="Previous match (⇧↵)"
         >
-          <ArrowUpIcon className="w-4 h-4" />
+          <ArrowUpIcon className="w-4.5 h-4.5 stroke-[1.5]" />
         </IconButton>
 
         <IconButton
@@ -77,11 +77,11 @@ export function SearchToolbar({
           disabled={totalMatches === 0}
           title="Next match (↵)"
         >
-          <ArrowDownIcon className="w-4 h-4" />
+          <ArrowDownIcon className="w-4.5 h-4.5 stroke-[1.5]" />
         </IconButton>
 
         <IconButton onClick={onClose} title="Close (Esc)">
-          <XIcon className="w-4 h-4" />
+          <XIcon className="w-4.5 h-4.5 stroke-[1.5]" />
         </IconButton>
       </div>
     </div>

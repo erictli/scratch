@@ -167,9 +167,9 @@ export function ListItem({
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-1 min-w-0">
           {isPinned && (
-            <PinIcon className="w-3.5 h-3.5 text-text-muted shrink-0" />
+            <PinIcon className="w-4.25 h-4.25 stroke-[1.6] fill-current text-text-muted shrink-0" />
           )}
           <span className={cn("text-sm font-medium truncate text-text")}>
             {title}

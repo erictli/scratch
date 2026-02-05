@@ -498,6 +498,15 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
   }
 }
 
+@keyframes tooltip-slide-in-from-top-4 {
+  from {
+    transform: translateY(-4px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
 @keyframes tooltip-slide-in-from-bottom {
   from {
     transform: translateY(2px);
@@ -555,6 +564,10 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 
 .slide-in-from-top-2 {
   animation-name: tooltip-slide-in-from-top;
+}
+
+.slide-in-from-top-4 {
+  animation-name: tooltip-slide-in-from-top-4;
 }
 
 .slide-in-from-bottom-2 {

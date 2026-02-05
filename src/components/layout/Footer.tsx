@@ -141,7 +141,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
       {/* Footer bar with git status and action buttons */}
       <div className="pl-4 pr-3 pt-2 pb-2.5 flex items-center justify-between">
         {renderGitStatus()}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-px">
           {/* Push button or cloud check icon */}
           {canPush && (
             <Tooltip

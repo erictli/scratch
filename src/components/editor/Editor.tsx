@@ -290,49 +290,52 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       if (!editorInstance || !query.trim()) return [];
 
       const doc = editorInstance.state.doc;
-      // Use textBetween to include block separators
-      const text = doc.textBetween(0, doc.content.size, "\n");
       const lowerQuery = query.toLowerCase();
-      const lowerText = text.toLowerCase();
       const matches: Array<{ from: number; to: number }> = [];
 
+      // Build a map of text positions to document positions
+      let textIndex = 0;
+      const positionMap: Array<{ textIndex: number; docPos: number }> = [];
+      let isFirstBlock = true;
+
+      doc.descendants((node, pos) => {
+        if (node.isText && node.text) {
+          // Record start position of this text node
+          positionMap.push({ textIndex, docPos: pos });
+          textIndex += node.text.length;
+        } else if (node.isBlock) {
+          // Add newline separator between blocks (except before first block)
+          if (!isFirstBlock) {
+            textIndex += 1;
+          }
+          isFirstBlock = false;
+        }
+      });
+
+      // Build searchable text with newlines between blocks
+      const text = doc.textBetween(0, doc.content.size, "\n");
+      const lowerText = text.toLowerCase();
+
+      // Find all matches in the text
       let searchPos = 0;
       while (searchPos < lowerText.length && matches.length < 500) {
         const index = lowerText.indexOf(lowerQuery, searchPos);
         if (index === -1) break;
 
-        // Convert text index to ProseMirror position
-        // Walk through the document to find the position
-        let currentTextIndex = 0; // Current index in plain text with separators
-        let matchPos: { from: number; to: number } | null = null;
-
-        doc.descendants((node, pos) => {
-          if (matchPos) return false; // Already found
-
-          if (node.isText && node.text) {
-            const nodeStartText = currentTextIndex;
-            const nodeEndText = currentTextIndex + node.text.length;
-
-            // Check if our match falls within this text node
-            if (index >= nodeStartText && index < nodeEndText) {
-              const offsetInNode = index - nodeStartText;
-              matchPos = {
-                from: pos + offsetInNode,
-                to: pos + offsetInNode + query.length,
-              };
-              return false;
-            }
-
-            currentTextIndex += node.text.length;
-          } else if (node.isBlock && !node.isTextblock) {
-            // Add separator for block boundaries
-            currentTextIndex += 1;
+        // Find the document position for this text index
+        let docPos = 0;
+        for (let i = positionMap.length - 1; i >= 0; i--) {
+          if (positionMap[i].textIndex <= index) {
+            const offset = index - positionMap[i].textIndex;
+            docPos = positionMap[i].docPos + offset;
+            break;
           }
-        });
-
-        if (matchPos) {
-          matches.push(matchPos);
         }
+
+        matches.push({
+          from: docPos,
+          to: docPos + query.length,
+        });
 
         searchPos = index + 1;
       }
@@ -342,7 +345,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     []
   );
 
-  // Highlight current search match (simplified approach using selection)
+  // Highlight current search match using background color (no focus required)
   const highlightMatch = useCallback(
     (
       match: { from: number; to: number } | null,
@@ -351,12 +354,17 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       if (!editorInstance || !match) return;
 
       try {
-        // Don't focus editor - keeps focus in search input for continuous navigation
-        editorInstance
-          .chain()
-          .setTextSelection({ from: match.from, to: match.to })
-          .scrollIntoView()
-          .run();
+        // Set selection (creates a highlight even without focus)
+        editorInstance.commands.setTextSelection({ from: match.from, to: match.to });
+
+        // Scroll to match using native DOM
+        const { node } = editorInstance.view.domAtPos(match.from);
+        const element = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
+
+        if (element) {
+          // Scroll with offset for better visibility
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       } catch (error) {
         console.error("Failed to highlight search match:", error);
       }
@@ -977,6 +985,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editor]);
 
+
   // Clear search on note switch
   useEffect(() => {
     if (currentNote?.id) {
@@ -1217,8 +1226,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         className="flex-1 overflow-y-auto overflow-x-hidden relative"
       >
         {searchOpen && (
-          <div className="absolute top-4 right-6 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
-            <SearchToolbar
+          <div className="sticky top-2 right-2 z-10 animate-in fade-in slide-in-from-top-4 duration-200 flex justify-end pointer-events-none">
+            <div className="pointer-events-auto">
+              <SearchToolbar
               query={searchQuery}
               onChange={handleSearchChange}
               onNext={goToNextMatch}
@@ -1241,6 +1251,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               currentMatch={currentMatchIndex + 1}
               totalMatches={searchMatches.length}
             />
+            </div>
           </div>
         )}
         <EditorContent editor={editor} className="h-full text-text" />

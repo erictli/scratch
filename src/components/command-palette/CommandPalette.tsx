@@ -141,13 +141,14 @@ export function CommandPalette({
 
     // Add note-specific commands if a note is selected
     if (currentNote) {
-      const isPinned = settings?.pinnedNoteIds?.includes(currentNote.id) || false;
+      const isPinned =
+        settings?.pinnedNoteIds?.includes(currentNote.id) || false;
 
       baseCommands.push(
         {
           id: isPinned ? "unpin-note" : "pin-note",
           label: isPinned ? "Unpin Current Note" : "Pin Current Note",
-          icon: <PinIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          icon: <PinIcon className="w-5 h-5 stroke-[1.3]" />,
           action: async () => {
             try {
               if (isPinned) {
@@ -307,7 +308,13 @@ export function CommandPalette({
     const timer = setTimeout(async () => {
       try {
         const results = await invoke<
-          { id: string; title: string; preview: string; modified: number; score: number }[]
+          {
+            id: string;
+            title: string;
+            preview: string;
+            modified: number;
+            score: number;
+          }[]
         >("search_notes", { query: trimmed });
         setLocalSearchResults(results);
       } catch (err) {
