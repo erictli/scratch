@@ -1073,22 +1073,23 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         )}
         data-tauri-drag-region
       >
-        <div className="titlebar-no-drag flex items-center gap-1">
+        <div className="titlebar-no-drag flex items-center gap-1 min-w-0">
           {onToggleSidebar && (
             <IconButton
               onClick={onToggleSidebar}
               title={
                 sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
               }
+              className="shrink-0"
             >
               <PanelLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
           )}
-          <span className="text-xs text-text-muted mb-px">
+          <span className="text-xs text-text-muted mb-px truncate">
             {formatDateTime(currentNote.modified)}
           </span>
         </div>
-        <div className="titlebar-no-drag flex items-center gap-0.5">
+        <div className="titlebar-no-drag flex items-center gap-px shrink-0">
           {hasExternalChanges ? (
             <Tooltip content="External changes detected (⌘R to refresh)">
               <button
