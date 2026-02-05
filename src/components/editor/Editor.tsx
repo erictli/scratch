@@ -581,12 +581,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   }, [searchMatches, currentMatchIndex, editor, highlightMatch]);
 
   // Handle search query change
-  const handleSearchChange = useCallback(
-    (query: string) => {
-      setSearchQuery(query);
-    },
-    []
-  );
+  const handleSearchChange = useCallback((query: string) => {
+    setSearchQuery(query);
+  }, []);
 
   // Debounced search effect
   useEffect(() => {
@@ -1116,9 +1113,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             </Tooltip>
           )}
           {currentNote && (
-            <Tooltip
-              content={isPinned ? "Unpin note" : "Pin note"}
-            >
+            <Tooltip content={isPinned ? "Unpin note" : "Pin note"}>
               <IconButton
                 onClick={async () => {
                   if (!currentNote) return;
@@ -1145,7 +1140,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               >
                 <PinIcon
                   className={cn(
-                    "w-4.25 h-4.25 stroke-[1.5]",
+                    "w-4.5 h-4.5 stroke-[1.5]",
                     isPinned && "fill-current"
                   )}
                 />
@@ -1231,10 +1226,14 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                 setSearchQuery("");
                 setSearchMatches([]);
                 setCurrentMatchIndex(0);
-                // Collapse selection to remove highlight
+                // Collapse selection and refocus editor
                 if (editor) {
                   const { from } = editor.state.selection;
-                  editor.commands.setTextSelection({ from, to: from });
+                  editor
+                    .chain()
+                    .setTextSelection({ from, to: from })
+                    .focus()
+                    .run();
                 }
               }}
               currentMatch={currentMatchIndex + 1}
