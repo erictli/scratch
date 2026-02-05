@@ -1030,20 +1030,36 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Cmd+F to open search
+  // Cmd+F to open search (works when document/editor area is focused)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        if (!currentNote || !editor) return;
+
         const target = e.target as HTMLElement;
-        if (target.closest(".ProseMirror") && editor) {
-          e.preventDefault();
-          setSearchOpen(true);
+        const tagName = target.tagName.toLowerCase();
+
+        // Don't intercept if user is in an input/textarea (except the editor itself)
+        if (
+          (tagName === "input" || tagName === "textarea") &&
+          !target.closest(".ProseMirror")
+        ) {
+          return;
         }
+
+        // Don't intercept if in sidebar
+        if (target.closest('[class*="sidebar"]')) {
+          return;
+        }
+
+        // Open search for the editor
+        e.preventDefault();
+        setSearchOpen(true);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [editor]);
+  }, [editor, currentNote]);
 
 
   // Clear search on note switch
