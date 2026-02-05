@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 
+mod claude;
 mod git;
 
 // Note metadata for list display
@@ -1532,6 +1533,39 @@ async fn git_push_with_upstream(state: State<'_, AppState>) -> Result<git::GitRe
     }
 }
 
+// Claude Code commands
+
+#[tauri::command]
+async fn claude_is_available() -> bool {
+    tauri::async_runtime::spawn_blocking(claude::is_available)
+        .await
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+async fn claude_edit_note(
+    note_id: String,
+    prompt: String,
+    state: State<'_, AppState>,
+) -> Result<claude::ClaudeResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    let note_path = PathBuf::from(&folder).join(format!("{}.md", note_id));
+    if !note_path.exists() {
+        return Err("Note not found".to_string());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || claude::edit_note(&note_path, &prompt))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1603,6 +1637,8 @@ pub fn run() {
             git_push,
             git_add_remote,
             git_push_with_upstream,
+            claude_is_available,
+            claude_edit_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

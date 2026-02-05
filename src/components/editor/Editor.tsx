@@ -35,6 +35,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
+import { AIEditInput } from "./AIEditInput";
 import { cn } from "../../lib/utils";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
@@ -274,8 +275,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     reloadVersion,
     pinNote,
     unpinNote,
+    isAIEditing,
+    aiEditNote,
   } = useNotes();
   const [isSaving, setIsSaving] = useState(false);
+  const [aiEditOpen, setAiEditOpen] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
@@ -624,6 +628,13 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     // Prevent flash of unstyled content during initial render
     immediatelyRender: false,
   });
+
+  // Lock editor when AI is editing
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(!isAIEditing);
+    }
+  }, [editor, isAIEditing]);
 
   // Track which note's content is currently loaded in the editor
   const loadedNoteIdRef = useRef<string | null>(null);
@@ -1060,6 +1071,25 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editor, currentNote]);
 
+  // Cmd+E to open AI Edit input
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "e") {
+        if (!currentNote || isAIEditing) return;
+        e.preventDefault();
+        setAiEditOpen((open) => !open);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [currentNote, isAIEditing]);
+
+  // Close AI edit input when editing completes
+  useEffect(() => {
+    if (!isAIEditing && aiEditOpen) {
+      setAiEditOpen(false);
+    }
+  }, [isAIEditing, aiEditOpen]);
 
   // Clear search on note switch
   useEffect(() => {
@@ -1288,16 +1318,32 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       </div>
 
       {/* Format Bar */}
-      <FormatBar
-        editor={editor}
-        onAddLink={handleAddLink}
-        onAddImage={handleAddImage}
-      />
+      {!isAIEditing && (
+        <FormatBar
+          editor={editor}
+          onAddLink={handleAddLink}
+          onAddImage={handleAddImage}
+        />
+      )}
+
+      {/* AI Edit Input */}
+      {(aiEditOpen || isAIEditing) && (
+        <AIEditInput
+          isEditing={isAIEditing}
+          onSubmit={(prompt) => {
+            aiEditNote(prompt);
+          }}
+          onCancel={() => setAiEditOpen(false)}
+        />
+      )}
 
       {/* TipTap Editor */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden relative"
+        className={cn(
+          "flex-1 overflow-y-auto overflow-x-hidden relative",
+          isAIEditing && "pointer-events-none opacity-50"
+        )}
       >
         {searchOpen && (
           <div className="sticky top-2 z-10 animate-in fade-in slide-in-from-top-4 duration-200 pointer-events-none pr-2 flex justify-end">
