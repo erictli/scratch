@@ -1,5 +1,5 @@
 import { useCallback, useMemo, memo, useEffect, useRef, useState } from "react";
-import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
+import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
 import {
   ListItem,
@@ -154,12 +154,10 @@ export function NoteList() {
             text: isPinned ? "Unpin" : "Pin",
             action: () => (isPinned ? unpinNote(noteId) : pinNote(noteId)),
           }),
-          await PredefinedMenuItem.new({ item: "Separator" }),
           await MenuItem.new({
             text: "Duplicate",
             action: () => duplicateNote(noteId),
           }),
-          await PredefinedMenuItem.new({ item: "Separator" }),
           await MenuItem.new({
             text: "Delete",
             action: () => {

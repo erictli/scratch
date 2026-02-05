@@ -350,9 +350,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       if (!editorInstance || !match) return;
 
       try {
+        // Don't focus editor - keeps focus in search input for continuous navigation
         editorInstance
           .chain()
-          .focus()
           .setTextSelection({ from: match.from, to: match.to })
           .scrollIntoView()
           .run();
@@ -1140,7 +1140,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               >
                 <PinIcon
                   className={cn(
-                    "w-4.5 h-4.5 stroke-[1.5]",
+                    "w-5 h-5 stroke-[1.3]",
                     isPinned && "fill-current"
                   )}
                 />
@@ -1150,7 +1150,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           {currentNote && (
             <Tooltip content="Find in note (⌘F)">
               <IconButton onClick={() => setSearchOpen(true)}>
-                <SearchIcon className="w-4.25 h-4.25 stroke-[1.5]" />
+                <SearchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>
           )}
@@ -1158,7 +1158,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             <Tooltip content="Copy as... (⌘⇧C)">
               <DropdownMenu.Trigger asChild>
                 <IconButton>
-                  <CopyIcon className="w-4.25 h-4.25 stroke-[1.5]" />
+                  <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />
                 </IconButton>
               </DropdownMenu.Trigger>
             </Tooltip>
