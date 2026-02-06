@@ -14,6 +14,7 @@
   --color-text-muted: #78716c;
   --color-text-inverse: #fafaf9;
   --color-border: rgba(28, 25, 23, 0.08);
+  --color-border-solid: #d6d3d1; /* stone-300 - for table borders */
   --color-accent: #1c1917;
   --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
 
@@ -44,6 +45,7 @@
   --color-text-muted: #a8a29e;
   --color-text-inverse: #0c0a09;
   --color-border: rgba(250, 249, 249, 0.07);
+  --color-border-solid: #57534e; /* stone-600 - for table borders */
   --color-accent: #fafaf9;
   --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
 }
@@ -448,19 +450,14 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 
 /* Task list spacing - breathing room between items */
 ul[data-type="taskList"] > li {
-  padding-top: 0.15em;
-  padding-bottom: 0.15em;
+  padding-top: 0.125em;
+  padding-bottom: 0.125em;
 }
 
-/* Extra spacing between parent items (items that have nested lists) */
-ul[data-type="taskList"] > li:has(> div > ul[data-type="taskList"]) {
-  padding-bottom: 0.25em;
-}
-
-/* Space before a nested task list */
+/* Space around nested task lists */
 ul[data-type="taskList"] ul[data-type="taskList"] {
-  margin-top: 0.15em;
-  margin-bottom: 0.15em;
+  margin-top: 0.2em; /* Space between parent text and first child */
+  margin-bottom: 0em; /* Small space after last child */
 }
 
 /* Table styles */
@@ -478,7 +475,7 @@ table.not-prose {
 .prose table td,
 table.not-prose th,
 table.not-prose td {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-solid);
   padding: 0.5em 0.75em;
   text-align: left;
   vertical-align: top;
@@ -488,6 +485,14 @@ table.not-prose td {
 table.not-prose th {
   font-weight: var(--editor-bold-weight);
   background-color: var(--color-bg-muted);
+}
+
+/* Remove all margins inside table cells - cell padding handles spacing */
+.prose table td > *,
+.prose table th > *,
+table.not-prose td > *,
+table.not-prose th > * {
+  margin: 0;
 }
 
 .prose table tr:hover td,
@@ -644,4 +649,3 @@ table.not-prose th {
 .slide-in-from-right-2 {
   animation-name: tooltip-slide-in-from-right;
 }
-
