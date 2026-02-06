@@ -12,6 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import * as claudeService from "../services/claude";
+import type { ClaudeResult } from "../services/claude";
 import type { SearchResult } from "../services/notes";
 
 // Separate contexts to prevent unnecessary re-renders
@@ -29,6 +30,7 @@ interface NotesDataContextValue {
   hasExternalChanges: boolean;
   reloadVersion: number;
   isAIEditing: boolean;
+  aiEditResult: ClaudeResult | null;
 }
 
 // Actions context: stable references, rarely causes re-renders
@@ -46,6 +48,8 @@ interface NotesActionsContextValue {
   pinNote: (id: string) => Promise<void>;
   unpinNote: (id: string) => Promise<void>;
   aiEditNote: (prompt: string) => Promise<void>;
+  undoAIEdit: () => Promise<void>;
+  dismissAIEdit: () => void;
 }
 
 const NotesDataContext = createContext<NotesDataContextValue | null>(null);
@@ -65,6 +69,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   // Increments when user manually refreshes, so Editor knows to reload content
   const [reloadVersion, setReloadVersion] = useState(0);
   const [isAIEditing, setIsAIEditing] = useState(false);
+  const [aiEditResult, setAiEditResult] = useState<ClaudeResult | null>(null);
+  // Snapshot of note content before AI edit, for undo
+  const aiEditSnapshotRef = useRef<{ noteId: string; content: string } | null>(null);
 
   // Track recently saved note IDs to ignore file-change events from our own saves
   const recentlySavedRef = useRef<Set<string>>(new Set());
@@ -100,6 +107,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
       setHasExternalChanges(false);
+      // Clear AI edit state when switching notes
+      setAiEditResult(null);
+      aiEditSnapshotRef.current = null;
       const note = await notesService.readNote(id);
       setCurrentNote(note);
     } catch (err) {
@@ -290,24 +300,51 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       const noteId = selectedNoteIdRef.current;
       if (!noteId) return;
 
+      // Snapshot current content for undo
+      if (currentNote && currentNote.id === noteId) {
+        aiEditSnapshotRef.current = { noteId, content: currentNote.content };
+      }
+
       setIsAIEditing(true);
+      setAiEditResult(null);
       try {
         const result = await claudeService.claudeEditNote(noteId, prompt);
         if (!result.success && result.error) {
           setError(result.error);
+          aiEditSnapshotRef.current = null;
         }
+        setAiEditResult(result);
         // Reload the note to pick up changes (whether from file watcher or manually)
         await reloadCurrentNote();
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "AI edit failed"
         );
+        aiEditSnapshotRef.current = null;
       } finally {
         setIsAIEditing(false);
       }
     },
-    [reloadCurrentNote]
+    [reloadCurrentNote, currentNote]
   );
+
+  const undoAIEdit = useCallback(async () => {
+    const snapshot = aiEditSnapshotRef.current;
+    if (!snapshot) return;
+    try {
+      await notesService.saveNote(snapshot.noteId, snapshot.content);
+      aiEditSnapshotRef.current = null;
+      setAiEditResult(null);
+      await reloadCurrentNote();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to undo AI edit");
+    }
+  }, [reloadCurrentNote]);
+
+  const dismissAIEdit = useCallback(() => {
+    aiEditSnapshotRef.current = null;
+    setAiEditResult(null);
+  }, []);
 
   const setNotesFolder = useCallback(async (path: string) => {
     try {
@@ -431,6 +468,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       hasExternalChanges,
       reloadVersion,
       isAIEditing,
+      aiEditResult,
     }),
     [
       notes,
@@ -445,6 +483,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       hasExternalChanges,
       reloadVersion,
       isAIEditing,
+      aiEditResult,
     ]
   );
 
@@ -464,6 +503,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       pinNote,
       unpinNote,
       aiEditNote,
+      undoAIEdit,
+      dismissAIEdit,
     }),
     [
       selectNote,
@@ -479,6 +520,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       pinNote,
       unpinNote,
       aiEditNote,
+      undoAIEdit,
+      dismissAIEdit,
     ]
   );
 

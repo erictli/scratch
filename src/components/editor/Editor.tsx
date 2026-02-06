@@ -277,6 +277,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     unpinNote,
     isAIEditing,
     aiEditNote,
+    aiEditResult,
+    undoAIEdit,
+    dismissAIEdit,
   } = useNotes();
   const [isSaving, setIsSaving] = useState(false);
   const [aiEditOpen, setAiEditOpen] = useState(false);
@@ -1084,12 +1087,12 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [currentNote, isAIEditing]);
 
-  // Close AI edit input when editing completes
+  // Close AI edit bar when result is dismissed (no result and not editing)
   useEffect(() => {
-    if (!isAIEditing && aiEditOpen) {
+    if (!isAIEditing && !aiEditResult && aiEditOpen) {
       setAiEditOpen(false);
     }
-  }, [isAIEditing, aiEditOpen]);
+  }, [isAIEditing, aiEditResult, aiEditOpen]);
 
   // Clear search on note switch
   useEffect(() => {
@@ -1326,12 +1329,20 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         />
       )}
 
-      {/* AI Edit Input */}
-      {(aiEditOpen || isAIEditing) && (
+      {/* AI Edit Input / Result */}
+      {(aiEditOpen || isAIEditing || aiEditResult) && (
         <AIEditInput
           isEditing={isAIEditing}
+          result={aiEditResult}
           onSubmit={(prompt) => {
             aiEditNote(prompt);
+          }}
+          onUndo={() => {
+            undoAIEdit();
+          }}
+          onDismiss={() => {
+            dismissAIEdit();
+            setAiEditOpen(false);
           }}
           onCancel={() => setAiEditOpen(false)}
         />
