@@ -1149,7 +1149,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               size="md"
               className="mt-4"
             >
-              New Note <span className="text-text-muted ml-1">⌘N</span>
+              New Note <span className="text-text-muted ml-1">{mod}{isMac ? "" : "+"}N</span>
             </Button>
           </div>
         </div>
@@ -1172,7 +1172,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             <IconButton
               onClick={onToggleSidebar}
               title={
-                sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
+                sidebarVisible ? `Hide sidebar (${mod}${isMac ? "" : "+"}\\)` : `Show sidebar (${mod}${isMac ? "" : "+"}\\)`
               }
               className="shrink-0"
             >
@@ -1185,7 +1185,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         </div>
         <div className="titlebar-no-drag flex items-center gap-px shrink-0">
           {hasExternalChanges ? (
-            <Tooltip content="External changes detected (⌘R to refresh)">
+            <Tooltip content={`External changes detected (${mod}${isMac ? "" : "+"}R to refresh)`}>
               <button
                 onClick={reloadCurrentNote}
                 className="h-7 px-2 flex items-center gap-1 text-xs text-orange-500 hover:bg-orange-500/10 rounded transition-colors font-medium"
@@ -1243,14 +1243,14 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             </Tooltip>
           )}
           {currentNote && (
-            <Tooltip content="Find in note (⌘F)">
+            <Tooltip content={`Find in note (${mod}${isMac ? "" : "+"}F)`}>
               <IconButton onClick={() => setSearchOpen(true)}>
                 <SearchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>
           )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
-            <Tooltip content="Copy as... (⌘⇧C)">
+            <Tooltip content={`Copy as... (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}C)`}>
               <DropdownMenu.Trigger asChild>
                 <IconButton>
                   <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />

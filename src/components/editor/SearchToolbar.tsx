@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Input, IconButton } from "../ui";
 import { ArrowUpIcon, ArrowDownIcon, XIcon } from "../icons";
+import { shift } from "../../lib/platform";
 
 interface SearchToolbarProps {
   query: string;
@@ -67,7 +68,7 @@ export function SearchToolbar({
         <IconButton
           onClick={onPrevious}
           disabled={totalMatches === 0}
-          title="Previous match (⇧↵)"
+          title={`Previous match (${shift}↵)`}
         >
           <ArrowUpIcon className="w-4.5 h-4.5 stroke-[1.5]" />
         </IconButton>
