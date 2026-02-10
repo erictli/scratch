@@ -33,13 +33,7 @@ brew install --cask erictli/tap/scratch
 
 1. Download the latest DMG from [Releases](https://github.com/erictli/scratch/releases)
 2. Open the DMG and drag Scratch to Applications
-3. Open Terminal and run:
-   ```bash
-   xattr -cr /Applications/Scratch.app
-   ```
-4. Open Scratch from Applications
-
-> The `xattr` step is required because the app isn't signed with an Apple Developer certificate yet.
+3. Open Scratch from Applications
 
 ### From Source
 
