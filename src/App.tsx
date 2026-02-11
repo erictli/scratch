@@ -12,6 +12,10 @@ import { SettingsPage } from "./components/settings";
 import { SpinnerIcon, ClaudeIcon } from "./components/icons";
 import { AiEditModal } from "./components/ai/AiEditModal";
 import { AiResponseToast } from "./components/ai/AiResponseToast";
+import {
+  check as checkForUpdate,
+  type Update,
+} from "@tauri-apps/plugin-updater";
 import * as aiService from "./services/ai";
 
 type ViewState = "notes" | "settings";
@@ -302,12 +306,88 @@ function AppContent() {
           <div className="flex items-center gap-2.5">
             <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
             <div className="text-sm font-medium text-text">
-              Claude is editing your note
+              Claude is editing your note...
             </div>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+// Shared update check — used by startup and manual "Check for Updates"
+async function showUpdateToast(): Promise<"update" | "no-update" | "error"> {
+  try {
+    const update = await checkForUpdate();
+    if (update) {
+      toast(<UpdateToast update={update} toastId="update-toast" />, {
+        id: "update-toast",
+        duration: Infinity,
+        closeButton: true,
+      });
+      return "update";
+    }
+    return "no-update";
+  } catch (err) {
+    // Network errors and 404s (no release published yet) are not real failures
+    const msg = String(err);
+    if (
+      msg.includes("404") ||
+      msg.includes("network") ||
+      msg.includes("Could not fetch")
+    ) {
+      return "no-update";
+    }
+    console.error("Update check failed:", err);
+    return "error";
+  }
+}
+
+export { showUpdateToast };
+
+function UpdateToast({
+  update,
+  toastId,
+}: {
+  update: Update;
+  toastId: string | number;
+}) {
+  const [installing, setInstalling] = useState(false);
+
+  const handleUpdate = async () => {
+    setInstalling(true);
+    try {
+      await update.downloadAndInstall();
+      toast.dismiss(toastId);
+      toast.success("Update installed! Restart Scratch to apply.", {
+        duration: Infinity,
+        closeButton: true,
+      });
+    } catch (err) {
+      console.error("Update failed:", err);
+      toast.error("Update failed. Please try again later.");
+      setInstalling(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="font-medium text-sm">
+        Update Available: v{update.version}
+      </div>
+      {update.body && (
+        <div className="text-xs text-text-muted line-clamp-3">
+          {update.body}
+        </div>
+      )}
+      <button
+        onClick={handleUpdate}
+        disabled={installing}
+        className="self-start mt-1 text-xs font-medium px-3 py-1.5 rounded-md bg-text text-bg hover:opacity-90 disabled:opacity-50 transition-opacity"
+      >
+        {installing ? "Installing..." : "Update Now"}
+      </button>
+    </div>
   );
 }
 
@@ -318,6 +398,12 @@ function App() {
     document.documentElement.classList.add(
       isMac ? "platform-mac" : "platform-other",
     );
+  }, []);
+
+  // Check for app updates on startup
+  useEffect(() => {
+    const timer = setTimeout(() => showUpdateToast(), 3000);
+    return () => clearTimeout(timer);
   }, []);
 
   return (

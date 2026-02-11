@@ -28,9 +28,20 @@ export function AiEditModal({
 
   // Check for Claude CLI when modal opens
   useEffect(() => {
-    if (open) {
-      aiService.checkClaudeCli().then(setClaudeInstalled);
-    }
+    if (!open) return;
+    let active = true;
+    aiService
+      .checkClaudeCli()
+      .then((result) => {
+        if (active) setClaudeInstalled(result);
+      })
+      .catch((err) => {
+        console.error("Failed to check Claude CLI:", err);
+        if (active) setClaudeInstalled(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [open]);
 
   // Clear prompt when modal closes
@@ -65,10 +76,8 @@ export function AiEditModal({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleExecute();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      onBack(); // Go back to command palette
     }
+    // Escape is handled by the global handleEscape listener
   };
 
   if (!open) return null;

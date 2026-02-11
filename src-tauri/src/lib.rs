@@ -1592,7 +1592,8 @@ async fn ai_execute_claude(
     }
 
     // Execute: echo "prompt" | claude <file> --permission-mode bypassPermissions --print
-    let result = tauri::async_runtime::spawn_blocking(move || {
+    let timeout_duration = std::time::Duration::from_secs(300); // 5 minute timeout
+    let task = tauri::async_runtime::spawn_blocking(move || {
         let child = Command::new("claude")
             .arg(&file_path)
             .arg("--permission-mode")
@@ -1605,9 +1606,23 @@ async fn ai_execute_claude(
 
         match child {
             Ok(mut process) => {
-                // Write prompt to stdin
+                // Write prompt to stdin, surfacing errors
                 if let Some(mut stdin) = process.stdin.take() {
-                    let _ = stdin.write_all(prompt.as_bytes());
+                    if let Err(e) = stdin.write_all(prompt.as_bytes()) {
+                        let _ = process.kill();
+                        return AiExecutionResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(format!("Failed to write prompt to claude stdin: {}", e)),
+                        };
+                    }
+                } else {
+                    let _ = process.kill();
+                    return AiExecutionResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("Failed to open stdin for claude process".to_string()),
+                    };
                 }
 
                 // Wait for completion and get output
@@ -1647,9 +1662,18 @@ async fn ai_execute_claude(
                 }
             }
         }
-    })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))?;
+    });
+
+    let result = match tokio::time::timeout(timeout_duration, task).await {
+        Ok(join_result) => join_result.map_err(|e| format!("Task join error: {}", e))?,
+        Err(_) => {
+            AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some("Claude CLI timed out after 5 minutes".to_string()),
+            }
+        }
+    };
 
     Ok(result)
 }

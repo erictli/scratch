@@ -1,13 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
+import { showUpdateToast } from "../../App";
 import { Button } from "../ui";
 import { Input } from "../ui";
 import {
   FolderIcon,
+  FoldersIcon,
+  RefreshCwIcon,
   ExternalLinkIcon,
   SpinnerIcon,
   CloudPlusIcon,
@@ -58,6 +62,25 @@ export function GeneralSettingsSection() {
 
   const [remoteUrl, setRemoteUrl] = useState("");
   const [showRemoteInput, setShowRemoteInput] = useState(false);
+  const [appVersion, setAppVersion] = useState<string>("");
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => {});
+  }, []);
+
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdate(true);
+    const result = await showUpdateToast();
+    setCheckingUpdate(false);
+    if (result === "no-update") {
+      toast.success("You're on the latest version!");
+    } else if (result === "error") {
+      toast.error("Could not check for updates. Try again later.");
+    }
+  };
 
   const handleChangeFolder = async () => {
     try {
@@ -148,7 +171,13 @@ export function GeneralSettingsSection() {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <Button onClick={handleChangeFolder} variant="outline" size="md">
+          <Button
+            onClick={handleChangeFolder}
+            variant="outline"
+            size="md"
+            className="gap-1.25"
+          >
+            <FoldersIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             Change Folder
           </Button>
           {notesFolder && (
@@ -156,9 +185,8 @@ export function GeneralSettingsSection() {
               onClick={handleOpenFolder}
               variant="ghost"
               size="md"
-              className="gap-1.5 text-text"
+              className="gap-1.25 text-text"
             >
-              <FolderIcon className="w-4 h-4 stroke-[1.7]" />
               Open Folder
             </Button>
           )}
@@ -416,6 +444,45 @@ export function GeneralSettingsSection() {
             </div>
           </>
         )}
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* About */}
+      <section>
+        <h2 className="text-xl font-medium mb-0.5">About Scratch</h2>
+        <p className="text-sm text-text-muted mb-3">
+          You are currently using Scratch v{appVersion || "..."}. Learn more on{" "}
+          <a
+            href="https://github.com/erictli/scratch"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-text-muted border-b border-text-muted/50 hover:text-text hover:border-text cursor-pointer transition-colors"
+          >
+            GitHub
+          </a>
+          .
+        </p>
+        <Button
+          onClick={handleCheckForUpdates}
+          disabled={checkingUpdate}
+          variant="outline"
+          size="md"
+          className="gap-1.25"
+        >
+          {checkingUpdate ? (
+            <>
+              <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
+              Checking...
+            </>
+          ) : (
+            <>
+              <RefreshCwIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+              Check for Updates
+            </>
+          )}
+        </Button>
       </section>
     </div>
   );

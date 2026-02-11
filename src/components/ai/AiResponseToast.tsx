@@ -113,6 +113,20 @@ function parseMarkdown(text: string): React.ReactNode {
     }
   });
 
+  // Flush any unclosed code block
+  if (inCodeBlock && codeBlockContent.length > 0) {
+    elements.push(
+      <pre
+        key={`code-unclosed`}
+        className="bg-bg-secondary rounded px-2 py-1 my-1 overflow-x-auto"
+      >
+        <code className="text-xs font-mono">
+          {codeBlockContent.join("\n")}
+        </code>
+      </pre>,
+    );
+  }
+
   flushList(lines.length);
 
   return elements;

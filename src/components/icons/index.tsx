@@ -1132,6 +1132,23 @@ export function KeyboardIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   );
 }
 
+export function FoldersIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 3h3l2 2h5a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-9a2 2 0 0 1 2 -2" />
+      <path d="M17 16v2a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-9a2 2 0 0 1 2 -2h2" />
+    </svg>
+  );
+}
+
 export function ClaudeIcon({
   className = "w-4.5 h-4.5 text-text-muted",
 }: IconProps) {

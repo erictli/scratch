@@ -1,4 +1,4 @@
-import { mod, isMac } from "../../lib/platform";
+import { mod } from "../../lib/platform";
 
 interface Shortcut {
   keys: string[];

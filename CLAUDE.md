@@ -72,6 +72,13 @@ rustup target add aarch64-apple-darwin
 
 6. Get checksum and upload: `shasum -a 256 <dmg_path>`
 
+7. The build also generates an updater manifest at:
+   ```
+   src-tauri/target/release/bundle/macos/Scratch.app.tar.gz.sig
+   src-tauri/target/release/bundle/macos/Scratch.app.tar.gz
+   ```
+   These are used by the auto-updater (see [Publishing a Release](#publishing-a-release) below).
+
 ### Windows Build
 
 Builds `.msi` installer and `.exe` setup for Windows.
@@ -105,6 +112,52 @@ Builds `.msi` installer and `.exe` setup for Windows.
 **Notes:**
 - The NSIS setup (`.exe`) automatically downloads WebView2 if needed
 - For x86 support, add `--target i686-pc-windows-msvc` (requires `rustup target add i686-pc-windows-msvc`)
+
+### Publishing a Release
+
+The app checks for updates via the Tauri updater plugin, which fetches `latest.json` from GitHub releases.
+
+**How it works:**
+- On startup (after 3s delay) and manually via Settings → General → "Check for Updates", the app fetches:
+  `https://github.com/erictli/scratch/releases/latest/download/latest.json`
+- The updater compares the version in `latest.json` to the running app version
+- If newer, a toast appears with an "Update Now" button that downloads and installs the update
+
+**Creating `latest.json`:**
+
+After building for each platform, create a `latest.json` file with this structure:
+
+```json
+{
+  "version": "VERSION",
+  "notes": "Release notes here",
+  "pub_date": "2025-01-01T00:00:00Z",
+  "platforms": {
+    "darwin-universal": {
+      "signature": "CONTENTS_OF .app.tar.gz.sig FILE",
+      "url": "https://github.com/erictli/scratch/releases/download/vVERSION/Scratch.app.tar.gz"
+    },
+    "windows-x86_64": {
+      "signature": "CONTENTS_OF .nsis.zip.sig FILE",
+      "url": "https://github.com/erictli/scratch/releases/download/vVERSION/Scratch_VERSION_x64-setup.nsis.zip"
+    }
+  }
+}
+```
+
+- The `signature` values come from the `.sig` files generated alongside the build artifacts
+- The `url` values should point to the release assets on GitHub
+
+**Upload to GitHub release:**
+
+1. Create a GitHub release tagged `vVERSION` (e.g., `v0.4.0`)
+2. Upload these assets:
+   - `latest.json` (the updater manifest)
+   - macOS: `Scratch_VERSION_universal.dmg` (for manual download) and `Scratch.app.tar.gz` (for auto-update)
+   - Windows: `Scratch_VERSION_x64-setup.exe` (for manual download) and the NSIS `.zip` (for auto-update)
+3. The updater endpoint resolves to the **latest** release's `latest.json` automatically via GitHub's `/releases/latest/download/` URL pattern
+
+**Updater config** is in `src-tauri/tauri.conf.json` under `plugins.updater`, including the public key and endpoint URL.
 
 ## Project Structure
 
