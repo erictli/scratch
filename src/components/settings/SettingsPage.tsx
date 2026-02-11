@@ -1,15 +1,16 @@
 import { useState, useEffect } from "react";
-import { ArrowLeftIcon, FolderIcon, SwatchIcon } from "../icons";
+import { ArrowLeftIcon, FolderIcon, SwatchIcon, KeyboardIcon } from "../icons";
 import { Button, IconButton } from "../ui";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { AppearanceSettingsSection } from "./EditorSettingsSection";
+import { ShortcutsSettingsSection } from "./ShortcutsSettingsSection";
 import { mod, isMac } from "../../lib/platform";
 
 interface SettingsPageProps {
   onBack: () => void;
 }
 
-type SettingsTab = "general" | "editor";
+type SettingsTab = "general" | "editor" | "shortcuts";
 
 const tabs: {
   id: SettingsTab;
@@ -19,6 +20,7 @@ const tabs: {
 }[] = [
   { id: "general", label: "General", icon: FolderIcon, shortcut: "1" },
   { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "2" },
+  { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, shortcut: "3" },
 ];
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
@@ -34,6 +36,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         } else if (e.key === "2") {
           e.preventDefault();
           setActiveTab("editor");
+        } else if (e.key === "3") {
+          e.preventDefault();
+          setActiveTab("shortcuts");
         }
       }
     };
@@ -96,6 +101,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           <div className="w-full max-w-3xl mx-auto px-6 pb-6">
             {activeTab === "general" && <GeneralSettingsSection />}
             {activeTab === "editor" && <AppearanceSettingsSection />}
+            {activeTab === "shortcuts" && <ShortcutsSettingsSection />}
           </div>
         </div>
       </div>
