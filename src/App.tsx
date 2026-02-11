@@ -303,7 +303,7 @@ function AppContent() {
       {/* AI Editing Overlay */}
       {aiEditing && (
         <div className="fixed inset-0 bg-bg/50 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
             <div className="text-sm font-medium text-text">
               Claude is editing your note...

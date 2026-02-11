@@ -381,8 +381,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       if (manager) {
         let markdown = manager.serialize(editorInstance.getJSON());
         // Clean up nbsp entities in table cells (TipTap adds these to empty cells)
-        // Match table rows and remove &nbsp; or &#160; from cells
-        markdown = markdown.replace(/(\|)\s*(&nbsp;|&#160;)\s*(?=\|)/g, "$1 ");
+        // Match table rows and remove one or more &nbsp; or &#160; from cells
+        markdown = markdown.replace(/(\|)\s*(?:&nbsp;|&#160;)+\s*(?=\|)/g, "$1 ");
         return markdown;
       }
       // Fallback to plain text

@@ -1566,7 +1566,7 @@ async fn ai_execute_claude(
     file_path: String,
     prompt: String,
 ) -> Result<AiExecutionResult, String> {
-    use std::process::{Command, Stdio};
+    use std::process::{Child, Command, Stdio};
     use std::io::Write;
 
     // Check if claude CLI exists
@@ -1593,7 +1593,9 @@ async fn ai_execute_claude(
 
     // Execute: echo "prompt" | claude <file> --permission-mode bypassPermissions --print
     let timeout_duration = std::time::Duration::from_secs(300); // 5 minute timeout
-    let task = tauri::async_runtime::spawn_blocking(move || {
+    let shared_child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
+    let child_for_task = Arc::clone(&shared_child);
+    let mut task = tauri::async_runtime::spawn_blocking(move || {
         let child = Command::new("claude")
             .arg(&file_path)
             .arg("--permission-mode")
@@ -1605,11 +1607,43 @@ async fn ai_execute_claude(
             .spawn();
 
         match child {
-            Ok(mut process) => {
+            Ok(process) => {
+                if let Ok(mut child_guard) = child_for_task.lock() {
+                    *child_guard = Some(process);
+                } else {
+                    return AiExecutionResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("Failed to lock claude child process handle".to_string()),
+                    };
+                }
+
+                // Work with the process by taking it from the shared handle.
+                let mut process = match child_for_task.lock() {
+                    Ok(mut child_guard) => match child_guard.take() {
+                        Some(process) => process,
+                        None => {
+                            return AiExecutionResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some("Claude process handle was unexpectedly missing".to_string()),
+                            };
+                        }
+                    },
+                    Err(_) => {
+                        return AiExecutionResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some("Failed to lock claude child process handle".to_string()),
+                        };
+                    }
+                };
+
                 // Write prompt to stdin, surfacing errors
                 if let Some(mut stdin) = process.stdin.take() {
                     if let Err(e) = stdin.write_all(prompt.as_bytes()) {
                         let _ = process.kill();
+                        let _ = process.wait();
                         return AiExecutionResult {
                             success: false,
                             output: String::new(),
@@ -1618,6 +1652,7 @@ async fn ai_execute_claude(
                     }
                 } else {
                     let _ = process.kill();
+                    let _ = process.wait();
                     return AiExecutionResult {
                         success: false,
                         output: String::new(),
@@ -1664,9 +1699,34 @@ async fn ai_execute_claude(
         }
     });
 
-    let result = match tokio::time::timeout(timeout_duration, task).await {
-        Ok(join_result) => join_result.map_err(|e| format!("Task join error: {}", e))?,
+    let result = match tokio::time::timeout(timeout_duration, &mut task).await {
+        Ok(join_result) => {
+            join_result.map_err(|e| format!("Failed to join Claude blocking task: {}", e))?
+        }
         Err(_) => {
+            if let Ok(mut child_guard) = shared_child.lock() {
+                if let Some(mut process) = child_guard.take() {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                }
+            }
+
+            match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
+                Ok(join_result) => {
+                    if let Err(e) = join_result {
+                        return Err(format!(
+                            "Failed to join Claude blocking task after timeout: {}",
+                            e
+                        ));
+                    }
+                }
+                Err(_) => {
+                    return Err(
+                        "Claude CLI timed out and failed to exit after kill signal".to_string()
+                    );
+                }
+            }
+
             AiExecutionResult {
                 success: false,
                 output: String::new(),
