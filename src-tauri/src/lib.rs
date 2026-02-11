@@ -107,6 +107,15 @@ pub struct SearchResult {
     pub score: f32,
 }
 
+// AI execution result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiExecutionResult {
+    pub success: bool,
+    pub output: String,
+    pub error: Option<String>,
+}
+
 // File watcher state
 pub struct FileWatcherState {
     #[allow(dead_code)]
@@ -1532,6 +1541,118 @@ async fn git_push_with_upstream(state: State<'_, AppState>) -> Result<git::GitRe
     }
 }
 
+// Check if Claude CLI is installed
+#[tauri::command]
+async fn ai_check_claude_cli() -> Result<bool, String> {
+    use std::process::Command;
+
+    let which_cmd = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
+
+    let check_output = Command::new(which_cmd)
+        .arg("claude")
+        .output()
+        .map_err(|e| format!("Failed to check for claude CLI: {}", e))?;
+
+    Ok(check_output.status.success())
+}
+
+// AI execute command
+#[tauri::command]
+async fn ai_execute_claude(
+    file_path: String,
+    prompt: String,
+) -> Result<AiExecutionResult, String> {
+    use std::process::{Command, Stdio};
+    use std::io::Write;
+
+    // Check if claude CLI exists
+    let which_cmd = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
+
+    let check_output = Command::new(which_cmd)
+        .arg("claude")
+        .output()
+        .map_err(|e| format!("Failed to check for claude CLI: {}", e))?;
+
+    if !check_output.status.success() {
+        return Ok(AiExecutionResult {
+            success: false,
+            output: String::new(),
+            error: Some(
+                "Claude CLI not found. Please install it from https://claude.ai/code".to_string(),
+            ),
+        });
+    }
+
+    // Execute: echo "prompt" | claude <file> --permission-mode bypassPermissions --print
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let child = Command::new("claude")
+            .arg(&file_path)
+            .arg("--permission-mode")
+            .arg("bypassPermissions")
+            .arg("--print")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn();
+
+        match child {
+            Ok(mut process) => {
+                // Write prompt to stdin
+                if let Some(mut stdin) = process.stdin.take() {
+                    let _ = stdin.write_all(prompt.as_bytes());
+                }
+
+                // Wait for completion and get output
+                match process.wait_with_output() {
+                    Ok(output) => {
+                        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+                        if output.status.success() {
+                            AiExecutionResult {
+                                success: true,
+                                output: stdout,
+                                error: None,
+                            }
+                        } else {
+                            AiExecutionResult {
+                                success: false,
+                                output: stdout,
+                                error: Some(stderr),
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        AiExecutionResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(format!("Failed to wait for claude: {}", e)),
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                AiExecutionResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to execute claude: {}", e)),
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    Ok(result)
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1603,6 +1724,8 @@ pub fn run() {
             git_push,
             git_add_remote,
             git_push_with_upstream,
+            ai_check_claude_cli,
+            ai_execute_claude,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -192,12 +192,25 @@ html.dark {
   }
 }
 
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .animate-fade-in {
   animation: fade-in 0.15s ease-out;
 }
 
 .animate-slide-down {
   animation: slide-down 0.2s ease-out;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
 }
 
 /* Staggered fade-in-up animation for welcome screen */

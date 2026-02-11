@@ -36,6 +36,7 @@ import {
   AddNoteIcon,
   TrashIcon,
   PinIcon,
+  ClaudeIcon,
 } from "../icons";
 import { mod } from "../../lib/platform";
 
@@ -51,12 +52,14 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
+  onOpenAiModal?: () => void;
 }
 
 export function CommandPalette({
   open,
   onClose,
   onOpenSettings,
+  onOpenAiModal,
 }: CommandPaletteProps) {
   const {
     notes,
@@ -101,43 +104,6 @@ export function CommandPalette({
           onClose();
         },
       },
-      {
-        id: "settings",
-        label: "Settings",
-        shortcut: `${mod} ,`,
-        icon: <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
-        action: () => {
-          onOpenSettings?.();
-          onClose();
-        },
-      },
-      {
-        id: "theme-light",
-        label: `Switch Theme to Light Mode`,
-        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
-        action: () => {
-          setTheme("light");
-          onClose();
-        },
-      },
-      {
-        id: "theme-dark",
-        label: `Switch Theme to Dark Mode`,
-        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
-        action: () => {
-          setTheme("dark");
-          onClose();
-        },
-      },
-      {
-        id: "theme-system",
-        label: `Switch Theme to System Mode`,
-        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
-        action: () => {
-          setTheme("system");
-          onClose();
-        },
-      },
     ];
 
     // Add note-specific commands if a note is selected
@@ -162,6 +128,15 @@ export function CommandPalette({
               console.error("Failed to pin/unpin note:", error);
               toast.error(`Failed to ${isPinned ? "unpin" : "pin"} note`);
             }
+          },
+        },
+        {
+          id: "ai-edit",
+          label: "Edit with Claude Code",
+          icon: <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted" />,
+          action: () => {
+            onOpenAiModal?.();
+            onClose();
           },
         },
         {
@@ -227,7 +202,7 @@ export function CommandPalette({
               toast.error("Failed to copy");
             }
           },
-        }
+        },
       );
     }
 
@@ -275,6 +250,47 @@ export function CommandPalette({
       }
     }
 
+    // Settings and theme commands at the bottom
+    baseCommands.push(
+      {
+        id: "settings",
+        label: "Settings",
+        shortcut: `${mod} ,`,
+        icon: <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          onOpenSettings?.();
+          onClose();
+        },
+      },
+      {
+        id: "theme-light",
+        label: `Switch Theme to Light Mode`,
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setTheme("light");
+          onClose();
+        },
+      },
+      {
+        id: "theme-dark",
+        label: `Switch Theme to Dark Mode`,
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setTheme("dark");
+          onClose();
+        },
+      },
+      {
+        id: "theme-system",
+        label: `Switch Theme to System Mode`,
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setTheme("system");
+          onClose();
+        },
+      },
+    );
+
     return baseCommands;
   }, [
     createNote,
@@ -282,6 +298,7 @@ export function CommandPalette({
     deleteNote,
     onClose,
     onOpenSettings,
+    onOpenAiModal,
     setTheme,
     theme,
     gitAvailable,
@@ -344,13 +361,21 @@ export function CommandPalette({
     if (!query.trim()) return commands;
     const queryLower = query.toLowerCase();
     return commands.filter((cmd) =>
-      cmd.label.toLowerCase().includes(queryLower)
+      cmd.label.toLowerCase().includes(queryLower),
     );
   }, [query, commands]);
 
-  // Memoize all items (notes first, then commands)
+  // Memoize all items (commands first, then notes)
   const allItems = useMemo(
     () => [
+      ...filteredCommands.map((cmd) => ({
+        type: "command" as const,
+        id: cmd.id,
+        label: cmd.label,
+        shortcut: cmd.shortcut,
+        icon: cmd.icon,
+        action: cmd.action,
+      })),
       ...filteredNotes.slice(0, 10).map((note) => ({
         type: "note" as const,
         id: note.id,
@@ -361,16 +386,8 @@ export function CommandPalette({
           onClose();
         },
       })),
-      ...filteredCommands.map((cmd) => ({
-        type: "command" as const,
-        id: cmd.id,
-        label: cmd.label,
-        shortcut: cmd.shortcut,
-        icon: cmd.icon,
-        action: cmd.action,
-      })),
     ],
-    [filteredNotes, filteredCommands, selectNote, onClose]
+    [filteredNotes, filteredCommands, selectNote, onClose],
   );
 
   // Reset state when opened
@@ -391,7 +408,7 @@ export function CommandPalette({
   useEffect(() => {
     if (listRef.current) {
       const selectedItem = listRef.current.querySelector(
-        `[data-index="${selectedIndex}"]`
+        `[data-index="${selectedIndex}"]`,
       );
       selectedItem?.scrollIntoView({ block: "center", behavior: "smooth" });
     }
@@ -438,23 +455,17 @@ export function CommandPalette({
           break;
       }
     },
-    [allItems, selectedIndex, onClose]
+    [allItems, selectedIndex, onClose],
   );
 
   if (!open) return null;
 
-  const notesCount = Math.min(filteredNotes.length, 10);
+  const commandsCount = filteredCommands.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center py-11 px-4">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
-        onClick={onClose}
-      />
-
+    <div className="fixed inset-0 z-50 flex items-center justify-center py-11 px-4 pointer-events-none">
       {/* Palette */}
-      <div className="relative w-full h-full max-h-108 max-w-2xl bg-bg rounded-xl shadow-2xl overflow-hidden border border-border animate-slide-down flex flex-col">
+      <div className="relative w-full h-full max-h-108 max-w-2xl bg-bg rounded-xl shadow-2xl overflow-hidden border border-border animate-slide-down flex flex-col pointer-events-auto">
         {/* Search input */}
         <div className="border-b border-border flex-none">
           <input
@@ -480,9 +491,31 @@ export function CommandPalette({
             </div>
           ) : (
             <>
+              {/* Commands section */}
+              {filteredCommands.length > 0 && (
+                <div className="space-y-0.5 mb-5">
+                  <div className="text-sm font-medium text-text-muted px-2.5 py-1.5">
+                    Commands
+                  </div>
+                  {filteredCommands.map((cmd, i) => {
+                    return (
+                      <div key={cmd.id} data-index={i}>
+                        <CommandItem
+                          label={cmd.label}
+                          shortcut={cmd.shortcut}
+                          icon={cmd.icon}
+                          isSelected={selectedIndex === i}
+                          onClick={cmd.action}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* Notes section */}
               {filteredNotes.length > 0 && (
-                <div className="space-y-0.5 mb-5">
+                <div className="space-y-0.5">
                   <div className="text-sm font-medium text-text-muted px-2.5 py-1.5">
                     Notes
                   </div>
@@ -494,38 +527,16 @@ export function CommandPalette({
                       ?.replace(/&nbsp;/g, " ")
                       .replace(/\u00A0/g, " ")
                       .trim();
+                    const index = commandsCount + i;
                     return (
-                      <div key={note.id} data-index={i}>
+                      <div key={note.id} data-index={index}>
                         <CommandItem
                           label={title}
                           subtitle={cleanSubtitle}
                           iconText={firstLetter}
                           variant="note"
-                          isSelected={selectedIndex === i}
-                          onClick={allItems[i].action}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Commands section */}
-              {filteredCommands.length > 0 && (
-                <div className="space-y-0.5">
-                  <div className="text-sm font-medium text-text-muted px-2.5 py-1.5">
-                    Commands
-                  </div>
-                  {filteredCommands.map((cmd, i) => {
-                    const index = notesCount + i;
-                    return (
-                      <div key={cmd.id} data-index={index}>
-                        <CommandItem
-                          label={cmd.label}
-                          shortcut={cmd.shortcut}
-                          icon={cmd.icon}
                           isSelected={selectedIndex === index}
-                          onClick={cmd.action}
+                          onClick={allItems[index].action}
                         />
                       </div>
                     );

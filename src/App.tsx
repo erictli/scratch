@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { toast } from "sonner";
 import { NotesProvider, useNotes } from "./context/NotesContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
@@ -8,7 +9,10 @@ import { Editor } from "./components/editor/Editor";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
 import { SettingsPage } from "./components/settings";
-import { SpinnerIcon } from "./components/icons";
+import { SpinnerIcon, ClaudeIcon } from "./components/icons";
+import { AiEditModal } from "./components/ai/AiEditModal";
+import { AiResponseToast } from "./components/ai/AiResponseToast";
+import * as aiService from "./services/ai";
 
 type ViewState = "notes" | "settings";
 
@@ -23,10 +27,13 @@ function AppContent() {
     searchQuery,
     searchResults,
     reloadCurrentNote,
+    currentNote,
   } = useNotes();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiEditing, setAiEditing] = useState(false);
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
@@ -39,6 +46,64 @@ function AppContent() {
   const closeSettings = useCallback(() => {
     setView("notes");
   }, []);
+
+  // Go back to command palette from AI modal
+  const handleBackToPalette = useCallback(() => {
+    setAiModalOpen(false);
+    setPaletteOpen(true);
+  }, []);
+
+  // AI Edit handler
+  const handleAiEdit = useCallback(
+    async (prompt: string) => {
+      if (!currentNote) {
+        toast.error("No note selected");
+        return;
+      }
+
+      setAiEditing(true);
+
+      try {
+        // Execute Claude CLI on current file
+        const result = await aiService.executeClaudeEdit(
+          currentNote.path,
+          prompt,
+        );
+
+        // Reload the current note from disk
+        await reloadCurrentNote();
+
+        // Show results
+        if (result.success) {
+          // Close modal after success
+          setAiModalOpen(false);
+
+          // Show success toast with Claude's response
+          toast(<AiResponseToast output={result.output} />, {
+            duration: Infinity,
+            closeButton: true,
+            className: "!min-w-[450px] !max-w-[600px]",
+          });
+        } else {
+          toast.error(
+            <div className="space-y-1">
+              <div className="font-medium">AI Edit Failed</div>
+              <div className="text-xs">{result.error || "Unknown error"}</div>
+            </div>,
+            { duration: Infinity, closeButton: true },
+          );
+        }
+      } catch (error) {
+        console.error("[AI] Error:", error);
+        toast.error(
+          `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+      } finally {
+        setAiEditing(false);
+      }
+    },
+    [currentNote, reloadCurrentNote],
+  );
 
   // Memoize display items to prevent unnecessary recalculations
   const displayItems = useMemo(() => {
@@ -105,7 +170,7 @@ function AppContent() {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           e.preventDefault();
           const currentIndex = displayItems.findIndex(
-            (n) => n.id === selectedNoteId
+            (n) => n.id === selectedNoteId,
           );
           let newIndex: number;
 
@@ -206,11 +271,42 @@ function AppContent() {
           </>
         )}
       </div>
+
+      {/* Shared backdrop for command palette and AI modal */}
+      {(paletteOpen || aiModalOpen) && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 animate-fade-in"
+          onClick={() => {
+            if (paletteOpen) handleClosePalette();
+            if (aiModalOpen) setAiModalOpen(false);
+          }}
+        />
+      )}
+
       <CommandPalette
         open={paletteOpen}
         onClose={handleClosePalette}
         onOpenSettings={toggleSettings}
+        onOpenAiModal={() => setAiModalOpen(true)}
       />
+      <AiEditModal
+        open={aiModalOpen}
+        onBack={handleBackToPalette}
+        onExecute={handleAiEdit}
+        isExecuting={aiEditing}
+      />
+
+      {/* AI Editing Overlay */}
+      {aiEditing && (
+        <div className="fixed inset-0 bg-bg/50 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="flex items-center gap-2.5">
+            <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
+            <div className="text-sm font-medium text-text">
+              Claude is editing your note
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -220,7 +316,7 @@ function App() {
   useEffect(() => {
     const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
     document.documentElement.classList.add(
-      isMac ? "platform-mac" : "platform-other"
+      isMac ? "platform-mac" : "platform-other",
     );
   }, []);
 
