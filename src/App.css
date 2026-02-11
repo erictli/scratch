@@ -479,6 +479,7 @@ table.not-prose td {
   padding: 0.5em 0.75em;
   text-align: left;
   vertical-align: top;
+  min-width: 100px;
 }
 
 .prose table th,
@@ -495,11 +496,6 @@ table.not-prose th > * {
   margin: 0;
 }
 
-.prose table tr:hover td,
-table.not-prose tr:hover td {
-  background-color: var(--color-bg-muted);
-}
-
 /* TipTap table selection styles */
 .selectedCell::after {
   z-index: 2;
@@ -511,6 +507,49 @@ table.not-prose tr:hover td {
   bottom: 0;
   background: var(--color-selection);
   pointer-events: none;
+}
+
+/* Table wrapper - scrollable container with border */
+.tableWrapper {
+  margin: 1em 0;
+  overflow-x: auto;
+  border: 1px solid var(--color-border-solid);
+  border-radius: 6px;
+  /* Hide scrollbar but keep scrollability */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.tableWrapper::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.tableWrapper table {
+  margin: 0;
+  width: auto;
+  min-width: 100%;
+  border: none; /* Remove table's own border since wrapper has one */
+}
+
+/* Remove outer borders on cells since wrapper provides the border */
+.tableWrapper table th:first-child,
+.tableWrapper table td:first-child {
+  border-left: none;
+}
+
+.tableWrapper table th:last-child,
+.tableWrapper table td:last-child {
+  border-right: none;
+}
+
+.tableWrapper table tr:first-child th,
+.tableWrapper table tr:first-child td {
+  border-top: none;
+}
+
+.tableWrapper table tr:last-child th,
+.tableWrapper table tr:last-child td {
+  border-bottom: none;
 }
 
 .prose table td,

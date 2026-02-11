@@ -34,6 +34,7 @@ function isAllowedUrlScheme(url: string): boolean {
   }
 }
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
 import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
@@ -58,6 +59,7 @@ import {
   SeparatorIcon,
   LinkIcon,
   ImageIcon,
+  TableIcon,
   SpinnerIcon,
   CircleCheckIcon,
   CopyIcon,
@@ -125,6 +127,44 @@ const SearchHighlight = Extension.create<SearchHighlightOptions>({
     ];
   },
 });
+
+// GridPicker component for table insertion
+interface GridPickerProps {
+  onSelect: (rows: number, cols: number) => void;
+}
+
+function GridPicker({ onSelect }: GridPickerProps) {
+  const [hovered, setHovered] = useState({ row: 3, col: 3 });
+
+  return (
+    <div className="p-2">
+      <div className="grid grid-cols-5 gap-1">
+        {Array.from({ length: 25 }).map((_, i) => {
+          const row = Math.floor(i / 5) + 1;
+          const col = (i % 5) + 1;
+          const isHighlighted = row <= hovered.row && col <= hovered.col;
+
+          return (
+            <div
+              key={i}
+              className={cn(
+                "w-6 h-6 border rounded cursor-pointer transition-colors",
+                isHighlighted
+                  ? "bg-accent/20 border-accent"
+                  : "border-border hover:border-accent/50"
+              )}
+              onMouseEnter={() => setHovered({ row, col })}
+              onClick={() => onSelect(row, col)}
+            />
+          );
+        })}
+      </div>
+      <p className="text-xs text-center mt-2 text-text-muted">
+        {hovered.row} × {hovered.col} table
+      </p>
+    </div>
+  );
+}
 
 interface FormatBarProps {
   editor: TiptapEditor | null;
@@ -256,6 +296,35 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton onClick={onAddImage} isActive={false} title="Add Image">
         <ImageIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
+      <DropdownMenu.Root>
+        <Tooltip content="Insert Table">
+          <DropdownMenu.Trigger asChild>
+            <ToolbarButton isActive={editor.isActive("table")}>
+              <TableIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+            </ToolbarButton>
+          </DropdownMenu.Trigger>
+        </Tooltip>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            className="p-2 bg-bg border border-border rounded-md shadow-lg z-50"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <GridPicker
+              onSelect={(rows, cols) => {
+                editor
+                  .chain()
+                  .focus()
+                  .insertTable({
+                    rows,
+                    cols,
+                    withHeaderRow: true,
+                  })
+                  .run();
+              }}
+            />
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </div>
   );
 }
@@ -307,7 +376,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       if (!editorInstance) return "";
       const manager = editorInstance.storage.markdown?.manager;
       if (manager) {
-        return manager.serialize(editorInstance.getJSON());
+        let markdown = manager.serialize(editorInstance.getJSON());
+        // Clean up nbsp entities in table cells (TipTap adds these to empty cells)
+        // Match table rows and remove &nbsp; or &#160; from cells
+        markdown = markdown.replace(/(\|)\s*(&nbsp;|&#160;)\s*(?=\|)/g, '$1 ');
+        return markdown;
       }
       // Fallback to plain text
       return editorInstance.getText();
@@ -502,7 +575,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         },
       }),
       Image.configure({
-        inline: true,
+        inline: false,
         allowBase64: false,
       }),
       TaskList,
@@ -1334,7 +1407,105 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             </div>
           </div>
         )}
-        <EditorContent editor={editor} className="h-full text-text" />
+        <div
+          className="h-full"
+          onContextMenu={async (e) => {
+            if (!editor?.isActive("table")) return;
+
+            e.preventDefault();
+
+            // Detect if we're in the first row or first column
+            const { state } = editor;
+            const { selection } = state;
+            const { $anchor } = selection;
+
+            // Find the table cell/header node
+            let cellDepth = $anchor.depth;
+            while (cellDepth > 0 &&
+                   state.doc.resolve($anchor.pos).node(cellDepth).type.name !== 'tableCell' &&
+                   state.doc.resolve($anchor.pos).node(cellDepth).type.name !== 'tableHeader') {
+              cellDepth--;
+            }
+
+            // Get the cell position
+            const cellPos = $anchor.before(cellDepth);
+
+            // Check if we're in the first column (index 0 in parent row)
+            const rowNode = state.doc.resolve(cellPos).node(cellDepth - 1);
+            let cellIndex = 0;
+            rowNode.forEach((_node, offset) => {
+              if (offset < cellPos - $anchor.before(cellDepth - 1) - 1) {
+                cellIndex++;
+              }
+            });
+            const isFirstColumn = cellIndex === 0;
+
+            // Check if we're in the first row (index 0 in parent table)
+            const tableNode = state.doc.resolve(cellPos).node(cellDepth - 2);
+            let rowIndex = 0;
+            tableNode.forEach((_node, offset) => {
+              if (offset < $anchor.before(cellDepth - 1) - $anchor.before(cellDepth - 2) - 1) {
+                rowIndex++;
+              }
+            });
+            const isFirstRow = rowIndex === 0;
+
+            const menuItems = [];
+
+            // Only show "Add Column Before" if not in first column
+            if (!isFirstColumn) {
+              menuItems.push(await MenuItem.new({
+                text: "Add Column Before",
+                action: () => editor.chain().focus().addColumnBefore().run(),
+              }));
+            }
+            menuItems.push(await MenuItem.new({
+              text: "Add Column After",
+              action: () => editor.chain().focus().addColumnAfter().run(),
+            }));
+            menuItems.push(await MenuItem.new({
+              text: "Delete Column",
+              action: () => editor.chain().focus().deleteColumn().run(),
+            }));
+            menuItems.push(await PredefinedMenuItem.new({ item: 'Separator' }));
+
+            // Only show "Add Row Above" if not in first row
+            if (!isFirstRow) {
+              menuItems.push(await MenuItem.new({
+                text: "Add Row Above",
+                action: () => editor.chain().focus().addRowBefore().run(),
+              }));
+            }
+            menuItems.push(await MenuItem.new({
+              text: "Add Row Below",
+              action: () => editor.chain().focus().addRowAfter().run(),
+            }));
+            menuItems.push(await MenuItem.new({
+              text: "Delete Row",
+              action: () => editor.chain().focus().deleteRow().run(),
+            }));
+            menuItems.push(await PredefinedMenuItem.new({ item: 'Separator' }));
+            menuItems.push(await MenuItem.new({
+              text: "Toggle Header Row",
+              action: () => editor.chain().focus().toggleHeaderRow().run(),
+            }));
+            menuItems.push(await MenuItem.new({
+              text: "Toggle Header Column",
+              action: () => editor.chain().focus().toggleHeaderColumn().run(),
+            }));
+            menuItems.push(await PredefinedMenuItem.new({ item: 'Separator' }));
+            menuItems.push(await MenuItem.new({
+              text: "Delete Table",
+              action: () => editor.chain().focus().deleteTable().run(),
+            }));
+
+            const menu = await Menu.new({ items: menuItems });
+
+            await menu.popup();
+          }}
+        >
+          <EditorContent editor={editor} className="h-full text-text" />
+        </div>
       </div>
     </div>
   );
