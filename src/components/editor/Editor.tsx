@@ -22,6 +22,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
+import { mod, alt, shift, isMac } from "../../lib/platform";
 
 // Validate URL scheme for safe opening
 function isAllowedUrlScheme(url: string): boolean {
@@ -141,21 +142,21 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBold().run()}
         isActive={editor.isActive("bold")}
-        title="Bold (⌘B)"
+        title={`Bold (${mod}${isMac ? "" : "+"}B)`}
       >
         <BoldIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleItalic().run()}
         isActive={editor.isActive("italic")}
-        title="Italic (⌘I)"
+        title={`Italic (${mod}${isMac ? "" : "+"}I)`}
       >
         <ItalicIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleStrike().run()}
         isActive={editor.isActive("strike")}
-        title="Strikethrough (⌘⇧S)"
+        title={`Strikethrough (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}S)`}
       >
         <StrikethroughIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
@@ -165,28 +166,28 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
         isActive={editor.isActive("heading", { level: 1 })}
-        title="Heading 1 (⌘⌥1)"
+        title={`Heading 1 (${mod}${isMac ? "" : "+"}${alt}${isMac ? "" : "+"}1)`}
       >
         <Heading1Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         isActive={editor.isActive("heading", { level: 2 })}
-        title="Heading 2 (⌘⌥2)"
+        title={`Heading 2 (${mod}${isMac ? "" : "+"}${alt}${isMac ? "" : "+"}2)`}
       >
         <Heading2Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         isActive={editor.isActive("heading", { level: 3 })}
-        title="Heading 3 (⌘⌥3)"
+        title={`Heading 3 (${mod}${isMac ? "" : "+"}${alt}${isMac ? "" : "+"}3)`}
       >
         <Heading3Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}
         isActive={editor.isActive("heading", { level: 4 })}
-        title="Heading 4 (⌘⌥4)"
+        title={`Heading 4 (${mod}${isMac ? "" : "+"}${alt}${isMac ? "" : "+"}4)`}
       >
         <Heading4Icon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
@@ -196,14 +197,14 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBulletList().run()}
         isActive={editor.isActive("bulletList")}
-        title="Bullet List (⌘⇧8)"
+        title={`Bullet List (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}8)`}
       >
         <ListIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
         isActive={editor.isActive("orderedList")}
-        title="Numbered List (⌘⇧7)"
+        title={`Numbered List (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}7)`}
       >
         <ListOrderedIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
@@ -217,21 +218,21 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
         isActive={editor.isActive("blockquote")}
-        title="Blockquote (⌘⇧B)"
+        title={`Blockquote (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}B)`}
       >
         <QuoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleCode().run()}
         isActive={editor.isActive("code")}
-        title="Inline Code (⌘E)"
+        title={`Inline Code (${mod}${isMac ? "" : "+"}E)`}
       >
         <InlineCodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
         isActive={editor.isActive("codeBlock")}
-        title="Code Block (⌘⌥C)"
+        title={`Code Block (${mod}${isMac ? "" : "+"}${alt}${isMac ? "" : "+"}C)`}
       >
         <CodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
@@ -248,7 +249,7 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton
         onClick={onAddLink}
         isActive={editor.isActive("link")}
-        title="Add Link (⌘K)"
+        title={`Add Link (${mod}${isMac ? "" : "+"}K)`}
       >
         <LinkIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
@@ -1148,7 +1149,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               size="md"
               className="mt-4"
             >
-              New Note <span className="text-text-muted ml-1">⌘N</span>
+              New Note <span className="text-text-muted ml-1">{mod}{isMac ? "" : "+"}N</span>
             </Button>
           </div>
         </div>
@@ -1171,7 +1172,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             <IconButton
               onClick={onToggleSidebar}
               title={
-                sidebarVisible ? "Hide sidebar (⌘\\)" : "Show sidebar (⌘\\)"
+                sidebarVisible ? `Hide sidebar (${mod}${isMac ? "" : "+"}\\)` : `Show sidebar (${mod}${isMac ? "" : "+"}\\)`
               }
               className="shrink-0"
             >
@@ -1184,7 +1185,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         </div>
         <div className="titlebar-no-drag flex items-center gap-px shrink-0">
           {hasExternalChanges ? (
-            <Tooltip content="External changes detected (⌘R to refresh)">
+            <Tooltip content={`External changes detected (${mod}${isMac ? "" : "+"}R to refresh)`}>
               <button
                 onClick={reloadCurrentNote}
                 className="h-7 px-2 flex items-center gap-1 text-xs text-orange-500 hover:bg-orange-500/10 rounded transition-colors font-medium"
@@ -1242,14 +1243,14 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             </Tooltip>
           )}
           {currentNote && (
-            <Tooltip content="Find in note (⌘F)">
+            <Tooltip content={`Find in note (${mod}${isMac ? "" : "+"}F)`}>
               <IconButton onClick={() => setSearchOpen(true)}>
                 <SearchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>
           )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
-            <Tooltip content="Copy as... (⌘⇧C)">
+            <Tooltip content={`Copy as... (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}C)`}>
               <DropdownMenu.Trigger asChild>
                 <IconButton>
                   <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />

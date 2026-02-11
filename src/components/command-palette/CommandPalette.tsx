@@ -37,6 +37,7 @@ import {
   TrashIcon,
   PinIcon,
 } from "../icons";
+import { mod } from "../../lib/platform";
 
 interface Command {
   id: string;
@@ -93,7 +94,7 @@ export function CommandPalette({
       {
         id: "new-note",
         label: "New Note",
-        shortcut: "⌘ N",
+        shortcut: `${mod} N`,
         icon: <AddNoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
           createNote();
@@ -103,7 +104,7 @@ export function CommandPalette({
       {
         id: "settings",
         label: "Settings",
-        shortcut: "⌘ ,",
+        shortcut: `${mod} ,`,
         icon: <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
           onOpenSettings?.();

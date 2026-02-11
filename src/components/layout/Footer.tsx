@@ -11,6 +11,7 @@ import {
   SettingsIcon,
   CloudCheckIcon,
 } from "../icons";
+import { mod, isMac } from "../../lib/platform";
 
 interface FooterProps {
   onOpenSettings?: () => void;
@@ -182,7 +183,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
               )}
             </IconButton>
           )}
-          <IconButton onClick={onOpenSettings} title="Settings (⌘, to toggle)">
+          <IconButton onClick={onOpenSettings} title={`Settings (${mod}${isMac ? "" : "+"}, to toggle)`}>
             <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />
           </IconButton>
         </div>

@@ -10,6 +10,7 @@ import {
   SearchIcon,
   SearchOffIcon,
 } from "../icons";
+import { mod, isMac } from "../../lib/platform";
 
 interface SidebarProps {
   onOpenSettings?: () => void;
@@ -109,7 +110,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           <IconButton
             variant="ghost"
             onClick={createNote}
-            title="New Note (⌘N)"
+            title={`New Note (${mod}${isMac ? "" : "+"}N)`}
           >
             <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
           </IconButton>

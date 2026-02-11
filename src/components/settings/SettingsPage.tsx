@@ -3,6 +3,7 @@ import { ArrowLeftIcon, FolderIcon, SwatchIcon } from "../icons";
 import { Button, IconButton } from "../ui";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { AppearanceSettingsSection } from "./EditorSettingsSection";
+import { mod, isMac } from "../../lib/platform";
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -51,7 +52,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         {/* Header with back button and Settings title */}
         <div className="flex items-center justify-between px-3 pb-2 border-b border-border shrink-0">
           <div className="flex items-center gap-1">
-            <IconButton onClick={onBack} title="Back (⌘,)">
+            <IconButton onClick={onBack} title={`Back (${mod}${isMac ? "" : "+"},)`}>
               <ArrowLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
             <div className="font-medium text-base">Settings</div>
@@ -76,7 +77,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   {tab.label}
                 </div>
                 <div className="text-xs text-text-muted">
-                  <span className="mr-0.5">⌘</span>
+                  <span className="mr-0.5">{mod}</span>
                   {tab.shortcut}
                 </div>
               </Button>
