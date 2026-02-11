@@ -19,8 +19,9 @@
   --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
-  --editor-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  --editor-font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
   --editor-base-font-size: 16px;
   --editor-bold-weight: 700;
   --editor-line-height: 1.6;
@@ -52,12 +53,15 @@
 
 /* Register theme colors with Tailwind */
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif,
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-serif:
+    ui-serif, Georgia, Cambria, "Times New Roman", Times, serif,
     "Apple Color Emoji";
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco,
-    "Courier New", monospace;
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, "Courier New",
+    monospace;
 
   /* Custom font sizes */
   --text-2xs: 0.75rem; /* 12px */
@@ -476,23 +480,54 @@ ul[data-type="taskList"] ul[data-type="taskList"] {
 /* Table styles */
 .prose table,
 table.not-prose {
-  width: 100%;
-  border-collapse: collapse;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-border-solid);
+  border-radius: 6px;
+  border-collapse: separate;
+  border-spacing: 0;
   margin-top: 1em;
   margin-bottom: 1em;
   font-size: var(--editor-base-font-size);
   color: var(--color-text);
+  /* Hide scrollbar but keep horizontal scrolling */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.prose table::-webkit-scrollbar,
+table.not-prose::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 .prose table th,
 .prose table td,
 table.not-prose th,
 table.not-prose td {
-  border: 1px solid var(--color-border-solid);
+  border: 0;
+  border-right: 1px solid var(--color-border-solid);
+  border-bottom: 1px solid var(--color-border-solid);
   padding: 0.5em 0.75em;
   text-align: left;
   vertical-align: top;
   min-width: 100px;
+}
+
+/* Avoid double lines with separate border model */
+.prose table th:last-child,
+.prose table td:last-child,
+table.not-prose th:last-child,
+table.not-prose td:last-child {
+  border-right: none;
+}
+
+.prose table tr:last-child th,
+.prose table tr:last-child td,
+table.not-prose tr:last-child th,
+table.not-prose tr:last-child td {
+  border-bottom: none;
 }
 
 .prose table th,
@@ -525,9 +560,11 @@ table.not-prose th > * {
 /* Table wrapper - scrollable container with border */
 .tableWrapper {
   margin: 1em 0;
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--color-border-solid);
-  border-radius: 6px;
+  border: none;
+  border-radius: 0;
   /* Hide scrollbar but keep scrollability */
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge */
@@ -539,30 +576,9 @@ table.not-prose th > * {
 
 .tableWrapper table {
   margin: 0;
-  width: auto;
-  min-width: 100%;
-  border: none; /* Remove table's own border since wrapper has one */
-}
-
-/* Remove outer borders on cells since wrapper provides the border */
-.tableWrapper table th:first-child,
-.tableWrapper table td:first-child {
-  border-left: none;
-}
-
-.tableWrapper table th:last-child,
-.tableWrapper table td:last-child {
-  border-right: none;
-}
-
-.tableWrapper table tr:first-child th,
-.tableWrapper table tr:first-child td {
-  border-top: none;
-}
-
-.tableWrapper table tr:last-child th,
-.tableWrapper table tr:last-child td {
-  border-bottom: none;
+  width: max-content !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
 }
 
 .prose table td,
