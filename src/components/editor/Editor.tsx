@@ -1414,7 +1414,18 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
 
             e.preventDefault();
 
-            // Detect if we're in the first row or first column
+            // Get the position at the click coordinates
+            const clickPos = editor.view.posAtCoords({
+              left: e.clientX,
+              top: e.clientY
+            });
+
+            if (!clickPos) return;
+
+            // Set the selection to the clicked position
+            editor.chain().focus().setTextSelection(clickPos.pos).run();
+
+            // Now work with the updated selection
             const { state } = editor;
             const { selection } = state;
             const { $anchor } = selection;

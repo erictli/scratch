@@ -11,8 +11,9 @@ A minimalist, offline-first markdown note-taking app for macOS and Windows.
 
 - **Offline-first** - No cloud, no account, no internet required
 - **Markdown-based** - Notes stored as plain `.md` files you own
-- **WYSIWYG editing** - Rich text editing that saves as markdown
+- **WYSIWYG editing** - Rich text editing with tables that saves as markdown
 - **Works with AI agents** - Detects external file changes and refreshes on demand
+- **AI editing** - Invoke Claude Code CLI to edit notes with natural language prompts
 - **Full-text search** - Fast search with command palette
 - **Git integration** - Optional version control for your notes
 - **Customizable** - Theme (light/dark/system) and editor typography settings
@@ -62,20 +63,22 @@ npm run tauri build    # Production build
 
 Scratch is designed to be usable without a mouse. Here are the essentials to get started:
 
-| Shortcut  | Action              |
-| --------- | ------------------- |
-| `Cmd+N`   | New note            |
-| `Cmd+P`   | Command palette     |
-| `Cmd+K`   | Add/edit link       |
-| `Cmd+R`   | Reload current note |
-| `Cmd+,`   | Open settings       |
-| `Cmd+\`   | Toggle sidebar      |
-| `Cmd+B/I` | Bold/Italic         |
-| `↑/↓`     | Navigate notes      |
+| Shortcut       | Action              |
+| -------------- | ------------------- |
+| `Cmd+N`        | New note            |
+| `Cmd+P`        | Command palette     |
+| `Cmd+K`        | Add/edit link       |
+| `Cmd+F`        | Find in note        |
+| `Cmd+Shift+C`  | Copy as...          |
+| `Cmd+R`        | Reload current note |
+| `Cmd+,`        | Open settings       |
+| `Cmd+\`        | Toggle sidebar      |
+| `Cmd+B/I`      | Bold/Italic         |
+| `↑/↓`          | Navigate notes      |
 
 **Note:** On Windows, use `Ctrl` instead of `Cmd` for all shortcuts.
 
-Many more shortcuts and features are available in the app—explore via the command palette (`Cmd+P` / `Ctrl+P`).
+Many more shortcuts and features are available in the app—explore via the command palette (`Cmd+P` / `Ctrl+P`) or view the full reference in Settings → Shortcuts.
 
 ## Built With
 

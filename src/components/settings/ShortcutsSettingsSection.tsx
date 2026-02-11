@@ -53,6 +53,11 @@ const shortcuts: Shortcut[] = [
     category: "Editor",
   },
   {
+    keys: [mod, "F"],
+    description: "Find in current note",
+    category: "Editor",
+  },
+  {
     keys: ["↑", "↓"],
     description: "Navigate note list",
     category: "Navigation",
@@ -67,22 +72,30 @@ const shortcuts: Shortcut[] = [
     description: "Go to Appearance settings",
     category: "Settings",
   },
+  {
+    keys: [mod, "3"],
+    description: "Go to Shortcuts settings",
+    category: "Settings",
+  },
 ];
 
 // Group shortcuts by category
-const groupedShortcuts = shortcuts.reduce((acc, shortcut) => {
-  const category = shortcut.category || "General";
-  if (!acc[category]) {
-    acc[category] = [];
-  }
-  acc[category].push(shortcut);
-  return acc;
-}, {} as Record<string, Shortcut[]>);
+const groupedShortcuts = shortcuts.reduce(
+  (acc, shortcut) => {
+    const category = shortcut.category || "General";
+    if (!acc[category]) {
+      acc[category] = [];
+    }
+    acc[category].push(shortcut);
+    return acc;
+  },
+  {} as Record<string, Shortcut[]>,
+);
 
 // Render individual key as keyboard button
 function KeyboardKey({ keyLabel }: { keyLabel: string }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[1.75rem] h-6 px-1.5 text-xs font-medium text-text bg-bg-secondary border border-border rounded shadow-sm">
+    <kbd className="text-xs px-1.5 py-0.5 rounded-md bg-bg-muted text-text min-w-6.5 inline-flex items-center justify-center">
       {keyLabel}
     </kbd>
   );
@@ -91,7 +104,7 @@ function KeyboardKey({ keyLabel }: { keyLabel: string }) {
 // Render shortcut keys
 function ShortcutKeys({ keys }: { keys: string[] }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1.5">
       {keys.map((key, index) => (
         <KeyboardKey key={index} keyLabel={key} />
       ))}
@@ -103,41 +116,35 @@ export function ShortcutsSettingsSection() {
   const categoryOrder = ["Navigation", "Notes", "Editor", "Settings"];
 
   return (
-    <div className="space-y-8">
-      <section>
-        <h2 className="text-xl font-medium mb-0.5">Keyboard Shortcuts</h2>
-        <p className="text-sm text-text-muted mb-4">
-          Shortcuts shown for {isMac ? "macOS" : "Windows/Linux"}
-        </p>
+    <div className="space-y-8 pb-8">
+      {categoryOrder.map((category, idx) => {
+        const categoryShortcuts = groupedShortcuts[category];
+        if (!categoryShortcuts) return null;
 
-        <div className="space-y-6">
-          {categoryOrder.map((category) => {
-            const categoryShortcuts = groupedShortcuts[category];
-            if (!categoryShortcuts) return null;
-
-            return (
-              <div key={category}>
-                <h3 className="text-sm font-semibold text-text mb-2.5">
-                  {category}
-                </h3>
-                <div className="space-y-2">
-                  {categoryShortcuts.map((shortcut, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-bg-secondary/50 transition-colors"
-                    >
-                      <span className="text-sm text-text">
-                        {shortcut.description}
-                      </span>
-                      <ShortcutKeys keys={shortcut.keys} />
-                    </div>
-                  ))}
-                </div>
+        return (
+          <div key={category}>
+            {idx > 0 && (
+              <div className="border-t border-border border-dashed" />
+            )}
+            <section>
+              <h2 className="text-xl font-medium pt-6 mb-4">{category}</h2>
+              <div className="space-y-3">
+                {categoryShortcuts.map((shortcut, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between gap-4"
+                  >
+                    <span className="text-sm text-text font-medium">
+                      {shortcut.description}
+                    </span>
+                    <ShortcutKeys keys={shortcut.keys} />
+                  </div>
+                ))}
               </div>
-            );
-          })}
-        </div>
-      </section>
+            </section>
+          </div>
+        );
+      })}
     </div>
   );
 }

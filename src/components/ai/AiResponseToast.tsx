@@ -201,7 +201,7 @@ export function AiResponseToast({ output }: AiResponseToastProps) {
           {parseMarkdown(output)}
         </div>
         <div className="text-xs text-text-muted mt-2 pt-2.5 border-t border-border border-dashed">
-          Use {mod}+Z to undo if needed
+          Use {mod}+Z to undo changes
         </div>
       </div>
     </div>
