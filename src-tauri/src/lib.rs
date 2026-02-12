@@ -265,10 +265,10 @@ impl SearchIndex {
                 }
                 if let Some(id) = id_from_abs_path(notes_folder, file_path) {
                     if let Ok(content) = std::fs::read_to_string(file_path) {
-                        let metadata = entry.metadata()?;
-                        let modified = metadata
-                            .modified()
+                        let modified = entry
+                            .metadata()
                             .ok()
+                            .and_then(|m| m.modified().ok())
                             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0);
