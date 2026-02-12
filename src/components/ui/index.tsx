@@ -1,5 +1,5 @@
 import * as React from "react";
-import { type ButtonHTMLAttributes, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Tooltip } from "./Tooltip";
 import { PinIcon } from "../icons";
@@ -29,44 +29,6 @@ export {
   AlertDialogAction,
   AlertDialogCancel,
 } from "./AlertDialog";
-
-// Toolbar button with active state and tooltip
-interface ToolbarButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  isActive?: boolean;
-  children: ReactNode;
-}
-
-export function ToolbarButton({
-  isActive = false,
-  className = "",
-  children,
-  title,
-  ...props
-}: ToolbarButtonProps) {
-  const button = (
-    <button
-      className={cn(
-        "h-7 w-7 flex items-center justify-center text-sm rounded transition-colors shrink-0",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
-        isActive
-          ? "bg-bg-muted text-text"
-          : "hover:bg-bg-muted text-text-muted",
-        className
-      )}
-      tabIndex={-1}
-      aria-label={title}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-
-  if (title) {
-    return <Tooltip content={title}>{button}</Tooltip>;
-  }
-
-  return button;
-}
 
 // Icon button (for sidebar actions, etc.)
 export interface IconButtonProps

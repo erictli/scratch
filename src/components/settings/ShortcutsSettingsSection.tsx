@@ -33,11 +33,6 @@ const shortcuts: Shortcut[] = [
     category: "Navigation",
   },
   {
-    keys: [mod, "K"],
-    description: "Add or edit link",
-    category: "Editor",
-  },
-  {
     keys: [mod, "B"],
     description: "Bold",
     category: "Editor",
@@ -50,11 +45,6 @@ const shortcuts: Shortcut[] = [
   {
     keys: [mod, "Shift", "C"],
     description: "Copy as (Markdown/Plain Text/HTML)",
-    category: "Editor",
-  },
-  {
-    keys: [mod, "F"],
-    description: "Find in current note",
     category: "Editor",
   },
   {

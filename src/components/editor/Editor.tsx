@@ -46,7 +46,6 @@ interface EditorProps {
 
 export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const {
-    notes,
     currentNote,
     saveNote,
     createNote,
@@ -105,7 +104,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           );
         });
     }
-  }, [currentNote?.id, notes]);
+  }, [currentNote?.id]);
 
   const isPinned =
     settings?.pinnedNoteIds?.includes(currentNote?.id || "") || false;
@@ -176,7 +175,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
 
     // Flush any pending save before switching to a different note
     if (!isSameNote && needsSaveRef.current) {
-      flushPendingSave();
+      void flushPendingSave();
     }
 
     const isManualReload = reloadVersion !== lastReloadVersionRef.current;
@@ -294,6 +293,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         const absolutePath = await join(notesFolder, relativePath);
         const assetUrl = convertFileSrc(absolutePath);
 
+        const cursorBlock = editor.getTextCursorPosition().block;
         editor.insertBlocks(
           [
             {
@@ -301,7 +301,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               props: { url: assetUrl },
             },
           ],
-          editor.document[editor.document.length - 1],
+          cursorBlock,
           "after",
         );
       } catch (error) {
@@ -327,25 +327,24 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   const handleCopyPlainText = useCallback(async () => {
     if (!editor) return;
     try {
-      // Get text content from all blocks
-      const blocks = editor.document;
-      const text = blocks
-        .map((block) => {
-          if (Array.isArray(block.content)) {
-            return block.content
-              .map((item) => ("text" in item ? item.text : ""))
-              .join("");
-          }
-          return "";
-        })
-        .join("\n");
+      // Convert to markdown then strip formatting for plain text
+      const markdown = getMarkdown(editor);
+      const text = markdown
+        .replace(/^#{1,6}\s+/gm, "") // strip heading markers
+        .replace(/\*\*(.+?)\*\*/g, "$1") // bold
+        .replace(/\*(.+?)\*/g, "$1") // italic
+        .replace(/`(.+?)`/g, "$1") // inline code
+        .replace(/\[(.+?)\]\(.+?\)/g, "$1") // links
+        .replace(/!\[.*?\]\(.+?\)/g, "") // images
+        .replace(/^[-*+]\s+/gm, "- ") // normalize list markers
+        .replace(/^\d+\.\s+/gm, (m) => m); // keep numbered lists
       await invoke("copy_to_clipboard", { text });
       toast.success("Copied as plain text");
     } catch (error) {
       console.error("Failed to copy plain text:", error);
       toast.error("Failed to copy");
     }
-  }, [editor]);
+  }, [editor, getMarkdown]);
 
   const handleCopyHtml = useCallback(async () => {
     if (!editor) return;
@@ -451,40 +450,37 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               </div>
             </Tooltip>
           )}
-          {currentNote && (
-            <Tooltip content={isPinned ? "Unpin note" : "Pin note"}>
-              <IconButton
-                onClick={async () => {
-                  if (!currentNote) return;
-                  try {
-                    if (isPinned) {
-                      await unpinNote(currentNote.id);
-                      toast.success("Note unpinned");
-                    } else {
-                      await pinNote(currentNote.id);
-                      toast.success("Note pinned");
-                    }
-                    const updatedSettings = await notesService.getSettings();
-                    setSettings(updatedSettings);
-                  } catch (error) {
-                    console.error("Failed to pin/unpin note:", error);
-                    toast.error(
-                      `Failed to ${isPinned ? "unpin" : "pin"} note: ${
-                        error instanceof Error ? error.message : "Unknown error"
-                      }`,
-                    );
+          <Tooltip content={isPinned ? "Unpin note" : "Pin note"}>
+            <IconButton
+              onClick={async () => {
+                try {
+                  if (isPinned) {
+                    await unpinNote(currentNote.id);
+                    toast.success("Note unpinned");
+                  } else {
+                    await pinNote(currentNote.id);
+                    toast.success("Note pinned");
                   }
-                }}
-              >
-                <PinIcon
-                  className={cn(
-                    "w-5 h-5 stroke-[1.3]",
-                    isPinned && "fill-current",
-                  )}
-                />
-              </IconButton>
-            </Tooltip>
-          )}
+                  const updatedSettings = await notesService.getSettings();
+                  setSettings(updatedSettings);
+                } catch (error) {
+                  console.error("Failed to pin/unpin note:", error);
+                  toast.error(
+                    `Failed to ${isPinned ? "unpin" : "pin"} note: ${
+                      error instanceof Error ? error.message : "Unknown error"
+                    }`,
+                  );
+                }
+              }}
+            >
+              <PinIcon
+                className={cn(
+                  "w-5 h-5 stroke-[1.3]",
+                  isPinned && "fill-current",
+                )}
+              />
+            </IconButton>
+          </Tooltip>
           <Tooltip content="Add image">
             <IconButton onClick={handleAddImage}>
               <ImageIcon className="w-4.25 h-4.25 stroke-[1.6]" />

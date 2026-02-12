@@ -67,8 +67,6 @@ Scratch is designed to be usable without a mouse. Here are the essentials to get
 | ------------- | ------------------- |
 | `Cmd+N`       | New note            |
 | `Cmd+P`       | Command palette     |
-| `Cmd+K`       | Add/edit link       |
-| `Cmd+F`       | Find in note        |
 | `Cmd+Shift+C` | Copy as...          |
 | `Cmd+R`       | Reload current note |
 | `Cmd+,`       | Open settings       |
@@ -82,7 +80,7 @@ Many more shortcuts and features are available in the app—explore via the comm
 
 ## Built With
 
-[Tauri](https://tauri.app/) · [React](https://react.dev/) · [TipTap](https://tiptap.dev/) · [Tailwind CSS](https://tailwindcss.com/) · [Tantivy](https://github.com/quickwit-oss/tantivy)
+[Tauri](https://tauri.app/) · [React](https://react.dev/) · [BlockNote](https://www.blocknotejs.org/) · [Tailwind CSS](https://tailwindcss.com/) · [Tantivy](https://github.com/quickwit-oss/tantivy)
 
 ## License
 

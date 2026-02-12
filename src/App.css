@@ -204,7 +204,26 @@ html.dark {
 /* BlockNote editor - integrate with Scratch theme */
 .bn-editor {
   font-family: var(--editor-font-family);
+  font-size: var(--editor-base-font-size);
+  line-height: var(--editor-line-height);
   color: var(--color-text);
+}
+
+.bn-editor strong,
+.bn-editor b {
+  font-weight: var(--editor-bold-weight);
+}
+
+.bn-editor [data-level="1"] [data-inline-content] {
+  font-size: var(--editor-h1-size);
+}
+
+.bn-editor [data-level="2"] [data-inline-content] {
+  font-size: var(--editor-h2-size);
+}
+
+.bn-editor [data-level="3"] [data-inline-content] {
+  font-size: var(--editor-h3-size);
 }
 
 /* Radix UI tooltip animations */

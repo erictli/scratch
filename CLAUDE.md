@@ -2,13 +2,13 @@
 
 ## Project Overview
 
-Scratch is a cross-platform markdown note-taking app for macOS and Windows, built with Tauri v2 (Rust backend) + React/TypeScript/Tailwind (frontend) + TipTap (WYSIWYG editor) + Tantivy (full-text search).
+Scratch is a cross-platform markdown note-taking app for macOS and Windows, built with Tauri v2 (Rust backend) + React/TypeScript/Tailwind (frontend) + BlockNote (block-based editor) + Tantivy (full-text search).
 
 ## Tech Stack
 
 - **Backend**: Tauri v2, Rust
 - **Frontend**: React 19, TypeScript, Tailwind CSS v4
-- **Editor**: TipTap with markdown support
+- **Editor**: BlockNote (Notion-style block editor with markdown support)
 - **Search**: Tantivy full-text search engine
 - **File watching**: notify crate with custom debouncing
 
@@ -165,9 +165,8 @@ After building for each platform, create a `latest.json` file with this structur
 scratch/
 ├── src/                            # React frontend
 │   ├── components/
-│   │   ├── editor/                 # TipTap editor + extensions
-│   │   │   ├── Editor.tsx          # Main editor with auto-save, copy-as, format bar
-│   │   │   └── LinkEditor.tsx      # Inline link add/edit/remove popup
+│   │   ├── editor/                 # BlockNote editor
+│   │   │   └── Editor.tsx          # Main editor with auto-save, copy-as, block editing
 │   │   ├── layout/                 # Sidebar, main layout
 │   │   │   ├── Sidebar.tsx         # Note list, search, git status
 │   │   │   └── FolderPicker.tsx    # Initial folder selection dialog
@@ -190,7 +189,7 @@ scratch/
 │   │   │   ├── Button.tsx          # Button variants (default, ghost, outline, etc.)
 │   │   │   ├── Input.tsx           # Form input
 │   │   │   ├── Tooltip.tsx         # Radix UI tooltip wrapper
-│   │   │   └── index.tsx           # ListItem, CommandItem, ToolbarButton exports
+│   │   │   └── index.tsx           # ListItem, CommandItem, IconButton exports
 │   │   └── icons/                  # SVG icon components (30+ icons)
 │   │       └── index.tsx
 │   ├── context/                    # React context providers
@@ -243,26 +242,25 @@ Power users can edit the settings JSON directly to customize colors.
 
 ### Editor
 
-TipTap editor with extensions and features:
+BlockNote block-based editor with Notion-style editing:
 
-**Extensions:**
-- StarterKit (basic formatting)
-- Markdown (bidirectional conversion)
-- Link, Image, TaskList, TaskItem, Table
-
-**Key Features:**
-- Auto-save with 300ms debounce
-- Copy-as menu (Markdown/Plain Text/HTML) via `Cmd+Shift+C`
-- Inline link editor popup (`Cmd+K`) for add/edit/remove
-- Format bar with 13 tools (bold, italic, headings, lists, code, etc.)
-- Table editing with right-click context menu (insert/delete rows/columns, merge/split cells)
+**Built-in Features (via BlockNote):**
+- Slash menu for block insertion
+- Drag-and-drop block reordering
+- Formatting toolbar
+- Link, image, table, task list blocks
 - Markdown paste detection and parsing
-- Image insertion from disk
+
+**Custom Features:**
+- Auto-save with 500ms debounce
+- Copy-as menu (Markdown/Plain Text/HTML) via `Cmd+Shift+C`
+- Image insertion from disk (copies to `.assets/` folder)
 - External file change detection with auto-reload
-- Find in note (`Cmd+F`) with highlighting
 - "Last saved" status indicator
 - Unsaved changes spinner
 - AI editing with Claude Code CLI integration
+
+**Note:** `dragDropEnabled` is set to `false` in `tauri.conf.json` because Tauri v2 intercepts HTML5 drag events by default, which prevents BlockNote's block drag-and-drop from working.
 
 ### Component Architecture
 
@@ -277,8 +275,7 @@ TipTap editor with extensions and features:
 - `ThemeContext` - Theme mode and typography with CSS variable application
 
 **Key Components:**
-- `Editor` - Main editor with all editing features
-- `LinkEditor` - Inline popup for link management
+- `Editor` - Main BlockNote editor with auto-save, copy-as, image insertion
 - `CommandPalette` - Cmd+P for quick actions and note search
 - `GitStatus` - Floating commit UI in sidebar
 - `NoteList` - Scrollable list with context menu and smart date formatting
@@ -335,8 +332,6 @@ Current capabilities include:
 
 - `Cmd+N` - New note
 - `Cmd+P` - Command palette
-- `Cmd+K` - Add/edit link (when in editor)
-- `Cmd+F` - Find in current note
 - `Cmd+Shift+C` - Copy as (Markdown/Plain Text/HTML)
 - `Cmd+R` - Reload current note (pull external changes)
 - `Cmd+,` - Open settings
@@ -375,7 +370,7 @@ The app watches the notes folder for external changes (e.g., from AI agents or o
 - Native macOS feel with drag region
 - Keyboard-first navigation
 - Smart date formatting (Today, Yesterday, X days ago)
-- Inline editing (links, commits)
+- Inline editing (commits)
 - Non-blocking operations (async everything)
 - Error handling with user-friendly messages
 
@@ -385,9 +380,8 @@ Recent commits show continuous improvement:
 - AI editing with Claude Code CLI integration (invoke Claude to edit notes)
 - Table editing support with context menu operations
 - Keyboard shortcuts reference page in settings
-- Find in note functionality with search highlighting
+- Migrated editor from TipTap to BlockNote (Notion-style block editing)
 - Yellow selection highlight and UI polish
-- Inline link editor (replaced wikilink support)
 - Git integration with push/remote management
 - Settings UI simplification
 - Copy-as feature (Markdown/Plain/HTML)

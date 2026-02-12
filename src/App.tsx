@@ -135,7 +135,7 @@ function AppContent() {
       }
 
       // Trap Tab/Shift+Tab in notes view only - prevent focus navigation
-      // TipTap handles indentation internally before event bubbles up
+      // BlockNote handles indentation internally before event bubbles up
       if (e.key === "Tab") {
         e.preventDefault();
         return;
@@ -216,7 +216,7 @@ function AppContent() {
       const target = e.target as HTMLElement;
       // Allow context menu in editor and inputs
       const isInEditor =
-        target.closest(".bn-editor") || target.closest(".ProseMirror");
+        target.closest(".bn-editor");
       const isInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
       if (!isInEditor && !isInput) {
