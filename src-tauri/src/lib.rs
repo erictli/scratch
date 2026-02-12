@@ -540,6 +540,24 @@ fn cleanup_debounce_map(map: &Mutex<HashMap<PathBuf, Instant>>) {
     map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
 }
 
+// Normalize notes folder path from plain paths and legacy file:// URIs.
+fn normalize_notes_folder_path(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Notes folder path is empty".to_string());
+    }
+
+    if trimmed.starts_with("file://") {
+        let parsed = url::Url::parse(trimmed)
+            .map_err(|e| format!("Invalid file URL for notes folder: {}", e))?;
+        return parsed
+            .to_file_path()
+            .map_err(|_| "Invalid file URL for notes folder".to_string());
+    }
+
+    Ok(PathBuf::from(trimmed))
+}
+
 // TAURI COMMANDS
 
 #[tauri::command]
@@ -554,7 +572,8 @@ fn get_notes_folder(state: State<AppState>) -> Option<String> {
 
 #[tauri::command]
 fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Result<(), String> {
-    let path_buf = PathBuf::from(&path);
+    let path_buf = normalize_notes_folder_path(&path)?;
+    let normalized_path = path_buf.to_string_lossy().into_owned();
 
     // Verify it's a valid directory
     if !path_buf.exists() {
@@ -569,13 +588,19 @@ fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Res
     let scratch_dir = path_buf.join(".scratch");
     std::fs::create_dir_all(&scratch_dir).map_err(|e| e.to_string())?;
 
+    // Verify write access early to avoid later silent failures
+    let write_test_path = scratch_dir.join(".write-test");
+    std::fs::write(&write_test_path, b"ok")
+        .map_err(|e| format!("Notes folder is not writable: {}", e))?;
+    let _ = std::fs::remove_file(&write_test_path);
+
     // Load per-folder settings (starts fresh with defaults if none exist)
-    let settings = load_settings(&path);
+    let settings = load_settings(&normalized_path);
 
     // Update app config
     {
         let mut app_config = state.app_config.write().expect("app_config write lock");
-        app_config.notes_folder = Some(path.clone());
+        app_config.notes_folder = Some(normalized_path.clone());
     }
 
     // Update settings in memory
@@ -936,25 +961,32 @@ fn update_settings(
 
 #[tauri::command]
 async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
-    if query.trim().is_empty() {
+    let trimmed_query = query.trim().to_string();
+    if trimmed_query.is_empty() {
         return Ok(vec![]);
     }
 
     // Check if search index is available and use it (scoped to drop lock before await)
-    let search_result = {
+    let indexed_result = {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            Some(search_index.search(&query, 20).map_err(|e| e.to_string()))
+            Some(search_index.search(&trimmed_query, 20).map_err(|e| e.to_string()))
         } else {
             None
         }
     };
 
-    if let Some(result) = search_result {
-        result
-    } else {
-        // Fallback to simple search if index not available
-        fallback_search(&query, &state).await
+    match indexed_result {
+        Some(Ok(results)) if !results.is_empty() => Ok(results),
+        Some(Ok(_)) => {
+            // Tantivy can miss partial/fuzzy matches; fall back to substring search.
+            fallback_search(&trimmed_query, &state).await
+        }
+        Some(Err(e)) => Err(e),
+        None => {
+            // Fallback to simple search if index not available
+            fallback_search(&trimmed_query, &state).await
+        }
     }
 }
 
@@ -1794,7 +1826,24 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Load app config on startup (contains notes folder path)
-            let app_config = load_app_config(app.handle());
+            let mut app_config = load_app_config(app.handle());
+
+            // Normalize legacy/invalid saved paths (e.g. file:// URI from older builds)
+            if let Some(saved_path) = app_config.notes_folder.clone() {
+                match normalize_notes_folder_path(&saved_path) {
+                    Ok(normalized) => {
+                        let normalized_str = normalized.to_string_lossy().into_owned();
+                        if normalized_str != saved_path {
+                            app_config.notes_folder = Some(normalized_str);
+                            let _ = save_app_config(app.handle(), &app_config);
+                        }
+                    }
+                    Err(_) => {
+                        app_config.notes_folder = None;
+                        let _ = save_app_config(app.handle(), &app_config);
+                    }
+                }
+            }
 
             // Load per-folder settings if notes folder is set
             let settings = if let Some(ref folder) = app_config.notes_folder {
