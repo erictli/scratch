@@ -256,13 +256,7 @@ impl SearchIndex {
             use walkdir::WalkDir;
             for entry in WalkDir::new(notes_folder)
                 .into_iter()
-                .filter_entry(|e| {
-                    if e.file_type().is_dir() {
-                        let name = e.file_name().to_str().unwrap_or("");
-                        return !name.starts_with('.') && name != "assets";
-                    }
-                    true
-                })
+                .filter_entry(is_visible_notes_entry)
                 .flatten()
             {
                 let file_path = entry.path();
@@ -474,6 +468,15 @@ fn strip_markdown(text: &str) -> String {
     result.trim().to_string()
 }
 
+/// Filter for WalkDir: skips dot-directories (e.g. .scratch, .git) and assets/.
+fn is_visible_notes_entry(entry: &walkdir::DirEntry) -> bool {
+    if entry.file_type().is_dir() {
+        let name = entry.file_name().to_str().unwrap_or("");
+        return !name.starts_with('.') && name != "assets";
+    }
+    true
+}
+
 /// Convert an absolute file path to a note ID (relative path from notes root, no .md extension, POSIX separators).
 /// Returns None if the path is outside the root, not a .md file, or in an excluded directory.
 fn id_from_abs_path(notes_root: &Path, file_path: &Path) -> Option<String> {
@@ -521,6 +524,9 @@ fn abs_path_from_id(notes_root: &Path, id: &str) -> Result<PathBuf, String> {
         match component {
             std::path::Component::ParentDir => {
                 return Err("Invalid note ID: parent directory references not allowed".to_string());
+            }
+            std::path::Component::CurDir => {
+                return Err("Invalid note ID: current directory references not allowed".to_string());
             }
             std::path::Component::RootDir | std::path::Component::Prefix(_) => {
                 return Err("Invalid note ID: absolute paths not allowed".to_string());
@@ -696,13 +702,7 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         let mut results: Vec<(String, String, String, i64)> = Vec::new();
         for entry in WalkDir::new(&path_clone)
             .into_iter()
-            .filter_entry(|e| {
-                if e.file_type().is_dir() {
-                    let name = e.file_name().to_str().unwrap_or("");
-                    return !name.starts_with('.') && name != "assets";
-                }
-                true
-            })
+            .filter_entry(is_visible_notes_entry)
             .flatten()
         {
             let file_path = entry.path();
