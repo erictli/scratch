@@ -148,6 +148,14 @@ function AppContent() {
         return;
       }
 
+      // Cmd/Ctrl+Shift+F - Open sidebar search
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSidebarVisible(true);
+        window.dispatchEvent(new CustomEvent("open-sidebar-search"));
+        return;
+      }
+
       // Cmd+\ - Toggle sidebar
       if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
         e.preventDefault();

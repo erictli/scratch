@@ -6,19 +6,17 @@ import { IconButton, Input } from "../ui";
 import {
   PlusIcon,
   XIcon,
-  SpinnerIcon,
   SearchIcon,
   SearchOffIcon,
 } from "../icons";
-import { mod, isMac } from "../../lib/platform";
+import { mod, shift, isMac } from "../../lib/platform";
 
 interface SidebarProps {
   onOpenSettings?: () => void;
 }
 
 export function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { createNote, notes, search, searchQuery, clearSearch, isSearching } =
-    useNotes();
+  const { createNote, notes, search, searchQuery, clearSearch } = useNotes();
   const [searchOpen, setSearchOpen] = useState(false);
   const [inputValue, setInputValue] = useState(searchQuery);
   const debounceRef = useRef<number | null>(null);
@@ -41,7 +39,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
 
       debounceRef.current = window.setTimeout(() => {
         search(value);
-      }, 150);
+      }, 220);
     },
     [search]
   );
@@ -65,6 +63,20 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       });
     }
   }, [searchOpen]);
+
+  // Global shortcut hook: open and focus sidebar search
+  useEffect(() => {
+    const handleOpenSidebarSearch = () => {
+      setSearchOpen(true);
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+      });
+    };
+
+    window.addEventListener("open-sidebar-search", handleOpenSidebarSearch);
+    return () =>
+      window.removeEventListener("open-sidebar-search", handleOpenSidebarSearch);
+  }, []);
 
   const handleSearchKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -100,7 +112,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           </div>
         </div>
         <div className="flex items-center gap-px">
-          <IconButton onClick={toggleSearch} title="Search">
+          <IconButton
+            onClick={toggleSearch}
+            title={`Search Notes (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}F)`}
+          >
             {searchOpen ? (
               <SearchOffIcon className="w-4.25 h-4.25 stroke-[1.5]" />
             ) : (
@@ -131,7 +146,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                 placeholder="Search notes..."
                 className="h-9 pr-8 text-sm"
               />
-              {inputValue && !isSearching && (
+              {inputValue && (
                 <button
                   onClick={handleClearSearch}
                   tabIndex={-1}
@@ -139,11 +154,6 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                 >
                   <XIcon className="w-4.5 h-4.5 stroke-[1.5]" />
                 </button>
-              )}
-              {isSearching && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted">
-                  <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-                </div>
               )}
             </div>
           </div>
