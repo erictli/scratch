@@ -339,9 +339,26 @@ fn is_effectively_empty(s: &str) -> bool {
         .all(|c| c.is_whitespace() || c == '\u{00A0}' || c == '\u{FEFF}')
 }
 
+/// Strip YAML frontmatter (leading `---` ... `---` block) from content.
+fn strip_frontmatter(content: &str) -> &str {
+    let trimmed = content.trim_start();
+    if trimmed.starts_with("---") {
+        // Find the closing --- (skip the opening line)
+        if let Some(rest) = trimmed.strip_prefix("---") {
+            if let Some(end) = rest.find("\n---") {
+                // Skip past closing --- and the newline after it
+                let after_close = &rest[end + 4..];
+                return after_close.strip_prefix('\n').unwrap_or(after_close);
+            }
+        }
+    }
+    content
+}
+
 // Utility: Extract title from markdown content
 fn extract_title(content: &str) -> String {
-    for line in content.lines() {
+    let body = strip_frontmatter(content);
+    for line in body.lines() {
         let trimmed = line.trim();
         if let Some(title) = trimmed.strip_prefix("# ") {
             let title = title.trim();
@@ -358,8 +375,9 @@ fn extract_title(content: &str) -> String {
 
 // Utility: Generate preview from content (strip markdown formatting)
 fn generate_preview(content: &str) -> String {
+    let body = strip_frontmatter(content);
     // Skip the first line (title), find first non-empty line
-    for line in content.lines().skip(1) {
+    for line in body.lines().skip(1) {
         let trimmed = line.trim();
         if !trimmed.is_empty() {
             let stripped = strip_markdown(trimmed);
