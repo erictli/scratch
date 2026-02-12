@@ -205,6 +205,7 @@ export function ShortcutsSettingsSection() {
         setCapturingAction(null);
         setCaptureError(null);
       } else {
+        setCapturingAction(null);
         setCaptureError(
           "Most shortcuts must include Cmd/Ctrl. Note navigation and minimal toggle can use other modifiers.",
         );
@@ -230,11 +231,13 @@ export function ShortcutsSettingsSection() {
         </div>
         <p className="text-sm text-text-muted">
           Click a shortcut and press your preferred key combination. Press
-          Escape to cancel. Most shortcuts require Cmd/Ctrl. Note navigation
-          and minimal scratchpad toggle can use other modifier combos like
+          Escape to cancel. Most shortcuts require Cmd/Ctrl. Note navigation and
+          minimal scratchpad toggle can use other modifier combos like
           Option+Space.
         </p>
-        {captureError && <p className="text-sm text-orange-500">{captureError}</p>}
+        {captureError && (
+          <p className="text-sm text-orange-500">{captureError}</p>
+        )}
       </section>
 
       {categoryOrder.map((category, idx) => {
@@ -243,7 +246,9 @@ export function ShortcutsSettingsSection() {
 
         return (
           <div key={category}>
-            {idx > 0 && <div className="border-t border-border border-dashed" />}
+            {idx > 0 && (
+              <div className="border-t border-border border-dashed" />
+            )}
             <section>
               <h3 className="text-xl font-medium pt-6 mb-4">{category}</h3>
               <div className="space-y-3">
@@ -264,14 +269,14 @@ export function ShortcutsSettingsSection() {
                         </span>
                         <button
                           type="button"
-                          className="min-w-36 h-8 px-2.5 rounded-md border border-border hover:bg-bg-muted transition-colors text-left flex items-center justify-center"
+                          className="h-8 p-1 rounded-md px-1.5 transition-colors text-left flex items-center justify-center hover:cursor-pointer"
                           onClick={() => {
                             setCapturingAction(shortcut.action);
                             setCaptureError(null);
                           }}
                         >
                           {isCapturing ? (
-                            <span className="text-xs text-text-muted">
+                            <span className="text-xs text-text-muted p-2 px-1.5 py-0.5 rounded-md border border-dashed border-border">
                               Recording...
                             </span>
                           ) : (
