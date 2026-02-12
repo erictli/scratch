@@ -61,3 +61,19 @@ export async function searchNotes(query: string): Promise<SearchResult[]> {
 export async function startFileWatcher(): Promise<void> {
   return invoke("start_file_watcher");
 }
+
+export async function toggleAlwaysOnTop(): Promise<boolean> {
+  return invoke("toggle_always_on_top");
+}
+
+export async function toggleMinimalEditor(): Promise<boolean> {
+  return invoke("toggle_minimal_editor");
+}
+
+export async function getOrCreateMinimalScratchpad(): Promise<string> {
+  return invoke("get_or_create_minimal_scratchpad");
+}
+
+export async function setLastSelectedScratchpad(id: string | null): Promise<void> {
+  return invoke("set_last_selected_scratchpad", { id });
+}

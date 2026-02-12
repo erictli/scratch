@@ -38,7 +38,7 @@ import {
   PinIcon,
   ClaudeIcon,
 } from "../icons";
-import { mod } from "../../lib/platform";
+import { getShortcutDisplayText } from "../../lib/shortcuts";
 
 interface Command {
   id: string;
@@ -71,7 +71,7 @@ export function CommandPalette({
     pinNote,
     unpinNote,
   } = useNotes();
-  const { theme, setTheme } = useTheme();
+  const { setTheme, shortcuts } = useTheme();
   const { status, gitAvailable, commit, push } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -97,11 +97,46 @@ export function CommandPalette({
       {
         id: "new-note",
         label: "New Note",
-        shortcut: `${mod} N`,
+        shortcut: getShortcutDisplayText(shortcuts.createNote),
         icon: <AddNoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
           createNote();
           onClose();
+        },
+      },
+      {
+        id: "toggle-always-on-top",
+        label: "Toggle Always on Top",
+        shortcut: getShortcutDisplayText(shortcuts.toggleAlwaysOnTop),
+        icon: <PinIcon className="w-5 h-5 stroke-[1.3]" />,
+        action: async () => {
+          try {
+            const isAlwaysOnTop = await notesService.toggleAlwaysOnTop();
+            toast.success(
+              isAlwaysOnTop
+                ? "Always on top enabled"
+                : "Always on top disabled",
+            );
+            onClose();
+          } catch (error) {
+            console.error("Failed to toggle always on top:", error);
+            toast.error("Failed to toggle always on top");
+          }
+        },
+      },
+      {
+        id: "open-minimal-editor",
+        label: "Toggle Minimal Scratchpad",
+        shortcut: getShortcutDisplayText(shortcuts.openMinimalEditor),
+        icon: <PinIcon className="w-5 h-5 stroke-[1.3]" />,
+        action: async () => {
+          try {
+            await notesService.toggleMinimalEditor();
+            onClose();
+          } catch (error) {
+            console.error("Failed to toggle minimal editor:", error);
+            toast.error("Failed to toggle minimal scratchpad");
+          }
         },
       },
     ];
@@ -255,7 +290,7 @@ export function CommandPalette({
       {
         id: "settings",
         label: "Settings",
-        shortcut: `${mod} ,`,
+        shortcut: getShortcutDisplayText(shortcuts.openSettings),
         icon: <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
           onOpenSettings?.();
@@ -300,7 +335,6 @@ export function CommandPalette({
     onOpenSettings,
     onOpenAiModal,
     setTheme,
-    theme,
     gitAvailable,
     status,
     commit,
@@ -310,6 +344,9 @@ export function CommandPalette({
     settings,
     pinNote,
     unpinNote,
+    shortcuts.createNote,
+    shortcuts.toggleAlwaysOnTop,
+    shortcuts.openSettings,
   ]);
 
   // Debounced search using Tantivy (local state, doesn't affect sidebar)

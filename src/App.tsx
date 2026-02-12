@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { NotesProvider, useNotes } from "./context/NotesContext";
-import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
 import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -16,11 +16,15 @@ import {
   check as checkForUpdate,
   type Update,
 } from "@tauri-apps/plugin-updater";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as aiService from "./services/ai";
+import * as notesService from "./services/notes";
+import { matchesParsedShortcut, parseShortcut } from "./lib/shortcuts";
 
 type ViewState = "notes" | "settings";
 
-function AppContent() {
+function AppContent({ minimalMode }: { minimalMode: boolean }) {
   const {
     notesFolder,
     isLoading,
@@ -33,23 +37,177 @@ function AppContent() {
     reloadCurrentNote,
     currentNote,
   } = useNotes();
+  const { shortcuts } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
+  const minimalToggleInFlightRef = useRef(false);
+  const lastMinimalToggleAtRef = useRef(0);
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
+  }, []);
+
+  const toggleAlwaysOnTop = useCallback(async () => {
+    try {
+      const isAlwaysOnTop = await notesService.toggleAlwaysOnTop();
+      toast.success(
+        isAlwaysOnTop ? "Always on top enabled" : "Always on top disabled",
+      );
+    } catch (error) {
+      console.error("Failed to toggle always on top:", error);
+      toast.error("Failed to toggle always on top");
+    }
   }, []);
 
   const toggleSettings = useCallback(() => {
     setView((prev) => (prev === "settings" ? "notes" : "settings"));
   }, []);
 
+  const toggleMinimalEditor = useCallback(async () => {
+    const now = Date.now();
+    // Ignore rapid duplicate triggers (shortcut key-repeat, StrictMode listener races).
+    if (
+      minimalToggleInFlightRef.current ||
+      now - lastMinimalToggleAtRef.current < 250
+    ) {
+      return;
+    }
+
+    minimalToggleInFlightRef.current = true;
+    lastMinimalToggleAtRef.current = now;
+
+    try {
+      await notesService.toggleMinimalEditor();
+    } catch (error) {
+      console.error("Failed to toggle minimal editor:", error);
+      toast.error("Failed to toggle minimal scratchpad");
+    } finally {
+      minimalToggleInFlightRef.current = false;
+    }
+  }, []);
+
   const closeSettings = useCallback(() => {
     setView("notes");
   }, []);
+
+  // Open settings when requested by the macOS tray menu
+  useEffect(() => {
+    if (minimalMode) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen("tray-open-settings", () => {
+      setView("settings");
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [minimalMode]);
+
+  // Handle OS-level global shortcut events from backend.
+  useEffect(() => {
+    if (minimalMode) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen("global-toggle-minimal-editor", () => {
+      void toggleMinimalEditor();
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [minimalMode, toggleMinimalEditor]);
+
+  // Persist the last selected scratchpad so minimal mode can restore it.
+  useEffect(() => {
+    if (minimalMode || !notesFolder || !selectedNoteId) return;
+    notesService.setLastSelectedScratchpad(selectedNoteId).catch((error) => {
+      console.error("Failed to persist last selected scratchpad:", error);
+    });
+  }, [minimalMode, notesFolder, selectedNoteId]);
+
+  // Minimal mode startup: always load the last selected scratchpad (or create one).
+  useEffect(() => {
+    if (!minimalMode || isLoading || !notesFolder) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    const openScratchpad = async (preferredNoteId?: string | null) => {
+      if (cancelled) return;
+
+      if (preferredNoteId) {
+        try {
+          await notesService.readNote(preferredNoteId);
+          if (!cancelled) {
+            await selectNote(preferredNoteId);
+          }
+          return;
+        } catch {
+          // Fallback to creating/selecting the configured scratchpad.
+        }
+      }
+
+      try {
+        const noteId = await notesService.getOrCreateMinimalScratchpad();
+        if (!cancelled) {
+          await selectNote(noteId);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to initialize minimal scratchpad:", error);
+          toast.error("Failed to open minimal scratchpad");
+        }
+      }
+    };
+
+    const initialNoteId = new URLSearchParams(window.location.search).get(
+      "noteId",
+    );
+    void openScratchpad(initialNoteId);
+
+    listen<{ noteId: string }>("minimal-open-note", (event) => {
+      void openScratchpad(event.payload?.noteId);
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [isLoading, minimalMode, notesFolder, selectNote]);
 
   // Go back to command palette from AI modal
   const handleBackToPalette = useCallback(() => {
@@ -116,16 +274,41 @@ function AppContent() {
 
   // Global keyboard shortcuts
   useEffect(() => {
+    const openSettingsShortcut = parseShortcut(shortcuts.openSettings);
+    const commandPaletteShortcut = parseShortcut(shortcuts.openCommandPalette);
+    const toggleSidebarShortcut = parseShortcut(shortcuts.toggleSidebar);
+    const toggleAlwaysOnTopShortcut = parseShortcut(shortcuts.toggleAlwaysOnTop);
+    const createNoteShortcut = parseShortcut(shortcuts.createNote);
+    const reloadCurrentNoteShortcut = parseShortcut(shortcuts.reloadCurrentNote);
+    const navigateNoteUpShortcut = parseShortcut(shortcuts.navigateNoteUp);
+    const navigateNoteDownShortcut = parseShortcut(shortcuts.navigateNoteDown);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInEditor = target.closest(".ProseMirror");
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 
-      // Cmd+, - Toggle settings (always works, even in settings)
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+      if (minimalMode) {
+        return;
+      }
+
+      // Open settings always works, even while already on settings.
+      if (
+        openSettingsShortcut &&
+        matchesParsedShortcut(e, openSettingsShortcut)
+      ) {
         e.preventDefault();
         toggleSettings();
+        return;
+      }
+
+      if (
+        toggleAlwaysOnTopShortcut &&
+        matchesParsedShortcut(e, toggleAlwaysOnTopShortcut)
+      ) {
+        e.preventDefault();
+        void toggleAlwaysOnTop();
         return;
       }
 
@@ -141,29 +324,34 @@ function AppContent() {
         return;
       }
 
-      // Cmd+P - Open command palette
-      if ((e.metaKey || e.ctrlKey) && e.key === "p") {
+      if (
+        commandPaletteShortcut &&
+        matchesParsedShortcut(e, commandPaletteShortcut)
+      ) {
         e.preventDefault();
         setPaletteOpen(true);
         return;
       }
 
-      // Cmd+\ - Toggle sidebar
-      if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+      if (
+        toggleSidebarShortcut &&
+        matchesParsedShortcut(e, toggleSidebarShortcut)
+      ) {
         e.preventDefault();
         toggleSidebar();
         return;
       }
 
-      // Cmd+N - New note
-      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+      if (createNoteShortcut && matchesParsedShortcut(e, createNoteShortcut)) {
         e.preventDefault();
         createNote();
         return;
       }
 
-      // Cmd+R - Reload current note (pull external changes)
-      if ((e.metaKey || e.ctrlKey) && e.key === "r") {
+      if (
+        reloadCurrentNoteShortcut &&
+        matchesParsedShortcut(e, reloadCurrentNoteShortcut)
+      ) {
         e.preventDefault();
         reloadCurrentNote();
         return;
@@ -171,14 +359,21 @@ function AppContent() {
 
       // Arrow keys for note navigation (when not in editor or input)
       if (!isInEditor && !isInInput && displayItems.length > 0) {
-        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const shouldNavigateDown =
+          navigateNoteDownShortcut &&
+          matchesParsedShortcut(e, navigateNoteDownShortcut);
+        const shouldNavigateUp =
+          navigateNoteUpShortcut &&
+          matchesParsedShortcut(e, navigateNoteUpShortcut);
+
+        if (shouldNavigateDown || shouldNavigateUp) {
           e.preventDefault();
           const currentIndex = displayItems.findIndex(
             (n) => n.id === selectedNoteId,
           );
           let newIndex: number;
 
-          if (e.key === "ArrowDown") {
+          if (shouldNavigateDown) {
             newIndex =
               currentIndex < displayItems.length - 1 ? currentIndex + 1 : 0;
           } else {
@@ -238,7 +433,10 @@ function AppContent() {
     selectNote,
     toggleSettings,
     toggleSidebar,
+    toggleAlwaysOnTop,
     view,
+    shortcuts,
+    minimalMode,
   ]);
 
   const handleClosePalette = useCallback(() => {
@@ -258,6 +456,14 @@ function AppContent() {
 
   if (!notesFolder) {
     return <FolderPicker />;
+  }
+
+  if (minimalMode) {
+    return (
+      <div className="h-screen flex bg-bg overflow-hidden">
+        <Editor sidebarVisible={false} minimalMode />
+      </div>
+    );
   }
 
   return (
@@ -392,6 +598,13 @@ function UpdateToast({
 }
 
 function App() {
+  let isMinimalWindow = false;
+  try {
+    isMinimalWindow = getCurrentWindow().label === "minimal";
+  } catch {
+    // Running without Tauri (e.g. plain Vite dev server).
+  }
+
   // Add platform class for OS-specific styling (e.g., keyboard shortcuts)
   useEffect(() => {
     const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -402,9 +615,10 @@ function App() {
 
   // Check for app updates on startup
   useEffect(() => {
+    if (isMinimalWindow) return;
     const timer = setTimeout(() => showUpdateToast(), 3000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [isMinimalWindow]);
 
   return (
     <ThemeProvider>
@@ -412,7 +626,7 @@ function App() {
       <TooltipProvider>
         <NotesProvider>
           <GitProvider>
-            <AppContent />
+            <AppContent minimalMode={isMinimalWindow} />
           </GitProvider>
         </NotesProvider>
       </TooltipProvider>
