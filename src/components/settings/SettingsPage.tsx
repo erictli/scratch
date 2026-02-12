@@ -4,7 +4,13 @@ import { Button, IconButton } from "../ui";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { AppearanceSettingsSection } from "./EditorSettingsSection";
 import { ShortcutsSettingsSection } from "./ShortcutsSettingsSection";
-import { mod, isMac } from "../../lib/platform";
+import { useTheme } from "../../context/ThemeContext";
+import type { ShortcutAction } from "../../types/note";
+import {
+  getShortcutDisplayText,
+  matchesParsedShortcut,
+  parseShortcut,
+} from "../../lib/shortcuts";
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -16,36 +22,67 @@ const tabs: {
   id: SettingsTab;
   label: string;
   icon: typeof FolderIcon;
-  shortcut: string;
+  shortcutAction: ShortcutAction;
 }[] = [
-  { id: "general", label: "General", icon: FolderIcon, shortcut: "1" },
-  { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "2" },
-  { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, shortcut: "3" },
+  {
+    id: "general",
+    label: "General",
+    icon: FolderIcon,
+    shortcutAction: "settingsGeneralTab",
+  },
+  {
+    id: "editor",
+    label: "Appearance",
+    icon: SwatchIcon,
+    shortcutAction: "settingsAppearanceTab",
+  },
+  {
+    id: "shortcuts",
+    label: "Shortcuts",
+    icon: KeyboardIcon,
+    shortcutAction: "settingsShortcutsTab",
+  },
 ];
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const { shortcuts } = useTheme();
 
   // Keyboard shortcuts
   useEffect(() => {
+    const generalTabShortcut = parseShortcut(shortcuts.settingsGeneralTab);
+    const appearanceTabShortcut = parseShortcut(shortcuts.settingsAppearanceTab);
+    const shortcutsTabShortcut = parseShortcut(shortcuts.settingsShortcutsTab);
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey) {
-        if (e.key === "1") {
-          e.preventDefault();
-          setActiveTab("general");
-        } else if (e.key === "2") {
-          e.preventDefault();
-          setActiveTab("editor");
-        } else if (e.key === "3") {
-          e.preventDefault();
-          setActiveTab("shortcuts");
-        }
+      if (generalTabShortcut && matchesParsedShortcut(e, generalTabShortcut)) {
+        e.preventDefault();
+        setActiveTab("general");
+        return;
+      }
+
+      if (
+        appearanceTabShortcut &&
+        matchesParsedShortcut(e, appearanceTabShortcut)
+      ) {
+        e.preventDefault();
+        setActiveTab("editor");
+        return;
+      }
+
+      if (shortcutsTabShortcut && matchesParsedShortcut(e, shortcutsTabShortcut)) {
+        e.preventDefault();
+        setActiveTab("shortcuts");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [
+    shortcuts.settingsAppearanceTab,
+    shortcuts.settingsGeneralTab,
+    shortcuts.settingsShortcutsTab,
+  ]);
 
   return (
     <div className="h-full flex bg-bg w-full">
@@ -57,7 +94,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         {/* Header with back button and Settings title */}
         <div className="flex items-center justify-between px-3 pb-2 border-b border-border shrink-0">
           <div className="flex items-center gap-1">
-            <IconButton onClick={onBack} title={`Back (${mod}${isMac ? "" : "+"},)`}>
+            <IconButton
+              onClick={onBack}
+              title={`Back (${getShortcutDisplayText(shortcuts.openSettings)})`}
+            >
               <ArrowLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
             <div className="font-medium text-base">Settings</div>
@@ -82,8 +122,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   {tab.label}
                 </div>
                 <div className="text-xs text-text-muted">
-                  <span className="mr-0.5">{mod}</span>
-                  {tab.shortcut}
+                  {getShortcutDisplayText(shortcuts[tab.shortcutAction])}
                 </div>
               </Button>
             );

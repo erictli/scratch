@@ -19,6 +19,25 @@ export interface ThemeSettings {
 
 export type FontFamily = "system-sans" | "serif" | "monospace";
 
+export type ShortcutAction =
+  | "openCommandPalette"
+  | "createNote"
+  | "reloadCurrentNote"
+  | "openSettings"
+  | "toggleSidebar"
+  | "navigateNoteUp"
+  | "navigateNoteDown"
+  | "addOrEditLink"
+  | "bold"
+  | "italic"
+  | "copyAs"
+  | "findInNote"
+  | "settingsGeneralTab"
+  | "settingsAppearanceTab"
+  | "settingsShortcutsTab";
+
+export type ShortcutSettings = Partial<Record<ShortcutAction, string>>;
+
 export interface EditorFontSettings {
   baseFontFamily?: FontFamily;
   baseFontSize?: number; // in px, default 16
@@ -32,4 +51,5 @@ export interface Settings {
   editorFont?: EditorFontSettings;
   gitEnabled?: boolean;
   pinnedNoteIds?: string[];
+  shortcuts?: ShortcutSettings;
 }

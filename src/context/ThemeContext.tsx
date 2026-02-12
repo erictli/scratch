@@ -11,7 +11,15 @@ import type {
   ThemeSettings,
   EditorFontSettings,
   FontFamily,
+  ShortcutAction,
 } from "../types/note";
+import {
+  DEFAULT_SHORTCUTS,
+  buildShortcutOverrides,
+  normalizeShortcut,
+  parseShortcut,
+  resolveShortcutSettings,
+} from "../lib/shortcuts";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -37,6 +45,9 @@ interface ThemeContextType {
   resolvedTheme: "light" | "dark";
   setTheme: (theme: ThemeMode) => void;
   cycleTheme: () => void;
+  shortcuts: Record<ShortcutAction, string>;
+  setShortcut: (action: ShortcutAction, shortcut: string) => boolean;
+  resetShortcuts: () => void;
   editorFontSettings: Required<EditorFontSettings>;
   setEditorFontSetting: <K extends keyof EditorFontSettings>(
     key: K,
@@ -88,6 +99,9 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<ThemeMode>("system");
+  const [shortcuts, setShortcuts] = useState<Record<ShortcutAction, string>>(
+    DEFAULT_SHORTCUTS
+  );
   const [editorFontSettings, setEditorFontSettings] = useState<
     Required<EditorFontSettings>
   >(defaultEditorFontSettings);
@@ -119,6 +133,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           ...fontSettings,
         });
       }
+      setShortcuts(resolveShortcutSettings(settings.shortcuts));
     } catch {
       // If settings can't be loaded, use defaults
     }
@@ -226,6 +241,50 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     [saveFontSettings]
   );
 
+  // Save shortcut settings to backend
+  const saveShortcutSettings = useCallback(
+    async (newShortcuts: Record<ShortcutAction, string>) => {
+      try {
+        const settings = await getSettings();
+        await updateSettings({
+          ...settings,
+          shortcuts: buildShortcutOverrides(newShortcuts),
+        });
+      } catch (error) {
+        console.error("Failed to save shortcut settings:", error);
+      }
+    },
+    []
+  );
+
+  const setShortcut = useCallback(
+    (action: ShortcutAction, shortcut: string) => {
+      const normalized = normalizeShortcut(shortcut);
+      if (!normalized) return false;
+      const parsed = parseShortcut(normalized);
+      if (!parsed) return false;
+
+      const allowNoModifier =
+        action === "navigateNoteUp" || action === "navigateNoteDown";
+      if (!allowNoModifier && !parsed.mod) return false;
+
+      setShortcuts((prev) => {
+        const updated = { ...prev, [action]: normalized };
+        saveShortcutSettings(updated);
+        return updated;
+      });
+
+      return true;
+    },
+    [saveShortcutSettings]
+  );
+
+  const resetShortcuts = useCallback(() => {
+    const defaults = { ...DEFAULT_SHORTCUTS };
+    setShortcuts(defaults);
+    saveShortcutSettings(defaults);
+  }, [saveShortcutSettings]);
+
   // Reset font settings to defaults
   const resetEditorFontSettings = useCallback(() => {
     setEditorFontSettings(defaultEditorFontSettings);
@@ -244,6 +303,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         resolvedTheme,
         setTheme,
         cycleTheme,
+        shortcuts,
+        setShortcut,
+        resetShortcuts,
         editorFontSettings,
         setEditorFontSetting,
         resetEditorFontSettings,

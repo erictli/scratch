@@ -36,9 +36,16 @@ function isAllowedUrlScheme(url: string): boolean {
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
+import { useTheme } from "../../context/ThemeContext";
 import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
 import { cn } from "../../lib/utils";
+import {
+  DEFAULT_SHORTCUTS,
+  getShortcutDisplayText,
+  matchesParsedShortcut,
+  parseShortcut,
+} from "../../lib/shortcuts";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import type { Settings } from "../../types/note";
@@ -170,11 +177,21 @@ interface FormatBarProps {
   editor: TiptapEditor | null;
   onAddLink: () => void;
   onAddImage: () => void;
+  boldShortcutLabel: string;
+  italicShortcutLabel: string;
+  addLinkShortcutLabel: string;
 }
 
 // FormatBar must re-render with parent to reflect editor.isActive() state changes
 // (editor instance is mutable, so memo would cause stale active states)
-function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
+function FormatBar({
+  editor,
+  onAddLink,
+  onAddImage,
+  boldShortcutLabel,
+  italicShortcutLabel,
+  addLinkShortcutLabel,
+}: FormatBarProps) {
   const [tableMenuOpen, setTableMenuOpen] = useState(false);
 
   if (!editor) return null;
@@ -184,14 +201,14 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBold().run()}
         isActive={editor.isActive("bold")}
-        title={`Bold (${mod}${isMac ? "" : "+"}B)`}
+        title={`Bold (${boldShortcutLabel})`}
       >
         <BoldIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleItalic().run()}
         isActive={editor.isActive("italic")}
-        title={`Italic (${mod}${isMac ? "" : "+"}I)`}
+        title={`Italic (${italicShortcutLabel})`}
       >
         <ItalicIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
@@ -291,7 +308,7 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       <ToolbarButton
         onClick={onAddLink}
         isActive={editor.isActive("link")}
-        title={`Add Link (${mod}${isMac ? "" : "+"}K)`}
+        title={`Add Link (${addLinkShortcutLabel})`}
       >
         <LinkIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
@@ -338,6 +355,7 @@ interface EditorProps {
 }
 
 export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
+  const { shortcuts } = useTheme();
   const {
     notes,
     currentNote,
@@ -1086,65 +1104,128 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     }
   }, [editor]);
 
-  // Keyboard shortcut for Cmd+K to add link (only when editor is focused)
+  // Keyboard shortcuts for bold/italic (customizable).
   useEffect(() => {
+    const boldShortcut = parseShortcut(shortcuts.bold);
+    const italicShortcut = parseShortcut(shortcuts.italic);
+    const defaultBoldShortcut = parseShortcut(DEFAULT_SHORTCUTS.bold);
+    const defaultItalicShortcut = parseShortcut(DEFAULT_SHORTCUTS.italic);
+    const boldChanged = shortcuts.bold !== DEFAULT_SHORTCUTS.bold;
+    const italicChanged = shortcuts.italic !== DEFAULT_SHORTCUTS.italic;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        // Only handle if we're in the editor
-        const target = e.target as HTMLElement;
-        const isInEditor = target.closest(".ProseMirror");
-        if (isInEditor && editor) {
-          e.preventDefault();
-          handleAddLink();
-        }
+      const target = e.target as HTMLElement;
+      const isInEditor = target.closest(".ProseMirror");
+      if (!isInEditor || !editor) return;
+
+      const matchesBold =
+        boldShortcut && matchesParsedShortcut(e, boldShortcut);
+      const matchesItalic =
+        italicShortcut && matchesParsedShortcut(e, italicShortcut);
+
+      if (matchesBold) {
+        e.preventDefault();
+        e.stopPropagation();
+        editor.chain().focus().toggleBold().run();
+        return;
+      }
+
+      if (matchesItalic) {
+        e.preventDefault();
+        e.stopPropagation();
+        editor.chain().focus().toggleItalic().run();
+        return;
+      }
+
+      // Block TipTap's built-in defaults when user has remapped these shortcuts.
+      const pressedDefaultBold =
+        defaultBoldShortcut && matchesParsedShortcut(e, defaultBoldShortcut);
+      const pressedDefaultItalic =
+        defaultItalicShortcut &&
+        matchesParsedShortcut(e, defaultItalicShortcut);
+
+      if ((boldChanged && pressedDefaultBold) || (italicChanged && pressedDefaultItalic)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [editor, shortcuts.bold, shortcuts.italic]);
+
+  // Keyboard shortcut for add/edit link (only when editor is focused)
+  useEffect(() => {
+    const addOrEditLinkShortcut = parseShortcut(shortcuts.addOrEditLink);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        !addOrEditLinkShortcut ||
+        !matchesParsedShortcut(e, addOrEditLinkShortcut)
+      ) {
+        return;
+      }
+
+      // Only handle if we're in the editor
+      const target = e.target as HTMLElement;
+      const isInEditor = target.closest(".ProseMirror");
+      if (isInEditor && editor) {
+        e.preventDefault();
+        handleAddLink();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleAddLink, editor]);
+  }, [editor, handleAddLink, shortcuts.addOrEditLink]);
 
-  // Keyboard shortcut for Cmd+Shift+C to open copy menu
+  // Keyboard shortcut for copy-as menu
   useEffect(() => {
+    const copyAsShortcut = parseShortcut(shortcuts.copyAs);
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "c") {
+      if (copyAsShortcut && matchesParsedShortcut(e, copyAsShortcut)) {
         e.preventDefault();
         setCopyMenuOpen(true);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [shortcuts.copyAs]);
 
-  // Cmd+F to open search (works when document/editor area is focused)
+  // Shortcut to open in-note search (works when document/editor area is focused)
   useEffect(() => {
+    const findInNoteShortcut = parseShortcut(shortcuts.findInNote);
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        if (!currentNote || !editor) return;
-
-        const target = e.target as HTMLElement;
-        const tagName = target.tagName.toLowerCase();
-
-        // Don't intercept if user is in an input/textarea (except the editor itself)
-        if (
-          (tagName === "input" || tagName === "textarea") &&
-          !target.closest(".ProseMirror")
-        ) {
-          return;
-        }
-
-        // Don't intercept if in sidebar
-        if (target.closest('[class*="sidebar"]')) {
-          return;
-        }
-
-        // Open search for the editor
-        e.preventDefault();
-        setSearchOpen(true);
+      if (!findInNoteShortcut || !matchesParsedShortcut(e, findInNoteShortcut)) {
+        return;
       }
+
+      if (!currentNote || !editor) return;
+
+      const target = e.target as HTMLElement;
+      const tagName = target.tagName.toLowerCase();
+
+      // Don't intercept if user is in an input/textarea (except the editor itself)
+      if (
+        (tagName === "input" || tagName === "textarea") &&
+        !target.closest(".ProseMirror")
+      ) {
+        return;
+      }
+
+      // Don't intercept if in sidebar
+      if (target.closest('[class*="sidebar"]')) {
+        return;
+      }
+
+      // Open search for the editor
+      e.preventDefault();
+      setSearchOpen(true);
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [editor, currentNote]);
+  }, [editor, currentNote, shortcuts.findInNote]);
 
   // Clear search on note switch
   useEffect(() => {
@@ -1197,6 +1278,15 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     }
   }, [editor]);
 
+  const createNoteShortcutLabel = getShortcutDisplayText(shortcuts.createNote);
+  const toggleSidebarShortcutLabel = getShortcutDisplayText(shortcuts.toggleSidebar);
+  const reloadNoteShortcutLabel = getShortcutDisplayText(shortcuts.reloadCurrentNote);
+  const boldShortcutLabel = getShortcutDisplayText(shortcuts.bold);
+  const italicShortcutLabel = getShortcutDisplayText(shortcuts.italic);
+  const findInNoteShortcutLabel = getShortcutDisplayText(shortcuts.findInNote);
+  const copyAsShortcutLabel = getShortcutDisplayText(shortcuts.copyAs);
+  const addOrEditLinkShortcutLabel = getShortcutDisplayText(shortcuts.addOrEditLink);
+
   if (!currentNote) {
     return (
       <div className="flex-1 flex flex-col bg-bg">
@@ -1225,10 +1315,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               className="mt-4"
             >
               New Note{" "}
-              <span className="text-text-muted ml-1">
-                {mod}
-                {isMac ? "" : "+"}N
-              </span>
+              <span className="text-text-muted ml-1">{createNoteShortcutLabel}</span>
             </Button>
           </div>
         </div>
@@ -1252,8 +1339,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               onClick={onToggleSidebar}
               title={
                 sidebarVisible
-                  ? `Hide sidebar (${mod}${isMac ? "" : "+"}\\)`
-                  : `Show sidebar (${mod}${isMac ? "" : "+"}\\)`
+                  ? `Hide sidebar (${toggleSidebarShortcutLabel})`
+                  : `Show sidebar (${toggleSidebarShortcutLabel})`
               }
               className="shrink-0"
             >
@@ -1267,7 +1354,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         <div className="titlebar-no-drag flex items-center gap-px shrink-0">
           {hasExternalChanges ? (
             <Tooltip
-              content={`External changes detected (${mod}${isMac ? "" : "+"}R to refresh)`}
+              content={`External changes detected (${reloadNoteShortcutLabel} to refresh)`}
             >
               <button
                 onClick={reloadCurrentNote}
@@ -1326,16 +1413,14 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             </Tooltip>
           )}
           {currentNote && (
-            <Tooltip content={`Find in note (${mod}${isMac ? "" : "+"}F)`}>
+            <Tooltip content={`Find in note (${findInNoteShortcutLabel})`}>
               <IconButton onClick={() => setSearchOpen(true)}>
                 <SearchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>
           )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
-            <Tooltip
-              content={`Copy as... (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}C)`}
-            >
+            <Tooltip content={`Copy as... (${copyAsShortcutLabel})`}>
               <DropdownMenu.Trigger asChild>
                 <IconButton>
                   <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />
@@ -1387,6 +1472,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         editor={editor}
         onAddLink={handleAddLink}
         onAddImage={handleAddImage}
+        boldShortcutLabel={boldShortcutLabel}
+        italicShortcutLabel={italicShortcutLabel}
+        addLinkShortcutLabel={addOrEditLinkShortcutLabel}
       />
 
       {/* TipTap Editor */}

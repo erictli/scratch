@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { NotesProvider, useNotes } from "./context/NotesContext";
-import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
 import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -16,7 +16,9 @@ import {
   check as checkForUpdate,
   type Update,
 } from "@tauri-apps/plugin-updater";
+import { listen } from "@tauri-apps/api/event";
 import * as aiService from "./services/ai";
+import { matchesParsedShortcut, parseShortcut } from "./lib/shortcuts";
 
 type ViewState = "notes" | "settings";
 
@@ -33,6 +35,7 @@ function AppContent() {
     reloadCurrentNote,
     currentNote,
   } = useNotes();
+  const { shortcuts } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -49,6 +52,23 @@ function AppContent() {
 
   const closeSettings = useCallback(() => {
     setView("notes");
+  }, []);
+
+  // Open settings when requested by the macOS tray menu
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    const setup = async () => {
+      unlisten = await listen("tray-open-settings", () => {
+        setView("settings");
+      });
+    };
+
+    setup();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   // Go back to command palette from AI modal
@@ -116,14 +136,25 @@ function AppContent() {
 
   // Global keyboard shortcuts
   useEffect(() => {
+    const openSettingsShortcut = parseShortcut(shortcuts.openSettings);
+    const commandPaletteShortcut = parseShortcut(shortcuts.openCommandPalette);
+    const toggleSidebarShortcut = parseShortcut(shortcuts.toggleSidebar);
+    const createNoteShortcut = parseShortcut(shortcuts.createNote);
+    const reloadCurrentNoteShortcut = parseShortcut(shortcuts.reloadCurrentNote);
+    const navigateNoteUpShortcut = parseShortcut(shortcuts.navigateNoteUp);
+    const navigateNoteDownShortcut = parseShortcut(shortcuts.navigateNoteDown);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInEditor = target.closest(".ProseMirror");
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 
-      // Cmd+, - Toggle settings (always works, even in settings)
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+      // Open settings always works, even while already on settings.
+      if (
+        openSettingsShortcut &&
+        matchesParsedShortcut(e, openSettingsShortcut)
+      ) {
         e.preventDefault();
         toggleSettings();
         return;
@@ -141,29 +172,34 @@ function AppContent() {
         return;
       }
 
-      // Cmd+P - Open command palette
-      if ((e.metaKey || e.ctrlKey) && e.key === "p") {
+      if (
+        commandPaletteShortcut &&
+        matchesParsedShortcut(e, commandPaletteShortcut)
+      ) {
         e.preventDefault();
         setPaletteOpen(true);
         return;
       }
 
-      // Cmd+\ - Toggle sidebar
-      if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+      if (
+        toggleSidebarShortcut &&
+        matchesParsedShortcut(e, toggleSidebarShortcut)
+      ) {
         e.preventDefault();
         toggleSidebar();
         return;
       }
 
-      // Cmd+N - New note
-      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+      if (createNoteShortcut && matchesParsedShortcut(e, createNoteShortcut)) {
         e.preventDefault();
         createNote();
         return;
       }
 
-      // Cmd+R - Reload current note (pull external changes)
-      if ((e.metaKey || e.ctrlKey) && e.key === "r") {
+      if (
+        reloadCurrentNoteShortcut &&
+        matchesParsedShortcut(e, reloadCurrentNoteShortcut)
+      ) {
         e.preventDefault();
         reloadCurrentNote();
         return;
@@ -171,14 +207,21 @@ function AppContent() {
 
       // Arrow keys for note navigation (when not in editor or input)
       if (!isInEditor && !isInInput && displayItems.length > 0) {
-        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const shouldNavigateDown =
+          navigateNoteDownShortcut &&
+          matchesParsedShortcut(e, navigateNoteDownShortcut);
+        const shouldNavigateUp =
+          navigateNoteUpShortcut &&
+          matchesParsedShortcut(e, navigateNoteUpShortcut);
+
+        if (shouldNavigateDown || shouldNavigateUp) {
           e.preventDefault();
           const currentIndex = displayItems.findIndex(
             (n) => n.id === selectedNoteId,
           );
           let newIndex: number;
 
-          if (e.key === "ArrowDown") {
+          if (shouldNavigateDown) {
             newIndex =
               currentIndex < displayItems.length - 1 ? currentIndex + 1 : 0;
           } else {
@@ -239,6 +282,7 @@ function AppContent() {
     toggleSettings,
     toggleSidebar,
     view,
+    shortcuts,
   ]);
 
   const handleClosePalette = useCallback(() => {

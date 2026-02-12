@@ -38,7 +38,7 @@ import {
   PinIcon,
   ClaudeIcon,
 } from "../icons";
-import { mod } from "../../lib/platform";
+import { getShortcutDisplayText } from "../../lib/shortcuts";
 
 interface Command {
   id: string;
@@ -71,7 +71,7 @@ export function CommandPalette({
     pinNote,
     unpinNote,
   } = useNotes();
-  const { theme, setTheme } = useTheme();
+  const { setTheme, shortcuts } = useTheme();
   const { status, gitAvailable, commit, push } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -97,7 +97,7 @@ export function CommandPalette({
       {
         id: "new-note",
         label: "New Note",
-        shortcut: `${mod} N`,
+        shortcut: getShortcutDisplayText(shortcuts.createNote),
         icon: <AddNoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
           createNote();
@@ -255,7 +255,7 @@ export function CommandPalette({
       {
         id: "settings",
         label: "Settings",
-        shortcut: `${mod} ,`,
+        shortcut: getShortcutDisplayText(shortcuts.openSettings),
         icon: <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
           onOpenSettings?.();
@@ -300,7 +300,6 @@ export function CommandPalette({
     onOpenSettings,
     onOpenAiModal,
     setTheme,
-    theme,
     gitAvailable,
     status,
     commit,
@@ -310,6 +309,8 @@ export function CommandPalette({
     settings,
     pinNote,
     unpinNote,
+    shortcuts.createNote,
+    shortcuts.openSettings,
   ]);
 
   // Debounced search using Tantivy (local state, doesn't affect sidebar)
