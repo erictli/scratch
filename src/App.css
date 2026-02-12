@@ -334,6 +334,21 @@ html.dark {
   content: "";
 }
 
+/* Frontmatter block (YAML metadata) */
+.prose
+  :where(pre.frontmatter):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  ) {
+  background-color: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.8em;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
 /* Code blocks (pre > code) */
 .prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
   background-color: var(--color-bg-muted);

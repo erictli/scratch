@@ -36,6 +36,7 @@ function isAllowedUrlScheme(url: string): boolean {
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
+import { Frontmatter } from "./Frontmatter";
 import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
 import { cn } from "../../lib/utils";
@@ -593,6 +594,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
           },
         },
       }),
+      Frontmatter,
       Markdown.configure({}),
       SearchHighlight.configure({
         matches: [],
