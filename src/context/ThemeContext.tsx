@@ -264,9 +264,14 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       const parsed = parseShortcut(normalized);
       if (!parsed) return false;
 
-      const allowNoModifier =
-        action === "navigateNoteUp" || action === "navigateNoteDown";
-      if (!allowNoModifier && !parsed.mod) return false;
+      const hasAnyModifier = parsed.mod || parsed.alt || parsed.shift;
+      const allowWithoutCmdCtrl =
+        action === "navigateNoteUp" ||
+        action === "navigateNoteDown" ||
+        action === "openMinimalEditor";
+
+      if (!allowWithoutCmdCtrl && !parsed.mod) return false;
+      if (action === "openMinimalEditor" && !hasAnyModifier) return false;
 
       setShortcuts((prev) => {
         const updated = { ...prev, [action]: normalized };

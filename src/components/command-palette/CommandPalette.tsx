@@ -124,6 +124,21 @@ export function CommandPalette({
           }
         },
       },
+      {
+        id: "open-minimal-editor",
+        label: "Toggle Minimal Scratchpad",
+        shortcut: getShortcutDisplayText(shortcuts.openMinimalEditor),
+        icon: <PinIcon className="w-5 h-5 stroke-[1.3]" />,
+        action: async () => {
+          try {
+            await notesService.toggleMinimalEditor();
+            onClose();
+          } catch (error) {
+            console.error("Failed to toggle minimal editor:", error);
+            toast.error("Failed to toggle minimal scratchpad");
+          }
+        },
+      },
     ];
 
     // Add note-specific commands if a note is selected

@@ -16,6 +16,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+#[cfg(desktop)]
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tokio::fs;
 
 mod git;
@@ -100,6 +102,8 @@ pub struct Settings {
     #[serde(rename = "pinnedNoteIds")]
     pub pinned_note_ids: Option<Vec<String>>,
     pub shortcuts: Option<HashMap<String, String>>,
+    #[serde(rename = "lastSelectedScratchpadId")]
+    pub last_selected_scratchpad_id: Option<String>,
 }
 
 // Search result
@@ -301,6 +305,7 @@ pub struct AppState {
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
     pub debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    pub minimal_toggle_in_progress: Mutex<bool>,
 }
 
 impl Default for AppState {
@@ -312,6 +317,7 @@ impl Default for AppState {
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
+            minimal_toggle_in_progress: Mutex::new(false),
         }
     }
 }
@@ -575,6 +581,91 @@ fn cleanup_debounce_map(map: &Mutex<HashMap<PathBuf, Instant>>) {
     map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
 }
 
+const DEFAULT_MINIMAL_SHORTCUT: &str = "Mod+Shift+M";
+
+fn get_minimal_shortcut_setting(settings: &Settings) -> String {
+    settings
+        .shortcuts
+        .as_ref()
+        .and_then(|shortcuts| shortcuts.get("openMinimalEditor").cloned())
+        .unwrap_or_else(|| DEFAULT_MINIMAL_SHORTCUT.to_string())
+}
+
+#[cfg(desktop)]
+fn convert_to_global_shortcut(shortcut: &str) -> Option<String> {
+    let tokens: Vec<&str> = shortcut
+        .split('+')
+        .map(|token| token.trim())
+        .filter(|token| !token.is_empty())
+        .collect();
+
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let mut converted: Vec<String> = Vec::with_capacity(tokens.len());
+
+    for token in tokens {
+        let lower = token.to_lowercase();
+        let mapped = match lower.as_str() {
+            "mod" | "cmd" | "command" => {
+                if cfg!(target_os = "macos") {
+                    "command".to_string()
+                } else {
+                    "ctrl".to_string()
+                }
+            }
+            "ctrl" | "control" => "ctrl".to_string(),
+            "alt" | "option" => "alt".to_string(),
+            "shift" => "shift".to_string(),
+            "space" | "spacebar" => "space".to_string(),
+            "esc" | "escape" => "escape".to_string(),
+            "," | "comma" => "comma".to_string(),
+            "." | "period" | "dot" => "period".to_string(),
+            "/" | "slash" => "slash".to_string(),
+            "\\" | "backslash" => "backslash".to_string(),
+            _ if lower.len() == 1 => lower,
+            _ if lower.starts_with("arrow") => lower.replace("arrow", ""),
+            _ => lower,
+        };
+        converted.push(mapped);
+    }
+
+    Some(converted.join("+"))
+}
+
+#[cfg(desktop)]
+fn register_global_minimal_shortcut(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    let global_shortcut = app.global_shortcut();
+    global_shortcut
+        .unregister_all()
+        .map_err(|e| e.to_string())?;
+
+    let configured = get_minimal_shortcut_setting(settings);
+    let configured_shortcut = convert_to_global_shortcut(&configured)
+        .ok_or_else(|| "Invalid minimal shortcut format".to_string())?;
+
+    if global_shortcut
+        .register(configured_shortcut.as_str())
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    let fallback = convert_to_global_shortcut(DEFAULT_MINIMAL_SHORTCUT)
+        .ok_or_else(|| "Invalid fallback shortcut format".to_string())?;
+    global_shortcut
+        .register(fallback.as_str())
+        .map_err(|e| format!("Failed to register global shortcut: {}", e))?;
+
+    Ok(())
+}
+
+#[cfg(not(desktop))]
+fn register_global_minimal_shortcut(_app: &AppHandle, _settings: &Settings) -> Result<(), String> {
+    Ok(())
+}
+
 // TAURI COMMANDS
 
 #[tauri::command]
@@ -616,7 +707,7 @@ fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Res
     // Update settings in memory
     {
         let mut current_settings = state.settings.write().expect("settings write lock");
-        *current_settings = settings;
+        *current_settings = settings.clone();
     }
 
     // Save app config to disk
@@ -632,6 +723,10 @@ fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Res
             let mut index = state.search_index.lock().expect("search index mutex");
             *index = Some(search_index);
         }
+    }
+
+    if let Err(err) = register_global_minimal_shortcut(&app, &settings) {
+        eprintln!("Failed to register global minimal shortcut: {}", err);
     }
 
     Ok(())
@@ -850,6 +945,19 @@ async fn save_note(
         cache.remove(old_id_str);
     }
 
+    let mut settings_changed = false;
+    if let Some((ref old_id_str, _)) = old_id {
+        let mut settings = state.settings.write().expect("settings write lock");
+        if settings.last_selected_scratchpad_id.as_deref() == Some(old_id_str) {
+            settings.last_selected_scratchpad_id = Some(final_id.clone());
+            settings_changed = true;
+        }
+    }
+    if settings_changed {
+        let settings = state.settings.read().expect("settings read lock");
+        save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+    }
+
     Ok(Note {
         id: final_id,
         title,
@@ -890,11 +998,23 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
         cache.remove(&id);
     }
 
+    let mut settings_changed = false;
+    {
+        let mut settings = state.settings.write().expect("settings write lock");
+        if settings.last_selected_scratchpad_id.as_deref() == Some(&id) {
+            settings.last_selected_scratchpad_id = None;
+            settings_changed = true;
+        }
+    }
+    if settings_changed {
+        let settings = state.settings.read().expect("settings read lock");
+        save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
-#[tauri::command]
-async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
+async fn create_note_internal(state: &State<'_, AppState>) -> Result<Note, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config
@@ -944,12 +1064,82 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
 }
 
 #[tauri::command]
+async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
+    create_note_internal(&state).await
+}
+
+async fn get_or_create_minimal_scratchpad_id(
+    state: &State<'_, AppState>,
+) -> Result<String, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    let folder_path = PathBuf::from(&folder);
+    let existing_id = {
+        let settings = state.settings.read().expect("settings read lock");
+        settings.last_selected_scratchpad_id.clone()
+    };
+
+    if let Some(id) = existing_id {
+        let note_path = folder_path.join(format!("{}.md", id));
+        if note_path.exists() {
+            return Ok(id);
+        }
+    }
+
+    let note = create_note_internal(state).await?;
+    {
+        let mut settings = state.settings.write().expect("settings write lock");
+        settings.last_selected_scratchpad_id = Some(note.id.clone());
+    }
+    let settings = state.settings.read().expect("settings read lock");
+    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+
+    Ok(note.id)
+}
+
+#[tauri::command]
+async fn get_or_create_minimal_scratchpad(state: State<'_, AppState>) -> Result<String, String> {
+    get_or_create_minimal_scratchpad_id(&state).await
+}
+
+#[tauri::command]
+fn set_last_selected_scratchpad(id: Option<String>, state: State<AppState>) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    {
+        let mut settings = state.settings.write().expect("settings write lock");
+        settings.last_selected_scratchpad_id = id;
+    }
+
+    let settings = state.settings.read().expect("settings read lock");
+    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 fn get_settings(state: State<AppState>) -> Settings {
     state.settings.read().expect("settings read lock").clone()
 }
 
 #[tauri::command]
-fn update_settings(new_settings: Settings, state: State<AppState>) -> Result<(), String> {
+fn update_settings(
+    app: AppHandle,
+    new_settings: Settings,
+    state: State<AppState>,
+) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config
@@ -965,6 +1155,9 @@ fn update_settings(new_settings: Settings, state: State<AppState>) -> Result<(),
 
     let settings = state.settings.read().expect("settings read lock");
     save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+    if let Err(err) = register_global_minimal_shortcut(&app, &settings) {
+        eprintln!("Failed to register global minimal shortcut: {}", err);
+    }
 
     Ok(())
 }
@@ -1374,6 +1567,99 @@ fn toggle_always_on_top(app: AppHandle) -> Result<bool, String> {
     }
 
     Ok(next_state)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MinimalEditorOpenEvent {
+    note_id: String,
+}
+
+#[tauri::command]
+async fn toggle_minimal_editor(app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
+    {
+        let mut in_progress = state
+            .minimal_toggle_in_progress
+            .lock()
+            .expect("minimal toggle mutex");
+        if *in_progress {
+            return Ok(app.get_webview_window("minimal").is_some());
+        }
+        *in_progress = true;
+    }
+
+    let result = async {
+        if let Some(existing_window) = app.get_webview_window("minimal") {
+            let is_visible = existing_window.is_visible().unwrap_or(false);
+            let is_minimized = existing_window.is_minimized().unwrap_or(false);
+
+            // If already shown, toggle it off.
+            if is_visible && !is_minimized {
+                existing_window.hide().map_err(|e| e.to_string())?;
+                return Ok(false);
+            }
+        }
+
+        let note_id = get_or_create_minimal_scratchpad_id(&state).await?;
+
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("mode", "minimal")
+            .append_pair("noteId", &note_id)
+            .finish();
+        let url = format!("index.html?{}", query);
+
+        let window = if let Some(existing_window) = app.get_webview_window("minimal") {
+            existing_window
+        } else {
+            let mut builder =
+                tauri::WebviewWindowBuilder::new(&app, "minimal", tauri::WebviewUrl::App(url.into()))
+                .title("Scratchpad")
+                .inner_size(520.0, 420.0)
+                .min_inner_size(360.0, 240.0)
+                .decorations(true)
+                .always_on_top(true)
+                .visible_on_all_workspaces(true)
+                .skip_taskbar(true);
+
+            #[cfg(target_os = "macos")]
+            {
+                builder = builder
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true)
+                    .traffic_light_position(tauri::Position::Logical(
+                        tauri::LogicalPosition::new(16.0, 22.0),
+                    ));
+            }
+
+            builder.build().map_err(|e| e.to_string())?
+        };
+
+        if let Ok(true) = window.is_minimized() {
+            let _ = window.unminimize();
+        }
+        let _ = window.set_always_on_top(true);
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.emit(
+            "minimal-open-note",
+            MinimalEditorOpenEvent {
+                note_id: note_id.clone(),
+            },
+        );
+
+        Ok(true)
+    }
+    .await;
+
+    {
+        let mut in_progress = state
+            .minimal_toggle_in_progress
+            .lock()
+            .expect("minimal toggle mutex");
+        *in_progress = false;
+    }
+
+    result
 }
 
 // UI helper commands - wrap Tauri plugins for consistent invoke-based API
@@ -1875,6 +2161,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        let _ = app.emit("global-toggle-minimal-editor", ());
+                    }
+                })
+                .build(),
+        )
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]
             if window.label() == "main"
@@ -1963,8 +2258,15 @@ pub fn run() {
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
+                minimal_toggle_in_progress: Mutex::new(false),
             };
             app.manage(state);
+            if let Some(state) = app.try_state::<AppState>() {
+                let settings = state.settings.read().expect("settings read lock").clone();
+                if let Err(err) = register_global_minimal_shortcut(app.handle(), &settings) {
+                    eprintln!("Failed to register global minimal shortcut: {}", err);
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1975,12 +2277,15 @@ pub fn run() {
             save_note,
             delete_note,
             create_note,
+            get_or_create_minimal_scratchpad,
+            set_last_selected_scratchpad,
             get_settings,
             update_settings,
             search_notes,
             start_file_watcher,
             rebuild_search_index,
             toggle_always_on_top,
+            toggle_minimal_editor,
             copy_to_clipboard,
             copy_image_to_assets,
             save_clipboard_image,

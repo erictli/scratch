@@ -352,9 +352,14 @@ function FormatBar({
 interface EditorProps {
   onToggleSidebar?: () => void;
   sidebarVisible?: boolean;
+  minimalMode?: boolean;
 }
 
-export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
+export function Editor({
+  onToggleSidebar,
+  sidebarVisible,
+  minimalMode = false,
+}: EditorProps) {
   const { shortcuts } = useTheme();
   const {
     notes,
@@ -400,7 +405,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         let markdown = manager.serialize(editorInstance.getJSON());
         // Clean up nbsp entities in table cells (TipTap adds these to empty cells)
         // Match table rows and remove one or more &nbsp; or &#160; from cells
-        markdown = markdown.replace(/(\|)\s*(?:&nbsp;|&#160;)+\s*(?=\|)/g, "$1 ");
+        markdown = markdown.replace(
+          /(\|)\s*(?:&nbsp;|&#160;)+\s*(?=\|)/g,
+          "$1 ",
+        );
         return markdown;
       }
       // Fallback to plain text
@@ -619,8 +627,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     ],
     editorProps: {
       attributes: {
-        class:
-          "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
+        class: minimalMode
+          ? "prose prose-lg dark:prose-invert max-w-none mx-auto focus:outline-none min-h-full px-4 pt-4 pb-10"
+          : "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
       },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
@@ -1144,7 +1153,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         defaultItalicShortcut &&
         matchesParsedShortcut(e, defaultItalicShortcut);
 
-      if ((boldChanged && pressedDefaultBold) || (italicChanged && pressedDefaultItalic)) {
+      if (
+        (boldChanged && pressedDefaultBold) ||
+        (italicChanged && pressedDefaultItalic)
+      ) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -1197,7 +1209,10 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     const findInNoteShortcut = parseShortcut(shortcuts.findInNote);
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!findInNoteShortcut || !matchesParsedShortcut(e, findInNoteShortcut)) {
+      if (
+        !findInNoteShortcut ||
+        !matchesParsedShortcut(e, findInNoteShortcut)
+      ) {
         return;
       }
 
@@ -1279,15 +1294,32 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
   }, [editor]);
 
   const createNoteShortcutLabel = getShortcutDisplayText(shortcuts.createNote);
-  const toggleSidebarShortcutLabel = getShortcutDisplayText(shortcuts.toggleSidebar);
-  const reloadNoteShortcutLabel = getShortcutDisplayText(shortcuts.reloadCurrentNote);
+  const toggleSidebarShortcutLabel = getShortcutDisplayText(
+    shortcuts.toggleSidebar,
+  );
+  const reloadNoteShortcutLabel = getShortcutDisplayText(
+    shortcuts.reloadCurrentNote,
+  );
   const boldShortcutLabel = getShortcutDisplayText(shortcuts.bold);
   const italicShortcutLabel = getShortcutDisplayText(shortcuts.italic);
   const findInNoteShortcutLabel = getShortcutDisplayText(shortcuts.findInNote);
   const copyAsShortcutLabel = getShortcutDisplayText(shortcuts.copyAs);
-  const addOrEditLinkShortcutLabel = getShortcutDisplayText(shortcuts.addOrEditLink);
+  const addOrEditLinkShortcutLabel = getShortcutDisplayText(
+    shortcuts.addOrEditLink,
+  );
 
   if (!currentNote) {
+    if (minimalMode) {
+      return (
+        <div className="flex-1 flex flex-col bg-bg">
+          <div className="h-9 shrink-0" data-tauri-drag-region></div>
+          <div className="flex-1 flex items-center justify-center text-sm text-text-muted">
+            Opening scratchpad...
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex-1 flex flex-col bg-bg">
         {/* Drag region */}
@@ -1315,7 +1347,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               className="mt-4"
             >
               New Note{" "}
-              <span className="text-text-muted ml-1">{createNoteShortcutLabel}</span>
+              <span className="text-text-muted ml-1">
+                {createNoteShortcutLabel}
+              </span>
             </Button>
           </div>
         </div>
@@ -1329,7 +1363,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       <div
         className={cn(
           "h-11 shrink-0 flex items-center justify-between px-3",
-          !sidebarVisible && "pl-22",
+          minimalMode && "pl-20",
+          !minimalMode && !sidebarVisible && "pl-22",
         )}
         data-tauri-drag-region
       >
@@ -1347,9 +1382,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               <PanelLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
           )}
-          <span className="text-xs text-text-muted mb-px truncate">
-            {formatDateTime(currentNote.modified)}
-          </span>
+          {!minimalMode && (
+            <span className="text-xs text-text-muted mb-px truncate">
+              {formatDateTime(currentNote.modified)}
+            </span>
+          )}
         </div>
         <div className="titlebar-no-drag flex items-center gap-px shrink-0">
           {hasExternalChanges ? (
@@ -1377,7 +1414,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               </div>
             </Tooltip>
           )}
-          {currentNote && (
+          {!minimalMode && currentNote && (
             <Tooltip content={isPinned ? "Unpin note" : "Pin note"}>
               <IconButton
                 onClick={async () => {
@@ -1412,77 +1449,84 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               </IconButton>
             </Tooltip>
           )}
-          {currentNote && (
+          {!minimalMode && currentNote && (
             <Tooltip content={`Find in note (${findInNoteShortcutLabel})`}>
               <IconButton onClick={() => setSearchOpen(true)}>
                 <SearchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>
           )}
-          <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
-            <Tooltip content={`Copy as... (${copyAsShortcutLabel})`}>
-              <DropdownMenu.Trigger asChild>
-                <IconButton>
-                  <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />
-                </IconButton>
-              </DropdownMenu.Trigger>
-            </Tooltip>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                className="min-w-35 bg-bg border border-border rounded-md shadow-lg py-1 z-50"
-                sideOffset={5}
-                align="end"
-                onCloseAutoFocus={(e) => {
-                  // Prevent focus returning to trigger button
-                  e.preventDefault();
-                }}
-                onKeyDown={(e) => {
-                  // Stop arrow keys from bubbling to note list navigation
-                  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                    e.stopPropagation();
-                  }
-                }}
-              >
-                <DropdownMenu.Item
-                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
-                  onSelect={handleCopyMarkdown}
+          {!minimalMode && (
+            <DropdownMenu.Root
+              open={copyMenuOpen}
+              onOpenChange={setCopyMenuOpen}
+            >
+              <Tooltip content={`Copy as... (${copyAsShortcutLabel})`}>
+                <DropdownMenu.Trigger asChild>
+                  <IconButton>
+                    <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                  </IconButton>
+                </DropdownMenu.Trigger>
+              </Tooltip>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className="min-w-35 bg-bg border border-border rounded-md shadow-lg py-1 z-50"
+                  sideOffset={5}
+                  align="end"
+                  onCloseAutoFocus={(e) => {
+                    // Prevent focus returning to trigger button
+                    e.preventDefault();
+                  }}
+                  onKeyDown={(e) => {
+                    // Stop arrow keys from bubbling to note list navigation
+                    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                      e.stopPropagation();
+                    }
+                  }}
                 >
-                  Markdown
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
-                  onSelect={handleCopyPlainText}
-                >
-                  Plain Text
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
-                  onSelect={handleCopyHtml}
-                >
-                  HTML
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+                  <DropdownMenu.Item
+                    className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                    onSelect={handleCopyMarkdown}
+                  >
+                    Markdown
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                    onSelect={handleCopyPlainText}
+                  >
+                    Plain Text
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                    onSelect={handleCopyHtml}
+                  >
+                    HTML
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          )}
         </div>
       </div>
 
       {/* Format Bar */}
-      <FormatBar
-        editor={editor}
-        onAddLink={handleAddLink}
-        onAddImage={handleAddImage}
-        boldShortcutLabel={boldShortcutLabel}
-        italicShortcutLabel={italicShortcutLabel}
-        addLinkShortcutLabel={addOrEditLinkShortcutLabel}
-      />
+      {!minimalMode && (
+        <FormatBar
+          editor={editor}
+          onAddLink={handleAddLink}
+          onAddImage={handleAddImage}
+          boldShortcutLabel={boldShortcutLabel}
+          italicShortcutLabel={italicShortcutLabel}
+          addLinkShortcutLabel={addOrEditLinkShortcutLabel}
+        />
+      )}
 
       {/* TipTap Editor */}
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden relative"
       >
-        {searchOpen && (
+        {!minimalMode && searchOpen && (
           <div className="sticky top-2 z-10 animate-in fade-in slide-in-from-top-4 duration-200 pointer-events-none pr-2 flex justify-end">
             <div className="pointer-events-auto">
               <SearchToolbar
@@ -1548,7 +1592,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               // Guard: if we didn't find a table cell, bail out
               if (cellDepth <= 0) return;
 
-              const resolvedNode = state.doc.resolve($anchor.pos).node(cellDepth);
+              const resolvedNode = state.doc
+                .resolve($anchor.pos)
+                .node(cellDepth);
               if (
                 resolvedNode.type.name !== "tableCell" &&
                 resolvedNode.type.name !== "tableHeader"
@@ -1591,7 +1637,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                 menuItems.push(
                   await MenuItem.new({
                     text: "Add Column Before",
-                    action: () => editor.chain().focus().addColumnBefore().run(),
+                    action: () =>
+                      editor.chain().focus().addColumnBefore().run(),
                   }),
                 );
               }
@@ -1607,7 +1654,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                   action: () => editor.chain().focus().deleteColumn().run(),
                 }),
               );
-              menuItems.push(await PredefinedMenuItem.new({ item: "Separator" }));
+              menuItems.push(
+                await PredefinedMenuItem.new({ item: "Separator" }),
+              );
 
               // Only show "Add Row Above" if not in first row
               if (!isFirstRow) {
@@ -1630,7 +1679,9 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
                   action: () => editor.chain().focus().deleteRow().run(),
                 }),
               );
-              menuItems.push(await PredefinedMenuItem.new({ item: "Separator" }));
+              menuItems.push(
+                await PredefinedMenuItem.new({ item: "Separator" }),
+              );
               menuItems.push(
                 await MenuItem.new({
                   text: "Toggle Header Row",
@@ -1640,10 +1691,13 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               menuItems.push(
                 await MenuItem.new({
                   text: "Toggle Header Column",
-                  action: () => editor.chain().focus().toggleHeaderColumn().run(),
+                  action: () =>
+                    editor.chain().focus().toggleHeaderColumn().run(),
                 }),
               );
-              menuItems.push(await PredefinedMenuItem.new({ item: "Separator" }));
+              menuItems.push(
+                await PredefinedMenuItem.new({ item: "Separator" }),
+              );
               menuItems.push(
                 await MenuItem.new({
                   text: "Delete Table",

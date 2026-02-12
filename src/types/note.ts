@@ -24,6 +24,7 @@ export type ShortcutAction =
   | "createNote"
   | "reloadCurrentNote"
   | "toggleAlwaysOnTop"
+  | "openMinimalEditor"
   | "openSettings"
   | "toggleSidebar"
   | "navigateNoteUp"
@@ -53,4 +54,5 @@ export interface Settings {
   gitEnabled?: boolean;
   pinnedNoteIds?: string[];
   shortcuts?: ShortcutSettings;
+  lastSelectedScratchpadId?: string;
 }

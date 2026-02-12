@@ -13,6 +13,7 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   createNote: "Mod+N",
   reloadCurrentNote: "Mod+R",
   toggleAlwaysOnTop: "Mod+Shift+T",
+  openMinimalEditor: "Mod+Shift+M",
   openSettings: "Mod+,",
   toggleSidebar: "Mod+\\",
   navigateNoteUp: "ArrowUp",
@@ -83,7 +84,8 @@ function normalizeKeyToken(token: string): string | null {
 function normalizeEventKey(key: string): string | null {
   if (!key) return null;
 
-  if (key === " ") return "Space";
+  // macOS Option+Space can emit a non-breaking space instead of plain space.
+  if (key === " " || (key.length === 1 && key.trim() === "")) return "Space";
   if (key === "Esc") return "Escape";
 
   if (key.length === 1) {

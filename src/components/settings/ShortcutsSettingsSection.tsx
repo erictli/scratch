@@ -53,6 +53,12 @@ const shortcutRows: ShortcutRow[] = [
   },
   {
     type: "editable",
+    action: "openMinimalEditor",
+    description: "Toggle minimal scratchpad",
+    category: "Navigation",
+  },
+  {
+    type: "editable",
     action: "navigateNoteUp",
     description: "Navigate note list up",
     category: "Navigation",
@@ -200,7 +206,7 @@ export function ShortcutsSettingsSection() {
         setCaptureError(null);
       } else {
         setCaptureError(
-          "This shortcut must include Cmd/Ctrl. Note navigation can be plain keys.",
+          "Most shortcuts must include Cmd/Ctrl. Note navigation and minimal toggle can use other modifiers.",
         );
       }
     };
@@ -224,8 +230,9 @@ export function ShortcutsSettingsSection() {
         </div>
         <p className="text-sm text-text-muted">
           Click a shortcut and press your preferred key combination. Press
-          Escape to cancel. Most shortcuts require Cmd/Ctrl, except note
-          navigation.
+          Escape to cancel. Most shortcuts require Cmd/Ctrl. Note navigation
+          and minimal scratchpad toggle can use other modifier combos like
+          Option+Space.
         </p>
         {captureError && <p className="text-sm text-orange-500">{captureError}</p>}
       </section>
