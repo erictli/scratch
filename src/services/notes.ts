@@ -61,3 +61,7 @@ export async function searchNotes(query: string): Promise<SearchResult[]> {
 export async function startFileWatcher(): Promise<void> {
   return invoke("start_file_watcher");
 }
+
+export async function toggleAlwaysOnTop(): Promise<boolean> {
+  return invoke("toggle_always_on_top");
+}

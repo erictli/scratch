@@ -18,6 +18,7 @@ import {
 } from "@tauri-apps/plugin-updater";
 import { listen } from "@tauri-apps/api/event";
 import * as aiService from "./services/ai";
+import * as notesService from "./services/notes";
 import { matchesParsedShortcut, parseShortcut } from "./lib/shortcuts";
 
 type ViewState = "notes" | "settings";
@@ -44,6 +45,18 @@ function AppContent() {
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
+  }, []);
+
+  const toggleAlwaysOnTop = useCallback(async () => {
+    try {
+      const isAlwaysOnTop = await notesService.toggleAlwaysOnTop();
+      toast.success(
+        isAlwaysOnTop ? "Always on top enabled" : "Always on top disabled",
+      );
+    } catch (error) {
+      console.error("Failed to toggle always on top:", error);
+      toast.error("Failed to toggle always on top");
+    }
   }, []);
 
   const toggleSettings = useCallback(() => {
@@ -139,6 +152,7 @@ function AppContent() {
     const openSettingsShortcut = parseShortcut(shortcuts.openSettings);
     const commandPaletteShortcut = parseShortcut(shortcuts.openCommandPalette);
     const toggleSidebarShortcut = parseShortcut(shortcuts.toggleSidebar);
+    const toggleAlwaysOnTopShortcut = parseShortcut(shortcuts.toggleAlwaysOnTop);
     const createNoteShortcut = parseShortcut(shortcuts.createNote);
     const reloadCurrentNoteShortcut = parseShortcut(shortcuts.reloadCurrentNote);
     const navigateNoteUpShortcut = parseShortcut(shortcuts.navigateNoteUp);
@@ -157,6 +171,15 @@ function AppContent() {
       ) {
         e.preventDefault();
         toggleSettings();
+        return;
+      }
+
+      if (
+        toggleAlwaysOnTopShortcut &&
+        matchesParsedShortcut(e, toggleAlwaysOnTopShortcut)
+      ) {
+        e.preventDefault();
+        void toggleAlwaysOnTop();
         return;
       }
 
@@ -281,6 +304,7 @@ function AppContent() {
     selectNote,
     toggleSettings,
     toggleSidebar,
+    toggleAlwaysOnTop,
     view,
     shortcuts,
   ]);

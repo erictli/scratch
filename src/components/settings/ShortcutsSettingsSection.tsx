@@ -47,6 +47,12 @@ const shortcutRows: ShortcutRow[] = [
   },
   {
     type: "editable",
+    action: "toggleAlwaysOnTop",
+    description: "Toggle always on top",
+    category: "Navigation",
+  },
+  {
+    type: "editable",
     action: "navigateNoteUp",
     description: "Navigate note list up",
     category: "Navigation",

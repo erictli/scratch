@@ -1352,6 +1352,30 @@ fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), St
     Ok(())
 }
 
+#[tauri::command]
+fn toggle_always_on_top(app: AppHandle) -> Result<bool, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+
+    let is_always_on_top = window.is_always_on_top().map_err(|e| e.to_string())?;
+    let next_state = !is_always_on_top;
+
+    window
+        .set_always_on_top(next_state)
+        .map_err(|e| e.to_string())?;
+
+    if next_state {
+        if let Ok(true) = window.is_minimized() {
+            let _ = window.unminimize();
+        }
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+
+    Ok(next_state)
+}
+
 // UI helper commands - wrap Tauri plugins for consistent invoke-based API
 
 #[tauri::command]
@@ -1956,6 +1980,7 @@ pub fn run() {
             search_notes,
             start_file_watcher,
             rebuild_search_index,
+            toggle_always_on_top,
             copy_to_clipboard,
             copy_image_to_assets,
             save_clipboard_image,

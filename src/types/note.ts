@@ -23,6 +23,7 @@ export type ShortcutAction =
   | "openCommandPalette"
   | "createNote"
   | "reloadCurrentNote"
+  | "toggleAlwaysOnTop"
   | "openSettings"
   | "toggleSidebar"
   | "navigateNoteUp"

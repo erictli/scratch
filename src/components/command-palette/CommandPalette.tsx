@@ -104,6 +104,26 @@ export function CommandPalette({
           onClose();
         },
       },
+      {
+        id: "toggle-always-on-top",
+        label: "Toggle Always on Top",
+        shortcut: getShortcutDisplayText(shortcuts.toggleAlwaysOnTop),
+        icon: <PinIcon className="w-5 h-5 stroke-[1.3]" />,
+        action: async () => {
+          try {
+            const isAlwaysOnTop = await notesService.toggleAlwaysOnTop();
+            toast.success(
+              isAlwaysOnTop
+                ? "Always on top enabled"
+                : "Always on top disabled",
+            );
+            onClose();
+          } catch (error) {
+            console.error("Failed to toggle always on top:", error);
+            toast.error("Failed to toggle always on top");
+          }
+        },
+      },
     ];
 
     // Add note-specific commands if a note is selected
@@ -310,6 +330,7 @@ export function CommandPalette({
     pinNote,
     unpinNote,
     shortcuts.createNote,
+    shortcuts.toggleAlwaysOnTop,
     shortcuts.openSettings,
   ]);
 

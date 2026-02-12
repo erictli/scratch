@@ -12,6 +12,7 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   openCommandPalette: "Mod+P",
   createNote: "Mod+N",
   reloadCurrentNote: "Mod+R",
+  toggleAlwaysOnTop: "Mod+Shift+T",
   openSettings: "Mod+,",
   toggleSidebar: "Mod+\\",
   navigateNoteUp: "ArrowUp",
