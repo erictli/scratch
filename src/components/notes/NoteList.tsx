@@ -70,6 +70,7 @@ interface NoteItemProps {
   isPinned: boolean;
   onSelect: (id: string) => void;
   onContextMenu: (e: React.MouseEvent, id: string) => void;
+  className?: string;
 }
 
 const NoteItem = memo(function NoteItem({
@@ -81,6 +82,7 @@ const NoteItem = memo(function NoteItem({
   isPinned,
   onSelect,
   onContextMenu,
+  className = "",
 }: NoteItemProps) {
   const handleClick = useCallback(() => onSelect(id), [onSelect, id]);
   const handleContextMenu = useCallback(
@@ -89,17 +91,33 @@ const NoteItem = memo(function NoteItem({
   );
 
   return (
-    <ListItem
-      title={cleanTitle(title)}
-      subtitle={preview}
-      meta={formatDate(modified)}
-      isSelected={isSelected}
-      isPinned={isPinned}
-      onClick={handleClick}
-      onContextMenu={handleContextMenu}
-    />
+    <div className={className}>
+      <ListItem
+        title={cleanTitle(title)}
+        subtitle={preview}
+        meta={formatDate(modified)}
+        isSelected={isSelected}
+        isPinned={isPinned}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+      />
+    </div>
   );
 });
+
+// Grouped notes structure
+interface GroupedNotes {
+  root: DisplayItem[];
+  folders: Map<string, DisplayItem[]>;
+}
+
+interface DisplayItem {
+  id: string;
+  title: string;
+  preview?: string;
+  folderPath?: string;
+  modified: number;
+}
 
 export function NoteList() {
   const {
@@ -187,18 +205,51 @@ export function NoteList() {
     [pinnedIds, pinNote, unpinNote, duplicateNote]
   );
 
-  // Memoize display items to prevent recalculation on every render
-  const displayItems = useMemo(() => {
+  // Group notes by folder
+  const groupedNotes = useMemo((): GroupedNotes => {
+    let items: DisplayItem[];
+    
     if (searchQuery.trim()) {
-      return searchResults.map((r) => ({
+      items = searchResults.map((r) => ({
         id: r.id,
         title: r.title,
         preview: r.preview,
+        folderPath: r.folderPath,
         modified: r.modified,
       }));
+    } else {
+      items = notes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        preview: n.preview,
+        folderPath: n.folderPath,
+        modified: n.modified,
+      }));
     }
-    return notes;
+
+    const root: DisplayItem[] = [];
+    const folders = new Map<string, DisplayItem[]>();
+
+    for (const item of items) {
+      if (item.folderPath) {
+        if (!folders.has(item.folderPath)) {
+          folders.set(item.folderPath, []);
+        }
+        folders.get(item.folderPath)!.push(item);
+      } else {
+        root.push(item);
+      }
+    }
+
+    return { root, folders };
   }, [searchQuery, searchResults, notes]);
+
+  // Get sorted folder names
+  const sortedFolderNames = useMemo(() => {
+    return Array.from(groupedNotes.folders.keys()).sort((a, b) => 
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
+    );
+  }, [groupedNotes.folders]);
 
   // Listen for focus request from editor (when Escape is pressed)
   useEffect(() => {
@@ -219,7 +270,7 @@ export function NoteList() {
     );
   }
 
-  if (searchQuery.trim() && displayItems.length === 0) {
+  if (searchQuery.trim() && (groupedNotes.root.length === 0 && sortedFolderNames.length === 0)) {
     return (
       <div className="p-4 text-center text-sm text-text-muted select-none">
         No results found
@@ -227,7 +278,7 @@ export function NoteList() {
     );
   }
 
-  if (displayItems.length === 0) {
+  if (groupedNotes.root.length === 0 && sortedFolderNames.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-text-muted select-none">
         No notes yet
@@ -242,7 +293,8 @@ export function NoteList() {
         tabIndex={0}
         className="flex flex-col gap-1 p-1.5 outline-none"
       >
-        {displayItems.map((item) => (
+        {/* Root notes (no folder) - shown first without header */}
+        {groupedNotes.root.map((item) => (
           <NoteItem
             key={item.id}
             id={item.id}
@@ -254,6 +306,32 @@ export function NoteList() {
             onSelect={selectNote}
             onContextMenu={handleContextMenu}
           />
+        ))}
+
+        {/* Folder groups */}
+        {sortedFolderNames.map((folderName) => (
+          <div key={folderName} className="flex flex-col">
+            {/* Folder header */}
+            <div className="px-2 py-1 text-sm font-semibold text-text-muted select-none">
+              {folderName}/
+            </div>
+            {/* Notes in this folder - indented */}
+            <div className="pl-4 flex flex-col gap-1">
+              {groupedNotes.folders.get(folderName)!.map((item) => (
+                <NoteItem
+                  key={item.id}
+                  id={item.id}
+                  title={item.title}
+                  preview={item.preview}
+                  modified={item.modified}
+                  isSelected={selectedNoteId === item.id}
+                  isPinned={pinnedIds.has(item.id)}
+                  onSelect={selectNote}
+                  onContextMenu={handleContextMenu}
+                />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 

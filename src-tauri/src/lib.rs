@@ -18,21 +18,27 @@ mod git;
 
 // Note metadata for list display
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NoteMetadata {
-    pub id: String,
+    pub id: String,           // Full relative path (e.g., "projects/my-note")
     pub title: String,
     pub preview: String,
     pub modified: i64,
+    pub folder_path: Option<String>,  // Relative folder path (e.g., "projects") or None for root
+    pub file_name: String,    // Just the filename without extension (e.g., "my-note")
 }
 
 // Full note content
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Note {
-    pub id: String,
+    pub id: String,           // Full relative path (e.g., "projects/my-note")
     pub title: String,
     pub content: String,
-    pub path: String,
+    pub path: String,         // Full absolute path
     pub modified: i64,
+    pub folder_path: Option<String>,  // Relative folder path (e.g., "projects")
+    pub file_name: String,    // Just the filename without extension
 }
 
 // Theme color customization
@@ -99,12 +105,15 @@ pub struct Settings {
 
 // Search result
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchResult {
     pub id: String,
     pub title: String,
     pub preview: String,
     pub modified: i64,
     pub score: f32,
+    pub folder_path: Option<String>,
+    pub file_name: String,
 }
 
 // AI execution result
@@ -236,12 +245,26 @@ impl SearchIndex {
 
             let preview = generate_preview(content);
 
+            // Extract folder path and filename from ID
+            let path_obj = PathBuf::from(&id);
+            let folder_path = path_obj
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .filter(|p| !p.is_empty());
+            let file_name = path_obj
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
             results.push(SearchResult {
                 id,
                 title,
                 preview,
                 modified,
                 score,
+                folder_path,
+                file_name,
             });
         }
 
@@ -253,8 +276,25 @@ impl SearchIndex {
         writer.delete_all_documents()?;
 
         if notes_folder.exists() {
-            for entry in std::fs::read_dir(notes_folder)?.flatten() {
+            // Use walkdir for recursive traversal
+            for entry in walkdir::WalkDir::new(notes_folder)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
                 let file_path = entry.path();
+                
+                // Skip hidden directories and .scratch folder
+                if file_path.is_dir() {
+                    if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
+                        if file_name.starts_with('.') || file_name == ".scratch" {
+                            continue;
+                        }
+                    }
+                    continue;
+                }
+                
+                // Process only .md files
                 if file_path.extension().is_some_and(|ext| ext == "md") {
                     if let Ok(content) = std::fs::read_to_string(&file_path) {
                         let metadata = entry.metadata()?;
@@ -265,10 +305,15 @@ impl SearchIndex {
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0);
 
-                        let id = file_path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown");
+                        // Calculate relative path from notes folder as ID
+                        let relative_path = file_path
+                            .strip_prefix(notes_folder)?
+                            .to_string_lossy()
+                            .into_owned();
+                        
+                        let id = relative_path
+                            .trim_end_matches(".md")
+                            .replace('\\', "/");
 
                         let title = extract_title(&content);
 
@@ -619,15 +664,29 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
 
     let mut notes: Vec<NoteMetadata> = Vec::new();
 
-    // Use tokio for async file reading
-    let mut entries = fs::read_dir(&path).await.map_err(|e| e.to_string())?;
-
-    while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
+    // Use walkdir for recursive directory traversal
+    for entry in walkdir::WalkDir::new(&path)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let file_path = entry.path();
+        
+        // Skip hidden directories and .scratch folder
+        if file_path.is_dir() {
+            if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
+                if file_name.starts_with('.') || file_name == ".scratch" {
+                    continue;
+                }
+            }
+            continue;
+        }
+        
+        // Process only .md files
         if file_path.extension().is_some_and(|ext| ext == "md") {
-            // Get metadata first (single syscall)
-            if let Ok(metadata) = entry.metadata().await {
-                if let Ok(content) = fs::read_to_string(&file_path).await {
+            // Get metadata and content
+            if let Ok(metadata) = std::fs::metadata(&file_path) {
+                if let Ok(content) = std::fs::read_to_string(&file_path) {
                     let modified = metadata
                         .modified()
                         .ok()
@@ -635,7 +694,26 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
 
-                    let id = file_path
+                    // Calculate relative path from notes folder
+                    let relative_path = file_path
+                        .strip_prefix(&path)
+                        .map_err(|e| e.to_string())?
+                        .to_string_lossy()
+                        .into_owned();
+                    
+                    // ID is the relative path without .md extension, using forward slashes
+                    let id = relative_path
+                        .trim_end_matches(".md")
+                        .replace('\\', "/");
+
+                    // Extract folder path and filename
+                    let path_obj = PathBuf::from(&id);
+                    let folder_path = path_obj
+                        .parent()
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .filter(|p| !p.is_empty());
+                    
+                    let file_name = path_obj
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("unknown")
@@ -646,6 +724,8 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
                         title: extract_title(&content),
                         preview: generate_preview(&content),
                         modified,
+                        folder_path,
+                        file_name,
                     });
                 }
             }
@@ -696,7 +776,8 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
             .ok_or("Notes folder not set")?
     };
 
-    let file_path = PathBuf::from(&folder).join(format!("{}.md", id));
+    // ID now contains relative path (e.g., "projects/my-note"), convert to file path
+    let file_path = PathBuf::from(&folder).join(format!("{}.md", id.replace('/', std::path::MAIN_SEPARATOR_STR)));
     if !file_path.exists() {
         return Err("Note not found".to_string());
     }
@@ -715,12 +796,27 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
+    // Extract folder path and filename from ID
+    let path_obj = PathBuf::from(&id);
+    let folder_path = path_obj
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .filter(|p| !p.is_empty());
+    
+    let file_name = path_obj
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
     Ok(Note {
         id,
         title: extract_title(&content),
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
+        folder_path,
+        file_name,
     })
 }
 
@@ -740,41 +836,85 @@ async fn save_note(
     let folder_path = PathBuf::from(&folder);
 
     let title = extract_title(&content);
-    let desired_id = sanitize_filename(&title);
+    let desired_filename = sanitize_filename(&title);
 
     // Determine the file ID and path, handling renames
     let (final_id, file_path, old_id) = if let Some(existing_id) = id {
-        let old_file_path = folder_path.join(format!("{}.md", existing_id));
+        // Parse existing ID to get folder path and filename
+        let existing_path = PathBuf::from(&existing_id);
+        let existing_folder = existing_path
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .filter(|p| !p.is_empty());
+        let existing_filename = existing_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("untitled");
+        
+        // Old file path (using platform separator)
+        let old_file_path = folder_path.join(format!("{}.md", existing_id.replace('/', std::path::MAIN_SEPARATOR_STR)));
 
-        // Check if we should rename the file
-        if existing_id != desired_id {
+        // Check if we should rename the file (only filename changed, not folder)
+        if existing_filename != desired_filename {
+            // Keep the same folder, change only the filename
+            let target_folder = match &existing_folder {
+                Some(fp) => folder_path.join(fp.replace('/', std::path::MAIN_SEPARATOR_STR)),
+                None => folder_path.clone(),
+            };
+            
             // Find a unique name for the new ID
-            let mut new_id = desired_id.clone();
+            let mut new_filename = desired_filename.clone();
             let mut counter = 1;
 
-            while new_id != existing_id && folder_path.join(format!("{}.md", new_id)).exists() {
-                new_id = format!("{}-{}", desired_id, counter);
+            while target_folder.join(format!("{}.md", new_filename)).exists() {
+                new_filename = format!("{}-{}", desired_filename, counter);
                 counter += 1;
             }
 
-            let new_file_path = folder_path.join(format!("{}.md", new_id));
+            // Build new ID with folder prefix if applicable
+            let new_id = match &existing_folder {
+                Some(fp) => format!("{}/{}", fp, new_filename.clone()),
+                None => new_filename.clone(),
+            };
+            
+            let new_file_path = target_folder.join(format!("{}.md", new_filename));
+            
+            // Ensure folder exists
+            if let Some(fp) = &existing_folder {
+                let folder_to_create = folder_path.join(fp.replace('/', std::path::MAIN_SEPARATOR_STR));
+                if !folder_to_create.exists() {
+                    fs::create_dir_all(&folder_to_create).await.map_err(|e| e.to_string())?;
+                }
+            }
+            
             // Track old_file_path for cleanup after successful write
             (new_id, new_file_path, Some((existing_id, old_file_path)))
         } else {
+            // No rename needed
             (existing_id, old_file_path, None)
         }
     } else {
-        // New note - generate unique ID from title
-        let mut new_id = desired_id.clone();
+        // New note - generate unique ID from title in root folder
+        let mut new_filename = desired_filename.clone();
         let mut counter = 1;
 
-        while folder_path.join(format!("{}.md", new_id)).exists() {
-            new_id = format!("{}-{}", desired_id, counter);
+        while folder_path.join(format!("{}.md", new_filename)).exists() {
+            new_filename = format!("{}-{}", desired_filename, counter);
             counter += 1;
         }
 
-        (new_id.clone(), folder_path.join(format!("{}.md", new_id)), None)
+        let new_id = new_filename.clone();
+        let new_file_path = folder_path.join(format!("{}.md", new_filename));
+        
+        (new_id, new_file_path, None)
     };
+
+    // Ensure parent directory exists
+    if let Some(parent) = file_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+        }
+    }
 
     // Write the file to the new path
     fs::write(&file_path, &content)
@@ -797,6 +937,19 @@ async fn save_note(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+
+    // Extract folder path and filename from final_id
+    let final_path_obj = PathBuf::from(&final_id);
+    let folder_path_result = final_path_obj
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .filter(|p| !p.is_empty());
+    
+    let file_name_result = final_path_obj
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("untitled")
+        .to_string();
 
     // Update search index (delete old entry if renamed, then add new)
     {
@@ -821,6 +974,8 @@ async fn save_note(
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
+        folder_path: folder_path_result,
+        file_name: file_name_result,
     })
 }
 
@@ -834,7 +989,8 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
             .ok_or("Notes folder not set")?
     };
 
-    let file_path = PathBuf::from(&folder).join(format!("{}.md", id));
+    // ID now contains relative path (e.g., "projects/my-note"), convert to file path
+    let file_path = PathBuf::from(&folder).join(format!("{}.md", id.replace('/', std::path::MAIN_SEPARATOR_STR)));
     if file_path.exists() {
         fs::remove_file(&file_path)
             .await
@@ -859,7 +1015,10 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
 }
 
 #[tauri::command]
-async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
+async fn create_note(
+    folder_path_param: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Note, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config
@@ -867,20 +1026,39 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
             .clone()
             .ok_or("Notes folder not set")?
     };
-    let folder_path = PathBuf::from(&folder);
+    let root_path = PathBuf::from(&folder);
 
-    // Generate unique ID
-    let base_id = "untitled";
-    let mut final_id = base_id.to_string();
+    // Determine target folder (root or subdirectory)
+    let target_folder = match &folder_path_param {
+        Some(fp) if !fp.is_empty() => {
+            let subfolder = root_path.join(fp.replace('/', std::path::MAIN_SEPARATOR_STR));
+            // Create subdirectory if it doesn't exist
+            if !subfolder.exists() {
+                fs::create_dir_all(&subfolder).await.map_err(|e| e.to_string())?;
+            }
+            subfolder
+        }
+        _ => root_path.clone(),
+    };
+
+    // Generate unique filename
+    let base_name = "untitled";
+    let mut final_filename = base_name.to_string();
     let mut counter = 1;
 
-    while folder_path.join(format!("{}.md", final_id)).exists() {
-        final_id = format!("{}-{}", base_id, counter);
+    while target_folder.join(format!("{}.md", final_filename)).exists() {
+        final_filename = format!("{}-{}", base_name, counter);
         counter += 1;
     }
 
+    // Build full ID with folder prefix if in subdirectory
+    let final_id = match &folder_path_param {
+        Some(fp) if !fp.is_empty() => format!("{}/{}", fp, final_filename),
+        _ => final_filename.clone(),
+    };
+
     let content = "# Untitled\n\n".to_string();
-    let file_path = folder_path.join(format!("{}.md", &final_id));
+    let file_path = target_folder.join(format!("{}.md", final_filename));
 
     fs::write(&file_path, &content)
         .await
@@ -905,6 +1083,8 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
+        folder_path: folder_path_param.filter(|p| !p.is_empty()),
+        file_name: final_filename,
     })
 }
 
@@ -998,7 +1178,8 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
         }
 
         // Read file content asynchronously and search in it
-        let file_path = PathBuf::from(&folder).join(format!("{}.md", &id));
+        // ID contains relative path (e.g., "projects/my-note"), convert to file path
+        let file_path = PathBuf::from(&folder).join(format!("{}.md", id.replace('/', std::path::MAIN_SEPARATOR_STR)));
         if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
             let content_lower = content.to_lowercase();
             if content_lower.contains(&query_lower) {
@@ -1012,12 +1193,26 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
         }
 
         if score > 0.0 {
+            // Extract folder path and filename from ID
+            let path_obj = PathBuf::from(&id);
+            let folder_path = path_obj
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .filter(|p| !p.is_empty());
+            let file_name = path_obj
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
             results.push(SearchResult {
                 id,
                 title,
                 preview,
                 modified,
                 score,
+                folder_path,
+                file_name,
             });
         }
     }
@@ -1042,6 +1237,7 @@ fn setup_file_watcher(
     debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
 ) -> Result<FileWatcherState, String> {
     let folder_path = PathBuf::from(notes_folder);
+    let folder_path_for_closure = folder_path.clone();
     let app_handle = app.clone();
 
     let watcher = RecommendedWatcher::new(
@@ -1075,11 +1271,14 @@ fn setup_file_watcher(
                             _ => continue,
                         };
 
-                        // Extract note ID from filename
+                        // Extract note ID from relative path (e.g., "projects/my-note")
                         let note_id = path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .map(|s| s.to_string())
+                            .strip_prefix(&folder_path_for_closure)
+                            .ok()
+                            .and_then(|p| {
+                                let s = p.to_string_lossy();
+                                Some(s.trim_end_matches(".md").replace('\\', "/"))
+                            })
                             .unwrap_or_default();
 
                         // Update search index for external file changes
@@ -1126,9 +1325,9 @@ fn setup_file_watcher(
 
     let mut watcher = watcher;
 
-    // Watch the notes folder for .md files
+    // Watch the notes folder recursively for .md files
     watcher
-        .watch(&folder_path, RecursiveMode::NonRecursive)
+        .watch(&folder_path, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
 
     Ok(FileWatcherState { watcher })

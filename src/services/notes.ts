@@ -52,6 +52,8 @@ export interface SearchResult {
   preview: string;
   modified: number;
   score: number;
+  folderPath?: string;
+  fileName: string;
 }
 
 export async function searchNotes(query: string): Promise<SearchResult[]> {
