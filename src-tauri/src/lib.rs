@@ -497,13 +497,11 @@ fn id_from_abs_path(notes_root: &Path, file_path: &Path) -> Option<String> {
         return None;
     }
 
-    // Build ID: relative path without .md, using POSIX separators
-    let without_ext = rel.with_extension("");
-    let id = without_ext
-        .components()
-        .map(|c| c.as_os_str().to_str().unwrap_or(""))
-        .collect::<Vec<_>>()
-        .join("/");
+    // Build ID: relative path without .md suffix, using POSIX separators.
+    // Strip .md by converting to string and trimming (avoids with_extension
+    // which breaks on stems containing dots like "meeting.2024-01-15.md").
+    let rel_str = rel.to_str()?;
+    let id = rel_str.strip_suffix(".md")?.replace(std::path::MAIN_SEPARATOR, "/");
 
     if id.is_empty() {
         None
@@ -535,7 +533,12 @@ fn abs_path_from_id(notes_root: &Path, id: &str) -> Result<PathBuf, String> {
         }
     }
 
-    let file_path = notes_root.join(rel).with_extension("md");
+    // Append ".md" via OsString to avoid with_extension replacing dots in stems
+    // (e.g. "meeting.2024-01-15" would become "meeting.md" with with_extension)
+    let joined = notes_root.join(rel);
+    let mut file_path_os = joined.into_os_string();
+    file_path_os.push(".md");
+    let file_path = PathBuf::from(file_path_os);
 
     if !file_path.starts_with(notes_root) {
         return Err("Invalid note ID: path escapes notes folder".to_string());
