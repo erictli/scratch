@@ -1191,6 +1191,8 @@ fn setup_file_watcher(
                         notify::EventKind::Create(_) => "created",
                         notify::EventKind::Modify(_) => "modified",
                         notify::EventKind::Remove(_) => "deleted",
+                        // Some backends emit Any for renames or unclassified changes
+                        notify::EventKind::Any => "modified",
                         _ => continue,
                     };
 
@@ -1200,15 +1202,23 @@ fn setup_file_watcher(
                         if let Some(ref search_index) = *index {
                             match kind {
                                 "created" | "modified" => {
-                                    if let Ok(content) = std::fs::read_to_string(path) {
-                                        let title = extract_title(&content);
-                                        let modified = std::fs::metadata(path)
-                                            .ok()
-                                            .and_then(|m| m.modified().ok())
-                                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                            .map(|d| d.as_secs() as i64)
-                                            .unwrap_or(0);
-                                        let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                    match std::fs::read_to_string(path) {
+                                        Ok(content) => {
+                                            let title = extract_title(&content);
+                                            let modified = std::fs::metadata(path)
+                                                .ok()
+                                                .and_then(|m| m.modified().ok())
+                                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                .map(|d| d.as_secs() as i64)
+                                                .unwrap_or(0);
+                                            let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                        }
+                                        Err(_) => {
+                                            // File gone between event and read — treat as deletion
+                                            if !path.exists() {
+                                                let _ = search_index.delete_note(&note_id);
+                                            }
+                                        }
                                     }
                                 }
                                 "deleted" => {
@@ -1219,10 +1229,18 @@ fn setup_file_watcher(
                         }
                     }
 
+                    // Determine the actual kind for the frontend event
+                    // (a "modified" event on a non-existent file is really a delete)
+                    let effective_kind = if kind == "modified" && !path.exists() {
+                        "deleted"
+                    } else {
+                        kind
+                    };
+
                     let _ = app_handle.emit(
                         "file-change",
                         FileChangeEvent {
-                            kind: kind.to_string(),
+                            kind: effective_kind.to_string(),
                             path: path.to_string_lossy().into_owned(),
                             changed_ids: vec![note_id.clone()],
                         },
