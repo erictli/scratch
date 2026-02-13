@@ -1277,9 +1277,15 @@ export function Editor({
       sourceTimeoutRef.current = window.setTimeout(async () => {
         if (currentNote) {
           setIsSaving(true);
-          lastSaveRef.current = { noteId: currentNote.id, content: value };
-          await saveNote(value, currentNote.id);
-          setIsSaving(false);
+          try {
+            lastSaveRef.current = { noteId: currentNote.id, content: value };
+            await saveNote(value, currentNote.id);
+          } catch (error) {
+            console.error("Failed to save note:", error);
+            toast.error("Failed to save note");
+          } finally {
+            setIsSaving(false);
+          }
         }
       }, 300);
     },
