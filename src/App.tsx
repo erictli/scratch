@@ -168,7 +168,7 @@ function AppContent() {
       // Escape exits focus mode when not in editor
       if (e.key === "Escape" && focusMode && !isInEditor) {
         e.preventDefault();
-        setFocusMode(false);
+        toggleFocusMode();
         return;
       }
 

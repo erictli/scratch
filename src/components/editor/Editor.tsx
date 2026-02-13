@@ -848,6 +848,10 @@ export function Editor({
     // Reset source mode when genuinely switching notes (renames return early above)
     if (!isSameNote) {
       setSourceMode(false);
+      if (sourceTimeoutRef.current) {
+        clearTimeout(sourceTimeoutRef.current);
+        sourceTimeoutRef.current = null;
+      }
     }
     // Check if this is a manual reload (user clicked Refresh button or pressed Cmd+R)
     const isManualReload = reloadVersion !== lastReloadVersionRef.current;
@@ -1270,10 +1274,12 @@ export function Editor({
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
       }
-      sourceTimeoutRef.current = window.setTimeout(() => {
+      sourceTimeoutRef.current = window.setTimeout(async () => {
         if (currentNote) {
+          setIsSaving(true);
           lastSaveRef.current = { noteId: currentNote.id, content: value };
-          saveNote(value, currentNote.id);
+          await saveNote(value, currentNote.id);
+          setIsSaving(false);
         }
       }, 300);
     },

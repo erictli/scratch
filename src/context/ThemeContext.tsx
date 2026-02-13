@@ -265,13 +265,23 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     [saveFontSettings]
   );
 
-  // Reset font settings to defaults
-  const resetEditorFontSettings = useCallback(() => {
+  // Reset font settings to defaults (single atomic save to avoid race conditions)
+  const resetEditorFontSettings = useCallback(async () => {
     setEditorFontSettings(defaultEditorFontSettings);
-    saveFontSettings(defaultEditorFontSettings);
-    setTextDirection("ltr");
-    setEditorWidth("normal");
-  }, [saveFontSettings]);
+    setTextDirectionState("ltr");
+    setEditorWidthState("normal");
+    try {
+      const settings = await getSettings();
+      await updateSettings({
+        ...settings,
+        editorFont: defaultEditorFontSettings,
+        textDirection: "ltr",
+        editorWidth: "normal",
+      });
+    } catch (error) {
+      console.error("Failed to reset editor settings:", error);
+    }
+  }, []);
 
   // Save and set text direction
   const setTextDirection = useCallback(async (dir: TextDirection) => {
