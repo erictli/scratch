@@ -69,6 +69,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   // Ref to access selectedNoteId in file watcher without re-registering listener
   const selectedNoteIdRef = useRef<string | null>(null);
   selectedNoteIdRef.current = selectedNoteId;
+  // Ref to access notes in search callback without re-creating it on every notes change
+  const notesRef = useRef<NoteMetadata[]>([]);
+  notesRef.current = notes;
   // Monotonic counter to ignore stale async search responses
   const searchRequestIdRef = useRef(0);
 
@@ -309,7 +312,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
     const queryLower = trimmedQuery.toLowerCase();
     // Instant local results for responsive UX while full-text search runs.
-    const instantResults: SearchResult[] = notes
+    const instantResults: SearchResult[] = notesRef.current
       .filter(
         (note) =>
           note.title.toLowerCase().includes(queryLower) ||
@@ -332,7 +335,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
     setIsSearching(true);
     try {
-      const results = await notesService.searchNotes(query);
+      const results = await notesService.searchNotes(trimmedQuery);
       if (requestId !== searchRequestIdRef.current) return;
       if (results.length === 0) {
         // If neither backend nor instant matches found, clear results only now
@@ -356,7 +359,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       if (requestId !== searchRequestIdRef.current) return;
       setIsSearching(false);
     }
-  }, [notes]);
+  }, []);
 
   const clearSearch = useCallback(() => {
     searchRequestIdRef.current += 1;

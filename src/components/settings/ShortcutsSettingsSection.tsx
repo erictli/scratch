@@ -13,11 +13,6 @@ const shortcuts: Shortcut[] = [
     category: "Navigation",
   },
   {
-    keys: [mod, "Shift", "F"],
-    description: "Search notes",
-    category: "Navigation",
-  },
-  {
     keys: [mod, "N"],
     description: "Create new note",
     category: "Notes",
@@ -63,8 +58,8 @@ const shortcuts: Shortcut[] = [
     category: "Editor",
   },
   {
-    keys: ["↑", "↓"],
-    description: "Navigate note list",
+    keys: [mod, "Shift", "F"],
+    description: "Search notes",
     category: "Navigation",
   },
   {

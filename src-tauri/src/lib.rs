@@ -1831,12 +1831,17 @@ pub fn run() {
             // Normalize legacy/invalid saved paths (e.g. file:// URI from older builds)
             if let Some(saved_path) = app_config.notes_folder.clone() {
                 match normalize_notes_folder_path(&saved_path) {
-                    Ok(normalized) => {
+                    Ok(normalized) if normalized.is_dir() => {
                         let normalized_str = normalized.to_string_lossy().into_owned();
                         if normalized_str != saved_path {
                             app_config.notes_folder = Some(normalized_str);
                             let _ = save_app_config(app.handle(), &app_config);
                         }
+                    }
+                    Ok(_) => {
+                        // Normalized path is not a valid directory; clear it
+                        app_config.notes_folder = None;
+                        let _ = save_app_config(app.handle(), &app_config);
                     }
                     Err(_) => {
                         app_config.notes_folder = None;
