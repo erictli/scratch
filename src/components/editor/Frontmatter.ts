@@ -30,13 +30,13 @@ export const Frontmatter = Node.create({
     tokenize(src: string, tokens: MarkdownToken[]) {
       if (tokens.length > 0) return undefined;
       const match = src.match(
-        /^(?:\ufeff)?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/,
+        /^(?:\ufeff)?---[ \t]*\r?\n([\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/,
       );
       if (!match) return undefined;
       return {
         type: "frontmatter",
         raw: match[0],
-        text: match[1],
+        text: (match[1] ?? "").replace(/\r?\n$/, ""),
       };
     },
   },
@@ -51,7 +51,7 @@ export const Frontmatter = Node.create({
 
   renderMarkdown(node: JSONContent, helpers) {
     const content = node.content
-      ? helpers.renderChildren(node.content)
+      ? helpers.renderChildren(node.content).replace(/\n$/, "")
       : "";
     return `---\n${content}\n---`;
   },

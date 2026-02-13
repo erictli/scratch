@@ -347,9 +347,12 @@ fn strip_frontmatter(content: &str) -> &str {
         // Find the closing --- (skip the opening line)
         if let Some(rest) = trimmed.strip_prefix("---") {
             if let Some(end) = rest.find("\n---") {
-                // Skip past closing --- and the newline after it
+                // Skip past closing --- and the newline after it (handle CRLF)
                 let after_close = &rest[end + 4..];
-                return after_close.strip_prefix('\n').unwrap_or(after_close);
+                return after_close
+                    .strip_prefix("\r\n")
+                    .or_else(|| after_close.strip_prefix('\n'))
+                    .unwrap_or(after_close);
             }
         }
     }
