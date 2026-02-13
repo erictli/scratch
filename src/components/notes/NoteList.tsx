@@ -88,10 +88,15 @@ const NoteItem = memo(function NoteItem({
     [onContextMenu, id]
   );
 
+  const folder = id.includes('/') ? id.substring(0, id.lastIndexOf('/')) : null;
+  const displayPreview = folder
+    ? preview ? `${folder}/ · ${preview}` : `${folder}/`
+    : preview;
+
   return (
     <ListItem
       title={cleanTitle(title)}
-      subtitle={preview}
+      subtitle={displayPreview}
       meta={formatDate(modified)}
       isSelected={isSelected}
       isPinned={isPinned}

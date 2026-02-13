@@ -3,7 +3,7 @@ use base64::Engine;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tantivy::collector::TopDocs;
@@ -253,27 +253,31 @@ impl SearchIndex {
         writer.delete_all_documents()?;
 
         if notes_folder.exists() {
-            for entry in std::fs::read_dir(notes_folder)?.flatten() {
+            use walkdir::WalkDir;
+            for entry in WalkDir::new(notes_folder)
+                .max_depth(10)
+                .into_iter()
+                .filter_entry(is_visible_notes_entry)
+                .flatten()
+            {
                 let file_path = entry.path();
-                if file_path.extension().is_some_and(|ext| ext == "md") {
-                    if let Ok(content) = std::fs::read_to_string(&file_path) {
-                        let metadata = entry.metadata()?;
-                        let modified = metadata
-                            .modified()
+                if !file_path.is_file() {
+                    continue;
+                }
+                if let Some(id) = id_from_abs_path(notes_folder, file_path) {
+                    if let Ok(content) = std::fs::read_to_string(file_path) {
+                        let modified = entry
+                            .metadata()
                             .ok()
+                            .and_then(|m| m.modified().ok())
                             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0);
 
-                        let id = file_path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown");
-
                         let title = extract_title(&content);
 
                         writer.add_document(doc!(
-                            self.id_field => id,
+                            self.id_field => id.as_str(),
                             self.title_field => title,
                             self.content_field => content.as_str(),
                             self.modified_field => modified,
@@ -465,6 +469,85 @@ fn strip_markdown(text: &str) -> String {
     result.trim().to_string()
 }
 
+/// Filter for WalkDir: skips dot-directories (e.g. .scratch, .git) and assets/.
+fn is_visible_notes_entry(entry: &walkdir::DirEntry) -> bool {
+    if entry.file_type().is_dir() {
+        let name = entry.file_name().to_str().unwrap_or("");
+        return !name.starts_with('.') && name != "assets";
+    }
+    true
+}
+
+/// Convert an absolute file path to a note ID (relative path from notes root, no .md extension, POSIX separators).
+/// Returns None if the path is outside the root, not a .md file, or in an excluded directory.
+fn id_from_abs_path(notes_root: &Path, file_path: &Path) -> Option<String> {
+    let rel = file_path.strip_prefix(notes_root).ok()?;
+
+    // Skip excluded directories (dot-dirs catch .scratch, .git, etc.)
+    for component in rel.components() {
+        if let std::path::Component::Normal(name) = component {
+            let name_str = name.to_str()?;
+            if name_str.starts_with('.') || name_str == "assets" {
+                return None;
+            }
+        }
+    }
+
+    // Must be a .md file
+    if file_path.extension()?.to_str()? != "md" {
+        return None;
+    }
+
+    // Build ID: relative path without .md suffix, using POSIX separators.
+    // Strip .md by converting to string and trimming (avoids with_extension
+    // which breaks on stems containing dots like "meeting.2024-01-15.md").
+    let rel_str = rel.to_str()?;
+    let id = rel_str.strip_suffix(".md")?.replace(std::path::MAIN_SEPARATOR, "/");
+
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
+    }
+}
+
+/// Convert a note ID to an absolute file path. Validates against path traversal.
+fn abs_path_from_id(notes_root: &Path, id: &str) -> Result<PathBuf, String> {
+    if id.contains('\\') {
+        return Err("Invalid note ID: backslashes not allowed".to_string());
+    }
+
+    let rel = Path::new(id);
+
+    for component in rel.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                return Err("Invalid note ID: parent directory references not allowed".to_string());
+            }
+            std::path::Component::CurDir => {
+                return Err("Invalid note ID: current directory references not allowed".to_string());
+            }
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                return Err("Invalid note ID: absolute paths not allowed".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    // Append ".md" via OsString to avoid with_extension replacing dots in stems
+    // (e.g. "meeting.2024-01-15" would become "meeting.md" with with_extension)
+    let joined = notes_root.join(rel);
+    let mut file_path_os = joined.into_os_string();
+    file_path_os.push(".md");
+    let file_path = PathBuf::from(file_path_os);
+
+    if !file_path.starts_with(notes_root) {
+        return Err("Invalid note ID: path escapes notes folder".to_string());
+    }
+
+    Ok(file_path)
+}
+
 // Get app config file path (in app data directory)
 fn get_app_config_path(app: &AppHandle) -> Result<PathBuf> {
     let app_data = app.path().app_data_dir()?;
@@ -642,40 +725,49 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         return Ok(vec![]);
     }
 
-    let mut notes: Vec<NoteMetadata> = Vec::new();
-
-    // Use tokio for async file reading
-    let mut entries = fs::read_dir(&path).await.map_err(|e| e.to_string())?;
-
-    while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
-        let file_path = entry.path();
-        if file_path.extension().is_some_and(|ext| ext == "md") {
-            // Get metadata first (single syscall)
-            if let Ok(metadata) = entry.metadata().await {
-                if let Ok(content) = fs::read_to_string(&file_path).await {
-                    let modified = metadata
-                        .modified()
+    let path_clone = path.clone();
+    let discovered = tokio::task::spawn_blocking(move || {
+        use walkdir::WalkDir;
+        let mut results: Vec<(String, String, String, i64)> = Vec::new();
+        for entry in WalkDir::new(&path_clone)
+            .max_depth(10)
+            .into_iter()
+            .filter_entry(is_visible_notes_entry)
+            .flatten()
+        {
+            let file_path = entry.path();
+            if !file_path.is_file() {
+                continue;
+            }
+            if let Some(id) = id_from_abs_path(&path_clone, file_path) {
+                if let Ok(content) = std::fs::read_to_string(file_path) {
+                    let modified = entry
+                        .metadata()
                         .ok()
+                        .and_then(|m| m.modified().ok())
                         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
-
-                    let id = file_path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-
-                    notes.push(NoteMetadata {
-                        id,
-                        title: extract_title(&content),
-                        preview: generate_preview(&content),
-                        modified,
-                    });
+                    let title = extract_title(&content);
+                    let preview = generate_preview(&content);
+                    results.push((id, title, preview, modified));
                 }
             }
         }
-    }
+        results
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut notes: Vec<NoteMetadata> = discovered
+        .into_iter()
+        .map(|(id, title, preview, modified)| NoteMetadata {
+            id,
+            title,
+            preview,
+            modified,
+        })
+        .collect();
 
     // Load pinned note IDs from settings
     let pinned_ids: HashSet<String> = {
@@ -721,7 +813,8 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
             .ok_or("Notes folder not set")?
     };
 
-    let file_path = PathBuf::from(&folder).join(format!("{}.md", id));
+    let folder_path = PathBuf::from(&folder);
+    let file_path = abs_path_from_id(&folder_path, &id)?;
     if !file_path.exists() {
         return Err("Note not found".to_string());
     }
@@ -765,40 +858,57 @@ async fn save_note(
     let folder_path = PathBuf::from(&folder);
 
     let title = extract_title(&content);
-    let desired_id = sanitize_filename(&title);
+    let sanitized_leaf = sanitize_filename(&title);
 
     // Determine the file ID and path, handling renames
     let (final_id, file_path, old_id) = if let Some(existing_id) = id {
-        let old_file_path = folder_path.join(format!("{}.md", existing_id));
+        // Preserve directory prefix for notes in subfolders
+        let (dir_prefix, desired_id) = if let Some(pos) = existing_id.rfind('/') {
+            let prefix = &existing_id[..pos];
+            (Some(prefix.to_string()), format!("{}/{}", prefix, sanitized_leaf))
+        } else {
+            (None, sanitized_leaf.clone())
+        };
 
-        // Check if we should rename the file
+        let old_file_path = abs_path_from_id(&folder_path, &existing_id)?;
+
         if existing_id != desired_id {
-            // Find a unique name for the new ID
             let mut new_id = desired_id.clone();
             let mut counter = 1;
 
-            while new_id != existing_id && folder_path.join(format!("{}.md", new_id)).exists() {
-                new_id = format!("{}-{}", desired_id, counter);
+            while new_id != existing_id
+                && abs_path_from_id(&folder_path, &new_id)
+                    .map(|p| p.exists())
+                    .unwrap_or(false)
+            {
+                new_id = if let Some(ref prefix) = dir_prefix {
+                    format!("{}/{}-{}", prefix, sanitized_leaf, counter)
+                } else {
+                    format!("{}-{}", sanitized_leaf, counter)
+                };
                 counter += 1;
             }
 
-            let new_file_path = folder_path.join(format!("{}.md", new_id));
-            // Track old_file_path for cleanup after successful write
+            let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
             (new_id, new_file_path, Some((existing_id, old_file_path)))
         } else {
             (existing_id, old_file_path, None)
         }
     } else {
-        // New note - generate unique ID from title
-        let mut new_id = desired_id.clone();
+        // New notes go in root
+        let mut new_id = sanitized_leaf.clone();
         let mut counter = 1;
 
-        while folder_path.join(format!("{}.md", new_id)).exists() {
-            new_id = format!("{}-{}", desired_id, counter);
+        while abs_path_from_id(&folder_path, &new_id)
+            .map(|p| p.exists())
+            .unwrap_or(false)
+        {
+            new_id = format!("{}-{}", sanitized_leaf, counter);
             counter += 1;
         }
 
-        (new_id.clone(), folder_path.join(format!("{}.md", new_id)), None)
+        let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
+        (new_id, new_file_path, None)
     };
 
     // Write the file to the new path
@@ -859,7 +969,8 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
             .ok_or("Notes folder not set")?
     };
 
-    let file_path = PathBuf::from(&folder).join(format!("{}.md", id));
+    let folder_path = PathBuf::from(&folder);
+    let file_path = abs_path_from_id(&folder_path, &id)?;
     if file_path.exists() {
         fs::remove_file(&file_path)
             .await
@@ -899,13 +1010,16 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
     let mut final_id = base_id.to_string();
     let mut counter = 1;
 
-    while folder_path.join(format!("{}.md", final_id)).exists() {
+    while abs_path_from_id(&folder_path, &final_id)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+    {
         final_id = format!("{}-{}", base_id, counter);
         counter += 1;
     }
 
     let content = "# Untitled\n\n".to_string();
-    let file_path = folder_path.join(format!("{}.md", &final_id));
+    let file_path = abs_path_from_id(&folder_path, &final_id)?;
 
     fs::write(&file_path, &content)
         .await
@@ -1018,6 +1132,7 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
             .collect()
     };
 
+    let folder_path = PathBuf::from(&folder);
     let query_lower = query.to_lowercase();
     let mut results: Vec<SearchResult> = Vec::new();
 
@@ -1030,7 +1145,10 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
         }
 
         // Read file content asynchronously and search in it
-        let file_path = PathBuf::from(&folder).join(format!("{}.md", &id));
+        let file_path = match abs_path_from_id(&folder_path, &id) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
             let content_lower = content.to_lowercase();
             if content_lower.contains(&query_lower) {
@@ -1074,54 +1192,52 @@ fn setup_file_watcher(
     debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
 ) -> Result<FileWatcherState, String> {
     let folder_path = PathBuf::from(notes_folder);
+    let notes_root = folder_path.clone();
     let app_handle = app.clone();
 
     let watcher = RecommendedWatcher::new(
         move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 for path in event.paths.iter() {
-                    // Handle .md files
-                    if path.extension().is_some_and(|ext| ext == "md") {
-                        // Debounce with cleanup
-                        {
-                            let mut map = debounce_map.lock().expect("debounce map mutex");
-                            let now = Instant::now();
+                    let note_id = match id_from_abs_path(&notes_root, path) {
+                        Some(id) => id,
+                        None => continue,
+                    };
 
-                            // Clean up old entries periodically
-                            if map.len() > 100 {
-                                map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
-                            }
+                    // Debounce with cleanup
+                    {
+                        let mut map = debounce_map.lock().expect("debounce map mutex");
+                        let now = Instant::now();
 
-                            if let Some(last) = map.get(path) {
-                                if now.duration_since(*last) < Duration::from_millis(500) {
-                                    continue;
-                                }
-                            }
-                            map.insert(path.clone(), now);
+                        if map.len() > 100 {
+                            map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
                         }
 
-                        let kind = match event.kind {
-                            notify::EventKind::Create(_) => "created",
-                            notify::EventKind::Modify(_) => "modified",
-                            notify::EventKind::Remove(_) => "deleted",
-                            _ => continue,
-                        };
+                        if let Some(last) = map.get(path) {
+                            if now.duration_since(*last) < Duration::from_millis(500) {
+                                continue;
+                            }
+                        }
+                        map.insert(path.clone(), now);
+                    }
 
-                        // Extract note ID from filename
-                        let note_id = path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .map(|s| s.to_string())
-                            .unwrap_or_default();
+                    let kind = match event.kind {
+                        notify::EventKind::Create(_) => "created",
+                        notify::EventKind::Modify(_) => "modified",
+                        notify::EventKind::Remove(_) => "deleted",
+                        // Some backends emit Any for renames or unclassified changes
+                        notify::EventKind::Any => "modified",
+                        _ => continue,
+                    };
 
-                        // Update search index for external file changes
-                        if let Some(state) = app_handle.try_state::<AppState>() {
-                            let index = state.search_index.lock().expect("search index mutex");
-                            if let Some(ref search_index) = *index {
-                                match kind {
-                                    "created" | "modified" => {
-                                        // Read file and index it
-                                        if let Ok(content) = std::fs::read_to_string(path) {
+                    // Update search index for external file changes
+                    if let Some(state) = app_handle.try_state::<AppState>() {
+                        let index = state.search_index.lock().expect("search index mutex");
+                        if let Some(ref search_index) = *index {
+                            match kind {
+                                "created" | "modified" => {
+                                    match std::fs::read_to_string(path) {
+                                        Ok(content) => {
                                             let title = extract_title(&content);
                                             let modified = std::fs::metadata(path)
                                                 .ok()
@@ -1131,24 +1247,38 @@ fn setup_file_watcher(
                                                 .unwrap_or(0);
                                             let _ = search_index.index_note(&note_id, &title, &content, modified);
                                         }
+                                        Err(_) => {
+                                            // File gone between event and read — treat as deletion
+                                            if !path.exists() {
+                                                let _ = search_index.delete_note(&note_id);
+                                            }
+                                        }
                                     }
-                                    "deleted" => {
-                                        let _ = search_index.delete_note(&note_id);
-                                    }
-                                    _ => {}
                                 }
+                                "deleted" => {
+                                    let _ = search_index.delete_note(&note_id);
+                                }
+                                _ => {}
                             }
                         }
-
-                        let _ = app_handle.emit(
-                            "file-change",
-                            FileChangeEvent {
-                                kind: kind.to_string(),
-                                path: path.to_string_lossy().into_owned(),
-                                changed_ids: vec![note_id.clone()],
-                            },
-                        );
                     }
+
+                    // Determine the actual kind for the frontend event
+                    // (a "modified" event on a non-existent file is really a delete)
+                    let effective_kind = if kind == "modified" && !path.exists() {
+                        "deleted"
+                    } else {
+                        kind
+                    };
+
+                    let _ = app_handle.emit(
+                        "file-change",
+                        FileChangeEvent {
+                            kind: effective_kind.to_string(),
+                            path: path.to_string_lossy().into_owned(),
+                            changed_ids: vec![note_id.clone()],
+                        },
+                    );
                 }
             }
         },
@@ -1158,9 +1288,9 @@ fn setup_file_watcher(
 
     let mut watcher = watcher;
 
-    // Watch the notes folder for .md files
+    // Watch the notes folder recursively for .md files in subfolders
     watcher
-        .watch(&folder_path, RecursiveMode::NonRecursive)
+        .watch(&folder_path, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
 
     Ok(FileWatcherState { watcher })

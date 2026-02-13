@@ -23,6 +23,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "url",
+ "walkdir",
 ]
 
 [[package]]

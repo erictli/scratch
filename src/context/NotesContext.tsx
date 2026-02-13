@@ -123,12 +123,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const createNote = useCallback(async () => {
     try {
       const note = await notesService.createNote();
+      // Mark as recently saved to ignore file-change events from our own creation
+      recentlySavedRef.current.add(note.id);
       await refreshNotes();
       setCurrentNote(note);
       setSelectedNoteId(note.id);
       // Clear search when creating a new note
       setSearchQuery("");
       setSearchResults([]);
+      setTimeout(() => {
+        recentlySavedRef.current.delete(note.id);
+      }, 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create note");
     }
@@ -236,9 +241,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       try {
         const newNote = await notesService.duplicateNote(id);
+        // Mark as recently saved to ignore file-change events from our own creation
+        recentlySavedRef.current.add(newNote.id);
         await refreshNotes();
         setCurrentNote(newNote);
         setSelectedNoteId(newNote.id);
+        setTimeout(() => {
+          recentlySavedRef.current.delete(newNote.id);
+        }, 1000);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to duplicate note");
       }
