@@ -1495,7 +1495,7 @@ export function Editor({
 
       {/* Format Bar */}
       <div
-        className={`transition-all duration-1000 delay-500 ${focusMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"}`}
+        className={`transition-all duration-1000 delay-500 ${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"}`}
       >
         <FormatBar
           editor={editor}
