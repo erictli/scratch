@@ -337,11 +337,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         score: 0,
       }));
 
-    // Keep previous visible results while typing if there is no instant match yet.
-    // This avoids the "loading -> no results -> loading" flicker.
-    if (instantResults.length > 0) {
-      setSearchResults(instantResults);
-    }
+    // Show instant local matches immediately; clear stale results if none match.
+    setSearchResults(instantResults);
 
     setIsSearching(true);
     try {
@@ -363,12 +360,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         setSearchResults(merged);
       }
     } catch (err) {
-      if (requestId !== searchRequestIdRef.current) return;
       console.error("Search failed:", err);
-    } finally {
-      if (requestId !== searchRequestIdRef.current) return;
-      setIsSearching(false);
     }
+    if (requestId !== searchRequestIdRef.current) return;
+    setIsSearching(false);
   }, []);
 
   const clearSearch = useCallback(() => {

@@ -1096,7 +1096,10 @@ async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<S
             // Tantivy can miss partial/fuzzy matches; fall back to substring search.
             fallback_search(&trimmed_query, &state).await
         }
-        Some(Err(e)) => Err(e),
+        Some(Err(e)) => {
+            eprintln!("Tantivy search error, falling back to substring search: {}", e);
+            fallback_search(&trimmed_query, &state).await
+        }
         None => {
             // Fallback to simple search if index not available
             fallback_search(&trimmed_query, &state).await
@@ -1968,10 +1971,10 @@ pub fn run() {
                             let _ = save_app_config(app.handle(), &app_config);
                         }
                     }
-                    Ok(_) => {
-                        // Normalized path is not a valid directory; clear it
-                        app_config.notes_folder = None;
-                        let _ = save_app_config(app.handle(), &app_config);
+                    Ok(normalized) => {
+                        // Path is structurally valid but not currently a directory
+                        // (e.g., unmounted drive). Preserve the user's preference.
+                        eprintln!("Notes folder not found (may be temporarily unavailable): {:?}", normalized);
                     }
                     Err(_) => {
                         app_config.notes_folder = None;
