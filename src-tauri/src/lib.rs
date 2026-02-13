@@ -255,6 +255,7 @@ impl SearchIndex {
         if notes_folder.exists() {
             use walkdir::WalkDir;
             for entry in WalkDir::new(notes_folder)
+                .max_depth(10)
                 .into_iter()
                 .filter_entry(is_visible_notes_entry)
                 .flatten()
@@ -265,10 +266,10 @@ impl SearchIndex {
                 }
                 if let Some(id) = id_from_abs_path(notes_folder, file_path) {
                     if let Ok(content) = std::fs::read_to_string(file_path) {
-                        let metadata = entry.metadata()?;
-                        let modified = metadata
-                            .modified()
+                        let modified = entry
+                            .metadata()
                             .ok()
+                            .and_then(|m| m.modified().ok())
                             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0);
@@ -515,13 +516,11 @@ fn id_from_abs_path(notes_root: &Path, file_path: &Path) -> Option<String> {
         return None;
     }
 
-    // Build ID: relative path without .md, using POSIX separators
-    let without_ext = rel.with_extension("");
-    let id = without_ext
-        .components()
-        .map(|c| c.as_os_str().to_str().unwrap_or(""))
-        .collect::<Vec<_>>()
-        .join("/");
+    // Build ID: relative path without .md suffix, using POSIX separators.
+    // Strip .md by converting to string and trimming (avoids with_extension
+    // which breaks on stems containing dots like "meeting.2024-01-15.md").
+    let rel_str = rel.to_str()?;
+    let id = rel_str.strip_suffix(".md")?.replace(std::path::MAIN_SEPARATOR, "/");
 
     if id.is_empty() {
         None
@@ -553,7 +552,12 @@ fn abs_path_from_id(notes_root: &Path, id: &str) -> Result<PathBuf, String> {
         }
     }
 
-    let file_path = notes_root.join(rel).with_extension("md");
+    // Append ".md" via OsString to avoid with_extension replacing dots in stems
+    // (e.g. "meeting.2024-01-15" would become "meeting.md" with with_extension)
+    let joined = notes_root.join(rel);
+    let mut file_path_os = joined.into_os_string();
+    file_path_os.push(".md");
+    let file_path = PathBuf::from(file_path_os);
 
     if !file_path.starts_with(notes_root) {
         return Err("Invalid note ID: path escapes notes folder".to_string());
@@ -719,6 +723,7 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         use walkdir::WalkDir;
         let mut results: Vec<(String, String, String, i64)> = Vec::new();
         for entry in WalkDir::new(&path_clone)
+            .max_depth(10)
             .into_iter()
             .filter_entry(is_visible_notes_entry)
             .flatten()
@@ -1206,6 +1211,8 @@ fn setup_file_watcher(
                         notify::EventKind::Create(_) => "created",
                         notify::EventKind::Modify(_) => "modified",
                         notify::EventKind::Remove(_) => "deleted",
+                        // Some backends emit Any for renames or unclassified changes
+                        notify::EventKind::Any => "modified",
                         _ => continue,
                     };
 
@@ -1215,15 +1222,23 @@ fn setup_file_watcher(
                         if let Some(ref search_index) = *index {
                             match kind {
                                 "created" | "modified" => {
-                                    if let Ok(content) = std::fs::read_to_string(path) {
-                                        let title = extract_title(&content);
-                                        let modified = std::fs::metadata(path)
-                                            .ok()
-                                            .and_then(|m| m.modified().ok())
-                                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                            .map(|d| d.as_secs() as i64)
-                                            .unwrap_or(0);
-                                        let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                    match std::fs::read_to_string(path) {
+                                        Ok(content) => {
+                                            let title = extract_title(&content);
+                                            let modified = std::fs::metadata(path)
+                                                .ok()
+                                                .and_then(|m| m.modified().ok())
+                                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                .map(|d| d.as_secs() as i64)
+                                                .unwrap_or(0);
+                                            let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                        }
+                                        Err(_) => {
+                                            // File gone between event and read — treat as deletion
+                                            if !path.exists() {
+                                                let _ = search_index.delete_note(&note_id);
+                                            }
+                                        }
                                     }
                                 }
                                 "deleted" => {
@@ -1234,10 +1249,18 @@ fn setup_file_watcher(
                         }
                     }
 
+                    // Determine the actual kind for the frontend event
+                    // (a "modified" event on a non-existent file is really a delete)
+                    let effective_kind = if kind == "modified" && !path.exists() {
+                        "deleted"
+                    } else {
+                        kind
+                    };
+
                     let _ = app_handle.emit(
                         "file-change",
                         FileChangeEvent {
-                            kind: kind.to_string(),
+                            kind: effective_kind.to_string(),
                             path: path.to_string_lossy().into_owned(),
                             changed_ids: vec![note_id.clone()],
                         },

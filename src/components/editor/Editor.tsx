@@ -807,6 +807,26 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
 
     const isSameNote = currentNote.id === loadedNoteIdRef.current;
 
+    // Detect rename BEFORE flush to prevent stale-ID saves from creating duplicates.
+    // When a save renames the file (title changed), the ID changes but we're still
+    // editing the same note. Update loadedNoteIdRef first so any flush uses the new ID.
+    if (!isSameNote) {
+      const lastSave = lastSaveRef.current;
+      if (
+        lastSave?.noteId === loadedNoteIdRef.current &&
+        lastSave?.content === currentNote.content
+      ) {
+        loadedNoteIdRef.current = currentNote.id;
+        loadedModifiedRef.current = currentNote.modified;
+        lastSaveRef.current = null;
+        // If user typed during the rename, flush with the now-correct ID
+        if (needsSaveRef.current) {
+          flushPendingSave();
+        }
+        return;
+      }
+    }
+
     // Flush any pending save before switching to a different note
     if (!isSameNote && needsSaveRef.current) {
       flushPendingSave();
@@ -836,19 +856,6 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
       }
       // Just a save - update refs but don't reload content
       loadedModifiedRef.current = currentNote.modified;
-      return;
-    }
-
-    // Handle note rename (ID changed but we were editing this note)
-    // Check both: lastSave matches loaded note AND content matches (same note, just renamed)
-    const lastSave = lastSaveRef.current;
-    if (
-      lastSave?.noteId === loadedNoteIdRef.current &&
-      lastSave?.content === currentNote.content
-    ) {
-      loadedNoteIdRef.current = currentNote.id;
-      loadedModifiedRef.current = currentNote.modified;
-      lastSaveRef.current = null;
       return;
     }
 
@@ -1273,7 +1280,7 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             >
               <button
                 onClick={reloadCurrentNote}
-                className="h-7 px-2 flex items-center gap-1 text-xs text-orange-500 hover:bg-orange-500/10 rounded transition-colors font-medium"
+                className="h-7 px-2 flex items-center gap-1 text-xs text-text-muted hover:bg-bg-emphasis rounded transition-colors font-medium"
               >
                 <RefreshCwIcon className="w-4 h-4 stroke-[1.6]" />
                 <span>Refresh</span>
