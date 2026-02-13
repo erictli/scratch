@@ -197,37 +197,37 @@ export function AppearanceSettingsSection() {
           {/* Text Direction */}
           <div className="flex items-center justify-between">
             <label className="text-sm text-text font-medium">Text Direction</label>
-            <div className="flex gap-1 p-0.5 rounded-lg border border-border w-40">
+            <Select
+              value={textDirection}
+              onChange={(e) =>
+                setTextDirection(e.target.value as TextDirection)
+              }
+              className="w-40"
+            >
               {textDirectionOptions.map((opt) => (
-                <Button
-                  key={opt.value}
-                  onClick={() => setTextDirection(opt.value)}
-                  variant={textDirection === opt.value ? "primary" : "ghost"}
-                  size="sm"
-                  className="flex-1 h-7"
-                >
+                <option key={opt.value} value={opt.value}>
                   {opt.label}
-                </Button>
+                </option>
               ))}
-            </div>
+            </Select>
           </div>
 
           {/* Page Width */}
           <div className="flex items-center justify-between">
             <label className="text-sm text-text font-medium">Page Width</label>
-            <div className="flex gap-1 p-0.5 rounded-lg border border-border w-40">
+            <Select
+              value={editorWidth}
+              onChange={(e) =>
+                setEditorWidth(e.target.value as EditorWidth)
+              }
+              className="w-40"
+            >
               {editorWidthOptions.map((opt) => (
-                <Button
-                  key={opt.value}
-                  onClick={() => setEditorWidth(opt.value)}
-                  variant={editorWidth === opt.value ? "primary" : "ghost"}
-                  size="sm"
-                  className="flex-1 h-7 text-xs px-1"
-                >
+                <option key={opt.value} value={opt.value}>
                   {opt.label}
-                </Button>
+                </option>
               ))}
-            </div>
+            </Select>
           </div>
         </div>
 

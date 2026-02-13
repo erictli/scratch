@@ -37,8 +37,8 @@ import {
   TrashIcon,
   PinIcon,
   ClaudeIcon,
-  EyeIcon,
-  CodeIcon,
+  ZenIcon,
+  MarkdownIcon,
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
 
@@ -55,8 +55,8 @@ interface CommandPaletteProps {
   onClose: () => void;
   onOpenSettings?: () => void;
   onOpenAiModal?: () => void;
-  zenMode?: boolean;
-  onToggleZenMode?: () => void;
+  focusMode?: boolean;
+  onToggleFocusMode?: () => void;
 }
 
 export function CommandPalette({
@@ -64,8 +64,8 @@ export function CommandPalette({
   onClose,
   onOpenSettings,
   onOpenAiModal,
-  zenMode,
-  onToggleZenMode,
+  focusMode,
+  onToggleFocusMode,
 }: CommandPaletteProps) {
   const {
     notes,
@@ -256,15 +256,15 @@ export function CommandPalette({
       }
     }
 
-    // Zen mode and source toggle
+    // Focus mode and source toggle
     baseCommands.push(
       {
-        id: "zen-mode",
-        label: zenMode ? "Exit Zen Mode" : "Enter Zen Mode",
+        id: "focus-mode",
+        label: focusMode ? "Exit Focus Mode" : "Enter Focus Mode",
         shortcut: `${mod} ${shift} Enter`,
-        icon: <EyeIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        icon: <ZenIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
-          onToggleZenMode?.();
+          onToggleFocusMode?.();
           onClose();
         },
       },
@@ -272,7 +272,7 @@ export function CommandPalette({
         id: "toggle-source",
         label: "Toggle Markdown Source",
         shortcut: `${mod} ${shift} M`,
-        icon: <CodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        icon: <MarkdownIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
           window.dispatchEvent(new CustomEvent("toggle-source-mode"));
           onClose();
@@ -340,8 +340,8 @@ export function CommandPalette({
     settings,
     pinNote,
     unpinNote,
-    zenMode,
-    onToggleZenMode,
+    focusMode,
+    onToggleFocusMode,
   ]);
 
   // Debounced search using Tantivy (local state, doesn't affect sidebar)

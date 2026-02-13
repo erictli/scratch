@@ -69,7 +69,7 @@ const shortcuts: Shortcut[] = [
   },
   {
     keys: [mod, "Shift", "Enter"],
-    description: "Toggle Zen mode",
+    description: "Toggle Focus mode",
     category: "Navigation",
   },
   {
