@@ -38,16 +38,6 @@ const shortcuts: Shortcut[] = [
     category: "Editor",
   },
   {
-    keys: [mod, "B"],
-    description: "Bold",
-    category: "Editor",
-  },
-  {
-    keys: [mod, "I"],
-    description: "Italic",
-    category: "Editor",
-  },
-  {
     keys: [mod, "Shift", "C"],
     description: "Copy as (Markdown/Plain Text/HTML)",
     category: "Editor",
@@ -63,13 +53,18 @@ const shortcuts: Shortcut[] = [
     category: "Editor",
   },
   {
-    keys: [mod, "Shift", "F"],
-    description: "Search notes",
-    category: "Navigation",
-  },
-  {
     keys: [mod, "Shift", "Enter"],
     description: "Toggle Focus mode",
+    category: "Editor",
+  },
+  {
+    keys: ["/"],
+    description: "Slash commands (at start of line)",
+    category: "Editor",
+  },
+  {
+    keys: [mod, "Shift", "F"],
+    description: "Search notes",
     category: "Navigation",
   },
   {

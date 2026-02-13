@@ -166,8 +166,10 @@ scratch/
 ├── src/                            # React frontend
 │   ├── components/
 │   │   ├── editor/                 # TipTap editor + extensions
-│   │   │   ├── Editor.tsx          # Main editor with auto-save, copy-as, format bar
-│   │   │   └── LinkEditor.tsx      # Inline link add/edit/remove popup
+│   │   │   ├── Editor.tsx          # Main editor with auto-save, copy-as, format bar, source mode
+│   │   │   ├── LinkEditor.tsx      # Inline link add/edit/remove popup
+│   │   │   ├── SlashCommand.tsx    # Slash command extension for TipTap
+│   │   │   └── SlashCommandList.tsx # Slash command popup menu UI
 │   │   ├── layout/                 # Sidebar, main layout
 │   │   │   ├── Sidebar.tsx         # Note list, search, git status
 │   │   │   └── FolderPicker.tsx    # Initial folder selection dialog
@@ -225,7 +227,7 @@ All backend operations go through Tauri commands defined in `src-tauri/src/lib.r
 ### State Management
 
 - `NotesContext` manages all note state, CRUD operations, and search
-- `ThemeContext` handles light/dark/system theme and editor typography settings
+- `ThemeContext` handles light/dark/system theme, editor typography, text direction, and page width settings
 
 ### Settings
 
@@ -236,6 +238,8 @@ The settings page provides UI for:
 
 - Theme mode (light/dark/system)
 - Editor typography (font family, size, line height, bold weight)
+- Text direction (LTR/RTL)
+- Page width (narrow/normal/wide/full)
 - Git integration (optional)
 - Keyboard shortcuts reference
 
@@ -255,6 +259,11 @@ TipTap editor with extensions and features:
 - Copy-as menu (Markdown/Plain Text/HTML) via `Cmd+Shift+C`
 - Inline link editor popup (`Cmd+K`) for add/edit/remove
 - Format bar with 13 tools (bold, italic, headings, lists, code, etc.)
+- Slash commands (`/`) for quick block insertion (headings, lists, code, etc.)
+- Markdown source mode (`Cmd+Shift+M`) to view/edit raw markdown
+- Focus mode (`Cmd+Shift+Enter`) for distraction-free writing with animated transitions
+- RTL text direction support (configurable in settings)
+- Configurable page width (narrow/normal/wide/full)
 - Table editing with right-click context menu (insert/delete rows/columns, merge/split cells)
 - Markdown paste detection and parsing
 - Image insertion from disk
@@ -274,7 +283,7 @@ TipTap editor with extensions and features:
   - Recently saved note tracking to ignore own file watcher events
 - `GitContext` - Git operations with loading states and error handling
   - Auto-refresh status on file changes (1000ms debounce)
-- `ThemeContext` - Theme mode and typography with CSS variable application
+- `ThemeContext` - Theme mode, typography, text direction, and page width with CSS variable application
 
 **Key Components:**
 - `Editor` - Main editor with all editing features
@@ -338,6 +347,9 @@ Current capabilities include:
 - `Cmd+K` - Add/edit link (when in editor)
 - `Cmd+F` - Find in current note
 - `Cmd+Shift+C` - Copy as (Markdown/Plain Text/HTML)
+- `Cmd+Shift+M` - Toggle Markdown source mode
+- `Cmd+Shift+Enter` - Toggle Focus mode
+- `Cmd+Shift+F` - Search notes
 - `Cmd+R` - Reload current note (pull external changes)
 - `Cmd+,` - Open settings
 - `Cmd+1/2/3` - Switch settings tabs (General/Appearance/Shortcuts)
@@ -378,18 +390,3 @@ The app watches the notes folder for external changes (e.g., from AI agents or o
 - Inline editing (links, commits)
 - Non-blocking operations (async everything)
 - Error handling with user-friendly messages
-
-## Recent Development
-
-Recent commits show continuous improvement:
-- AI editing with Claude Code CLI integration (invoke Claude to edit notes)
-- Table editing support with context menu operations
-- Keyboard shortcuts reference page in settings
-- Find in note functionality with search highlighting
-- Yellow selection highlight and UI polish
-- Inline link editor (replaced wikilink support)
-- Git integration with push/remote management
-- Settings UI simplification
-- Copy-as feature (Markdown/Plain/HTML)
-- Task list styling improvements
-- Cross-platform keyboard support (Ctrl on non-Mac)
