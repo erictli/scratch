@@ -11,6 +11,8 @@ import type {
   ThemeSettings,
   EditorFontSettings,
   FontFamily,
+  TextDirection,
+  EditorWidth,
 } from "../types/note";
 
 type ThemeMode = "light" | "dark" | "system";
@@ -22,6 +24,14 @@ const fontFamilyMap: Record<FontFamily, string> = {
   serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
   monospace:
     "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
+};
+
+// Editor width CSS values
+const editorWidthMap: Record<EditorWidth, string> = {
+  narrow: "36rem",
+  normal: "48rem",
+  wide: "64rem",
+  full: "100%",
 };
 
 // Default editor font settings (simplified)
@@ -44,6 +54,10 @@ interface ThemeContextType {
   ) => void;
   resetEditorFontSettings: () => void;
   reloadSettings: () => Promise<void>;
+  textDirection: TextDirection;
+  setTextDirection: (dir: TextDirection) => void;
+  editorWidth: EditorWidth;
+  setEditorWidth: (width: EditorWidth) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -86,11 +100,20 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   root.style.setProperty("--editor-paragraph-spacing", "0.875em");
 }
 
+// Apply editor layout CSS variables
+function applyLayoutCSSVariables(direction: TextDirection, width: EditorWidth) {
+  const root = document.documentElement;
+  root.style.setProperty("--editor-direction", direction);
+  root.style.setProperty("--editor-max-width", editorWidthMap[width]);
+}
+
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<ThemeMode>("system");
   const [editorFontSettings, setEditorFontSettings] = useState<
     Required<EditorFontSettings>
   >(defaultEditorFontSettings);
+  const [textDirection, setTextDirectionState] = useState<TextDirection>("ltr");
+  const [editorWidth, setEditorWidthState] = useState<EditorWidth>("normal");
   const [isInitialized, setIsInitialized] = useState(false);
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
@@ -118,6 +141,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           ...defaultEditorFontSettings,
           ...fontSettings,
         });
+      }
+      if (settings.textDirection === "ltr" || settings.textDirection === "rtl") {
+        setTextDirectionState(settings.textDirection);
+      }
+      if (
+        settings.editorWidth === "narrow" ||
+        settings.editorWidth === "normal" ||
+        settings.editorWidth === "wide" ||
+        settings.editorWidth === "full"
+      ) {
+        setEditorWidthState(settings.editorWidth);
       }
     } catch {
       // If settings can't be loaded, use defaults
@@ -195,6 +229,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     applyFontCSSVariables(editorFontSettings);
   }, [editorFontSettings]);
 
+  // Apply layout CSS variables whenever direction or width change
+  useEffect(() => {
+    applyLayoutCSSVariables(textDirection, editorWidth);
+  }, [textDirection, editorWidth]);
+
   // Save font settings to backend
   const saveFontSettings = useCallback(
     async (newFontSettings: Required<EditorFontSettings>) => {
@@ -230,7 +269,31 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const resetEditorFontSettings = useCallback(() => {
     setEditorFontSettings(defaultEditorFontSettings);
     saveFontSettings(defaultEditorFontSettings);
+    setTextDirection("ltr");
+    setEditorWidth("normal");
   }, [saveFontSettings]);
+
+  // Save and set text direction
+  const setTextDirection = useCallback(async (dir: TextDirection) => {
+    setTextDirectionState(dir);
+    try {
+      const settings = await getSettings();
+      await updateSettings({ ...settings, textDirection: dir });
+    } catch (error) {
+      console.error("Failed to save text direction:", error);
+    }
+  }, []);
+
+  // Save and set editor width
+  const setEditorWidth = useCallback(async (width: EditorWidth) => {
+    setEditorWidthState(width);
+    try {
+      const settings = await getSettings();
+      await updateSettings({ ...settings, editorWidth: width });
+    } catch (error) {
+      console.error("Failed to save editor width:", error);
+    }
+  }, []);
 
   // Don't render until initialized to prevent flash
   if (!isInitialized) {
@@ -248,6 +311,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         setEditorFontSetting,
         resetEditorFontSettings,
         reloadSettings,
+        textDirection,
+        setTextDirection,
+        editorWidth,
+        setEditorWidth,
       }}
     >
       {children}

@@ -38,9 +38,14 @@ function AppContent() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
+  const [zenMode, setZenMode] = useState(false);
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
+  }, []);
+
+  const toggleZenMode = useCallback(() => {
+    setZenMode((prev) => !prev);
   }, []);
 
   const toggleSettings = useCallback(() => {
@@ -131,6 +136,27 @@ function AppContent() {
 
       // Block all other shortcuts when in settings view
       if (view === "settings") {
+        return;
+      }
+
+      // Cmd+Shift+Enter - Toggle zen mode
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "Enter") {
+        e.preventDefault();
+        toggleZenMode();
+        return;
+      }
+
+      // Cmd+Shift+M - Toggle markdown source mode
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("toggle-source-mode"));
+        return;
+      }
+
+      // Escape exits zen mode when not in editor
+      if (e.key === "Escape" && zenMode && !isInEditor) {
+        e.preventDefault();
+        setZenMode(false);
         return;
       }
 
@@ -246,6 +272,8 @@ function AppContent() {
     selectNote,
     toggleSettings,
     toggleSidebar,
+    toggleZenMode,
+    zenMode,
     view,
   ]);
 
@@ -275,10 +303,11 @@ function AppContent() {
           <SettingsPage onBack={closeSettings} />
         ) : (
           <>
-            {sidebarVisible && <Sidebar onOpenSettings={toggleSettings} />}
+            {sidebarVisible && !zenMode && <Sidebar onOpenSettings={toggleSettings} />}
             <Editor
               onToggleSidebar={toggleSidebar}
-              sidebarVisible={sidebarVisible}
+              sidebarVisible={sidebarVisible && !zenMode}
+              zenMode={zenMode}
             />
           </>
         )}
@@ -300,6 +329,8 @@ function AppContent() {
         onClose={handleClosePalette}
         onOpenSettings={toggleSettings}
         onOpenAiModal={() => setAiModalOpen(true)}
+        zenMode={zenMode}
+        onToggleZenMode={toggleZenMode}
       />
       <AiEditModal
         open={aiModalOpen}

@@ -58,8 +58,18 @@ const shortcuts: Shortcut[] = [
     category: "Editor",
   },
   {
+    keys: [mod, "Shift", "M"],
+    description: "Toggle Markdown source",
+    category: "Editor",
+  },
+  {
     keys: [mod, "Shift", "F"],
     description: "Search notes",
+    category: "Navigation",
+  },
+  {
+    keys: [mod, "Shift", "Enter"],
+    description: "Toggle Zen mode",
     category: "Navigation",
   },
   {

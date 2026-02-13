@@ -18,6 +18,8 @@ export interface ThemeSettings {
 }
 
 export type FontFamily = "system-sans" | "serif" | "monospace";
+export type TextDirection = "ltr" | "rtl";
+export type EditorWidth = "narrow" | "normal" | "wide" | "full";
 
 export interface EditorFontSettings {
   baseFontFamily?: FontFamily;
@@ -32,4 +34,6 @@ export interface Settings {
   editorFont?: EditorFontSettings;
   gitEnabled?: boolean;
   pinnedNoteIds?: string[];
+  textDirection?: TextDirection;
+  editorWidth?: EditorWidth;
 }

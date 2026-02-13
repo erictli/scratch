@@ -95,6 +95,10 @@ pub struct Settings {
     pub git_enabled: Option<bool>,
     #[serde(rename = "pinnedNoteIds")]
     pub pinned_note_ids: Option<Vec<String>>,
+    #[serde(rename = "textDirection")]
+    pub text_direction: Option<String>,
+    #[serde(rename = "editorWidth")]
+    pub editor_width: Option<String>,
 }
 
 // Search result

@@ -234,6 +234,12 @@ html.dark {
   opacity: 0;
 }
 
+/* Editor layout - direction and max-width from settings */
+.ProseMirror {
+  direction: var(--editor-direction, ltr);
+  max-width: var(--editor-max-width, 48rem) !important;
+}
+
 /* Editor font customization - simplified */
 .prose {
   font-family: var(--editor-font-family);
@@ -376,6 +382,7 @@ html.dark {
   :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
   color: var(--color-text-muted);
   border-left-color: var(--color-border);
+  border-inline-start-color: var(--color-border);
 }
 
 /* Horizontal rules */
@@ -396,6 +403,7 @@ html.dark {
   margin-top: 0;
   margin-bottom: var(--editor-paragraph-spacing);
   padding-left: 1.25em;
+  padding-inline-start: 1.25em;
 }
 
 /* Remove extra margins from nested lists */
@@ -409,6 +417,7 @@ html.dark {
   margin-top: 0;
   margin-bottom: 0;
   padding-left: 0.25em;
+  padding-inline-start: 0.25em;
 }
 
 /* List markers - use muted stone color */
@@ -437,6 +446,7 @@ html.dark {
 ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0 !important;
+  padding-inline-start: 0 !important;
   margin-top: 0.5em;
   margin-bottom: 0.5em;
 }

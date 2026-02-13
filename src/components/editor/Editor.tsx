@@ -36,6 +36,7 @@ function isAllowedUrlScheme(url: string): boolean {
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
+import { useTheme } from "../../context/ThemeContext";
 import { Frontmatter } from "./Frontmatter";
 import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
@@ -68,6 +69,7 @@ import {
   RefreshCwIcon,
   PinIcon,
   SearchIcon,
+  EyeIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -336,9 +338,10 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
 interface EditorProps {
   onToggleSidebar?: () => void;
   sidebarVisible?: boolean;
+  zenMode?: boolean;
 }
 
-export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
+export function Editor({ onToggleSidebar, sidebarVisible, zenMode }: EditorProps) {
   const {
     notes,
     currentNote,
@@ -350,11 +353,16 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     pinNote,
     unpinNote,
   } = useNotes();
+  const { textDirection } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  // Source mode state
+  const [sourceMode, setSourceMode] = useState(false);
+  const [sourceContent, setSourceContent] = useState("");
+  const sourceTimeoutRef = useRef<number | null>(null);
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1206,6 +1214,49 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
     }
   }, [editor]);
 
+  // Toggle source mode
+  const toggleSourceMode = useCallback(() => {
+    if (!editor) return;
+    if (!sourceMode) {
+      // Entering source mode: get markdown from editor
+      const md = getMarkdown(editor);
+      setSourceContent(md);
+      setSourceMode(true);
+    } else {
+      // Exiting source mode: push content back to editor
+      editor.commands.setContent(sourceContent);
+      setSourceMode(false);
+    }
+  }, [editor, sourceMode, sourceContent, getMarkdown]);
+
+  // Listen for toggle-source-mode custom event (from App.tsx shortcut / command palette)
+  useEffect(() => {
+    const handler = () => toggleSourceMode();
+    window.addEventListener("toggle-source-mode", handler);
+    return () => window.removeEventListener("toggle-source-mode", handler);
+  }, [toggleSourceMode]);
+
+  // Auto-save in source mode with debounce
+  const handleSourceChange = useCallback(
+    (value: string) => {
+      setSourceContent(value);
+      if (sourceTimeoutRef.current) {
+        clearTimeout(sourceTimeoutRef.current);
+      }
+      sourceTimeoutRef.current = window.setTimeout(() => {
+        if (currentNote) {
+          saveNote(currentNote.id, value);
+        }
+      }, 300);
+    },
+    [currentNote, saveNote],
+  );
+
+  // Reset source mode when switching notes
+  useEffect(() => {
+    setSourceMode(false);
+  }, [currentNote?.id]);
+
   if (!currentNote) {
     return (
       <div className="flex-1 flex flex-col bg-bg">
@@ -1252,9 +1303,11 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         className={cn(
           "h-11 shrink-0 flex items-center justify-between px-3",
           !sidebarVisible && "pl-22",
+          zenMode && "pl-22",
         )}
         data-tauri-drag-region
       >
+        {!zenMode && (
         <div className="titlebar-no-drag flex items-center gap-1 min-w-0">
           {onToggleSidebar && (
             <IconButton
@@ -1273,6 +1326,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             {formatDateTime(currentNote.modified)}
           </span>
         </div>
+        )}
+        {!zenMode && (
         <div className="titlebar-no-drag flex items-center gap-px shrink-0">
           {hasExternalChanges ? (
             <Tooltip
@@ -1341,6 +1396,16 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
               </IconButton>
             </Tooltip>
           )}
+          {currentNote && (
+            <Tooltip content={sourceMode ? `View Formatted (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}M)` : `View Markdown Source (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}M)`}>
+              <IconButton onClick={toggleSourceMode}>
+                {sourceMode
+                  ? <EyeIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                  : <CodeIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                }
+              </IconButton>
+            </Tooltip>
+          )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
             <Tooltip
               content={`Copy as... (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}C)`}
@@ -1389,20 +1454,44 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
         </div>
+        )}
       </div>
 
       {/* Format Bar */}
-      <FormatBar
-        editor={editor}
-        onAddLink={handleAddLink}
-        onAddImage={handleAddImage}
-      />
+      {!zenMode && (
+        <FormatBar
+          editor={editor}
+          onAddLink={handleAddLink}
+          onAddImage={handleAddImage}
+        />
+      )}
 
-      {/* TipTap Editor */}
+      {/* Editor content area */}
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden relative"
+        dir={textDirection}
       >
+        {sourceMode ? (
+          /* Markdown source textarea */
+          <div className="h-full">
+            <textarea
+              value={sourceContent}
+              onChange={(e) => handleSourceChange(e.target.value)}
+              dir={textDirection}
+              className="w-full h-full bg-transparent text-text focus:outline-none resize-none px-6 pt-8 pb-24 mx-auto block"
+              style={{
+                maxWidth: "var(--editor-max-width, 48rem)",
+                fontFamily: "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
+                fontSize: "var(--editor-base-font-size)",
+                lineHeight: "var(--editor-line-height)",
+                tabSize: 2,
+              }}
+              spellCheck={false}
+            />
+          </div>
+        ) : (
+        <>
         {searchOpen && (
           <div className="sticky top-2 z-10 animate-in fade-in slide-in-from-top-4 duration-200 pointer-events-none pr-2 flex justify-end">
             <div className="pointer-events-auto">
@@ -1582,6 +1671,8 @@ export function Editor({ onToggleSidebar, sidebarVisible }: EditorProps) {
         >
           <EditorContent editor={editor} className="h-full text-text" />
         </div>
+        </>
+        )}
       </div>
     </div>
   );
