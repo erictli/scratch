@@ -1108,11 +1108,9 @@ async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<S
     // Check if search index is available and use it (scoped to drop lock before await)
     let indexed_result = {
         let index = state.search_index.lock().expect("search index mutex");
-        if let Some(ref search_index) = *index {
-            Some(search_index.search(&trimmed_query, 20).map_err(|e| e.to_string()))
-        } else {
-            None
-        }
+        (*index).as_ref().map(|search_index| {
+            search_index.search(&trimmed_query, 20).map_err(|e| e.to_string())
+        })
     };
 
     match indexed_result {
