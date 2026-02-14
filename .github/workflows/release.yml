@@ -71,7 +71,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Scratch v__VERSION__"
-          releaseBody: "See the assets to download and install this version."
+          releaseBody: "See the release page for full details. Download the app for your platform below."
           releaseDraft: true
           prerelease: false
           updaterJsonPreferNsis: true
