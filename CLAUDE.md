@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Scratch is a cross-platform markdown note-taking app for macOS and Windows, built with Tauri v2 (Rust backend) + React/TypeScript/Tailwind (frontend) + TipTap (WYSIWYG editor) + Tantivy (full-text search).
+Scratch is a cross-platform markdown note-taking app for macOS, Windows, and Linux, built with Tauri v2 (Rust backend) + React/TypeScript/Tailwind (frontend) + TipTap (WYSIWYG editor) + Tantivy (full-text search).
 
 ## Tech Stack
 
@@ -21,148 +21,77 @@ npm run tauri dev    # Run full app in development mode
 npm run tauri build  # Build production app
 ```
 
-## Building for Release
+## CI/CD
 
-**Before building:** Bump version in `package.json` and `src-tauri/tauri.conf.json`
+### CI (`ci.yml`)
 
-### macOS Build (Universal Binary)
+Runs on every push to `main` and on PRs. Validates frontend build (`tsc` + Vite) and Rust compilation (`cargo check` + `cargo clippy`) on an Ubuntu runner. Does not build the Tauri app bundle.
 
-Builds a universal binary supporting both Intel and Apple Silicon Macs.
+### Release (`release.yml`)
 
-**Prerequisites:**
+Runs on `v*` tag push or manual `workflow_dispatch`. Builds, signs, and publishes for all platforms in parallel:
+
+- **macOS**: Universal binary (arm64 + x86_64), code-signed and notarized
+- **Windows**: NSIS installer (x64)
+- **Linux**: AppImage and .deb
+
+Creates a **draft** GitHub release with all artifacts and `latest.json` for the auto-updater.
+
+### Releasing a New Version
+
+1. Bump version in `package.json` and `src-tauri/tauri.conf.json`
+2. Commit the version bump to `main`
+3. Tag and push:
+   ```bash
+   git tag v0.5.0 && git push origin v0.5.0
+   ```
+4. The release workflow builds all platforms (~20-30 min)
+5. Review the draft release on GitHub, edit release notes
+6. Publish the release — the auto-updater endpoint immediately serves the new `latest.json`
+
+### GitHub Secrets Required
+
+These must be configured in the repo settings (Settings > Secrets and variables > Actions):
+
+| Secret | Purpose |
+|--------|---------|
+| `APPLE_CERTIFICATE` | Base64-encoded .p12 export of Developer ID certificate |
+| `APPLE_CERTIFICATE_PASSWORD` | Password for the .p12 file |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Name (TEAMID)` |
+| `APPLE_ID` | Apple Developer account email |
+| `APPLE_PASSWORD` | App-specific password for notarization |
+| `APPLE_TEAM_ID` | Apple Developer Team ID |
+| `TAURI_SIGNING_PRIVATE_KEY` | Contents of Tauri updater signing key |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for Tauri signing key |
+
+### Auto-Updater
+
+The app checks for updates via the Tauri updater plugin, which fetches `latest.json` from GitHub releases:
+- Endpoint: `https://github.com/erictli/scratch/releases/latest/download/latest.json`
+- On startup (after 3s delay) and manually via Settings > General > "Check for Updates"
+- If a newer version is found, a toast appears with an "Update Now" button
+- Config is in `src-tauri/tauri.conf.json` under `plugins.updater`
+
+### Local Build (Manual)
+
+For local testing without CI, you can still build manually:
+
 ```bash
-rustup target add x86_64-apple-darwin
-rustup target add aarch64-apple-darwin
+# macOS universal binary (requires signing env vars from .env.build)
+source .env.build
+npm run tauri build -- --target universal-apple-darwin
+
+# Windows (on a Windows machine)
+npm run tauri build
 ```
-
-**Build Steps:**
-
-1. Set up environment (credentials in `.env.build`):
-   ```bash
-   source .env.build
-   PATH="/usr/bin:$PATH"  # Ensure system xattr is used, not Python's
-   ```
-
-2. Clean previous build and build universal binary:
-   ```bash
-   rm -rf src-tauri/target/release/bundle
-   npm run tauri build -- --target universal-apple-darwin
-   ```
-
-3. Submit for notarization:
-   ```bash
-   xcrun notarytool submit src-tauri/target/release/bundle/macos/Scratch.zip \
-     --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-   ```
-
-4. Staple the notarization ticket:
-   ```bash
-   xcrun stapler staple src-tauri/target/release/bundle/macos/Scratch.app
-   ```
-
-5. Create DMG with Applications symlink:
-   ```bash
-   mkdir -p /tmp/scratch-dmg
-   cp -R src-tauri/target/release/bundle/macos/Scratch.app /tmp/scratch-dmg/
-   ln -sf /Applications /tmp/scratch-dmg/Applications
-   hdiutil create -volname "Scratch" -srcfolder /tmp/scratch-dmg -ov -format UDZO \
-     src-tauri/target/release/bundle/dmg/Scratch_VERSION_universal.dmg
-   rm -rf /tmp/scratch-dmg
-   ```
-
-6. Get checksum and upload: `shasum -a 256 <dmg_path>`
-
-7. The build also generates an updater manifest at:
-   ```
-   src-tauri/target/release/bundle/macos/Scratch.app.tar.gz.sig
-   src-tauri/target/release/bundle/macos/Scratch.app.tar.gz
-   ```
-   These are used by the auto-updater (see [Publishing a Release](#publishing-a-release) below).
-
-### Windows Build
-
-Builds `.msi` installer and `.exe` setup for Windows.
-
-**Prerequisites:**
-- Windows machine or VM
-- Rust toolchain installed (`rustup`)
-- WebView2 Runtime (usually pre-installed on Windows 11)
-
-**Build Steps:**
-
-1. Clean previous build:
-   ```powershell
-   Remove-Item -Recurse -Force src-tauri\target\release\bundle
-   ```
-
-2. Build installers:
-   ```powershell
-   npm run tauri build
-   ```
-
-3. Outputs will be in `src-tauri/target/release/bundle/`:
-   - `msi/Scratch_VERSION_x64_en-US.msi` - MSI installer
-   - `nsis/Scratch_VERSION_x64-setup.exe` - NSIS setup (recommended for distribution)
-
-4. Get checksum and upload:
-   ```powershell
-   Get-FileHash .\src-tauri\target\release\bundle\nsis\Scratch_VERSION_x64-setup.exe -Algorithm SHA256
-   ```
-
-**Notes:**
-- The NSIS setup (`.exe`) automatically downloads WebView2 if needed
-- For x86 support, add `--target i686-pc-windows-msvc` (requires `rustup target add i686-pc-windows-msvc`)
-
-### Publishing a Release
-
-The app checks for updates via the Tauri updater plugin, which fetches `latest.json` from GitHub releases.
-
-**How it works:**
-- On startup (after 3s delay) and manually via Settings → General → "Check for Updates", the app fetches:
-  `https://github.com/erictli/scratch/releases/latest/download/latest.json`
-- The updater compares the version in `latest.json` to the running app version
-- If newer, a toast appears with an "Update Now" button that downloads and installs the update
-
-**Creating `latest.json`:**
-
-After building for each platform, create a `latest.json` file with this structure:
-
-```json
-{
-  "version": "VERSION",
-  "notes": "Release notes here",
-  "pub_date": "2025-01-01T00:00:00Z",
-  "platforms": {
-    "darwin-universal": {
-      "signature": "CONTENTS_OF .app.tar.gz.sig FILE",
-      "url": "https://github.com/erictli/scratch/releases/download/vVERSION/Scratch.app.tar.gz"
-    },
-    "windows-x86_64": {
-      "signature": "CONTENTS_OF .nsis.zip.sig FILE",
-      "url": "https://github.com/erictli/scratch/releases/download/vVERSION/Scratch_VERSION_x64-setup.nsis.zip"
-    }
-  }
-}
-```
-
-- The `signature` values come from the `.sig` files generated alongside the build artifacts
-- The `url` values should point to the release assets on GitHub
-
-**Upload to GitHub release:**
-
-1. Create a GitHub release tagged `vVERSION` (e.g., `v0.4.0`)
-2. Upload these assets:
-   - `latest.json` (the updater manifest)
-   - macOS: `Scratch_VERSION_universal.dmg` (for manual download) and `Scratch.app.tar.gz` (for auto-update)
-   - Windows: `Scratch_VERSION_x64-setup.exe` (for manual download) and the NSIS `.zip` (for auto-update)
-3. The updater endpoint resolves to the **latest** release's `latest.json` automatically via GitHub's `/releases/latest/download/` URL pattern
-
-**Updater config** is in `src-tauri/tauri.conf.json` under `plugins.updater`, including the public key and endpoint URL.
 
 ## Project Structure
 
 ```
 scratch/
+├── .github/workflows/
+│   ├── ci.yml                      # CI: build validation on push/PR
+│   └── release.yml                 # Release: multi-platform build + publish
 ├── src/                            # React frontend
 │   ├── components/
 │   │   ├── editor/                 # TipTap editor + extensions
