@@ -40,7 +40,9 @@ export function AiEditModal({
   useEffect(() => {
     if (!open) return;
     let active = true;
-    const checkCli = isCodex ? aiService.checkCodexCli : aiService.checkClaudeCli;
+    const checkCli = isCodex
+      ? aiService.checkCodexCli
+      : aiService.checkClaudeCli;
 
     checkCli()
       .then((result) => {
@@ -171,7 +173,7 @@ export function AiEditModal({
                 <span className="font-medium text-text">How does it work?</span>{" "}
                 <span className="text-text-muted">
                   {providerName} will edit the current note directly using your
-                  local {cliName} (uses your provider subscription). You'll be able to undo changes.
+                  local {cliName}. You'll be able to undo changes.
                 </span>
               </div>
               <div className="w-full flex justify-between">
