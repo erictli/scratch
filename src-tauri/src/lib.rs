@@ -1108,20 +1108,65 @@ pub struct FileContent {
     pub modified: i64,
 }
 
+/// Validate a file path for preview mode direct file operations.
+/// Ensures the path is a markdown file, resolves symlinks, and rejects sensitive directories.
+fn validate_preview_path(path: &str) -> Result<PathBuf, String> {
+    let file_path = PathBuf::from(path);
+
+    // Must have a markdown extension
+    match file_path.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown") => {}
+        _ => return Err("Only .md and .markdown files are allowed".to_string()),
+    }
+
+    // Resolve symlinks to get the real path
+    let canonical = file_path
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve file path: {}", e))?;
+
+    // Block sensitive directories
+    let canonical_str = canonical.to_string_lossy();
+    let blocked_prefixes: &[&str] = if cfg!(target_os = "windows") {
+        &["C:\\Windows", "C:\\Program Files"]
+    } else {
+        &["/etc", "/proc", "/sys", "/dev", "/var/run"]
+    };
+
+    for prefix in blocked_prefixes {
+        if canonical_str.starts_with(prefix) {
+            return Err(format!("Access denied: files in {} are not allowed", prefix));
+        }
+    }
+
+    // Block dotfiles/dotdirs in the path (e.g. ~/.ssh/keys.md)
+    for component in canonical.components() {
+        if let std::path::Component::Normal(name) = component {
+            if let Some(name_str) = name.to_str() {
+                if name_str.starts_with('.') && name_str != "." && name_str != ".." {
+                    return Err(format!(
+                        "Access denied: files in hidden directories are not allowed ({})",
+                        name_str
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(canonical)
+}
+
 #[tauri::command]
 async fn read_file_direct(path: String) -> Result<FileContent, String> {
-    let file_path = PathBuf::from(&path);
-    if !file_path.exists() {
-        return Err(format!("File not found: {}", path));
-    }
-    if !file_path.is_file() {
+    let canonical = validate_preview_path(&path)?;
+
+    if !canonical.is_file() {
         return Err(format!("Not a file: {}", path));
     }
 
-    let content = fs::read_to_string(&file_path)
+    let content = fs::read_to_string(&canonical)
         .await
         .map_err(|e| format!("Failed to read file: {}", e))?;
-    let metadata = fs::metadata(&file_path)
+    let metadata = fs::metadata(&canonical)
         .await
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
 
@@ -1144,20 +1189,18 @@ async fn read_file_direct(path: String) -> Result<FileContent, String> {
 
 #[tauri::command]
 async fn save_file_direct(path: String, content: String) -> Result<FileContent, String> {
-    let file_path = PathBuf::from(&path);
+    // For save, the file must already exist (we validate extension + path security)
+    let canonical = validate_preview_path(&path)?;
 
-    // Ensure parent directory exists
-    if let Some(parent) = file_path.parent() {
-        if !parent.exists() {
-            return Err(format!("Parent directory does not exist: {}", parent.display()));
-        }
+    if !canonical.is_file() {
+        return Err(format!("Not a file: {}", path));
     }
 
-    fs::write(&file_path, &content)
+    fs::write(&canonical, &content)
         .await
         .map_err(|e| format!("Failed to write file: {}", e))?;
 
-    let metadata = fs::metadata(&file_path)
+    let metadata = fs::metadata(&canonical)
         .await
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
     let modified = metadata
@@ -2076,14 +2119,21 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
     let encoded_path = urlencoding::encode(file_path);
     let url = format!("index.html?mode=preview&file={}", encoded_path);
 
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
         .title(format!("{} — Scratch", filename))
         .inner_size(800.0, 600.0)
         .min_inner_size(400.0, 300.0)
         .resizable(true)
-        .decorations(true)
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
+        .decorations(true);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    builder
         .build()
         .map_err(|e| format!("Failed to create preview window: {}", e))?;
 
@@ -2279,7 +2329,36 @@ pub fn run() {
                     if let Some(ext) = path.extension() {
                         let ext_str = ext.to_string_lossy().to_lowercase();
                         if (ext_str == "md" || ext_str == "markdown") && path.is_file() {
-                            let _ = create_preview_window(app, &path.to_string_lossy());
+                            let path_str = path.to_string_lossy().into_owned();
+                            // Use smart detection: if file is in notes folder, select it there
+                            if let Some(state) = app.try_state::<AppState>() {
+                                let notes_folder = state
+                                    .app_config
+                                    .read()
+                                    .expect("app_config read lock")
+                                    .notes_folder
+                                    .clone();
+
+                                if let Some(ref folder) = notes_folder {
+                                    let folder_path = PathBuf::from(folder);
+                                    if let (Ok(canonical_file), Ok(canonical_folder)) =
+                                        (path.canonicalize(), folder_path.canonicalize())
+                                    {
+                                        if canonical_file.starts_with(&canonical_folder) {
+                                            if let Some(note_id) =
+                                                id_from_abs_path(&canonical_folder, &canonical_file)
+                                            {
+                                                let _ = app.emit_to("main", "select-note", note_id);
+                                                if let Some(main_window) = app.get_webview_window("main") {
+                                                    let _ = main_window.set_focus();
+                                                }
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            let _ = create_preview_window(app, &path_str);
                         }
                     }
                 }
@@ -2326,7 +2405,39 @@ pub fn run() {
             for url in urls {
                 if let Ok(path) = url.to_file_path() {
                     if path.is_file() {
-                        let _ = create_preview_window(app_handle, &path.to_string_lossy());
+                        let path_str = path.to_string_lossy().into_owned();
+                        // Use smart detection: if file is in notes folder, select it there
+                        let mut handled = false;
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let notes_folder = state
+                                .app_config
+                                .read()
+                                .expect("app_config read lock")
+                                .notes_folder
+                                .clone();
+
+                            if let Some(ref folder) = notes_folder {
+                                let folder_path = PathBuf::from(folder);
+                                if let (Ok(canonical_file), Ok(canonical_folder)) =
+                                    (path.canonicalize(), folder_path.canonicalize())
+                                {
+                                    if canonical_file.starts_with(&canonical_folder) {
+                                        if let Some(note_id) =
+                                            id_from_abs_path(&canonical_folder, &canonical_file)
+                                        {
+                                            let _ = app_handle.emit_to("main", "select-note", note_id);
+                                            if let Some(main_window) = app_handle.get_webview_window("main") {
+                                                let _ = main_window.set_focus();
+                                            }
+                                            handled = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !handled {
+                            let _ = create_preview_window(app_handle, &path_str);
+                        }
                     }
                 }
             }

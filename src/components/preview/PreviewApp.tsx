@@ -56,8 +56,8 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   const save = useCallback(
     async (newContent: string) => {
       try {
-        recentlySavedRef.current = true;
         const result = await filesService.saveFileDirect(filePath, newContent);
+        recentlySavedRef.current = true;
         setModified(result.modified);
         setTitle(result.title);
         setHasExternalChanges(false);
@@ -126,9 +126,13 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
         return;
       }
 
-      // Trap Tab to prevent focus leaving editor
+      // Trap Tab to prevent focus leaving editor (only when editor is focused)
       if (e.key === "Tab") {
-        e.preventDefault();
+        const active = document.activeElement;
+        const editorEl = document.querySelector(".ProseMirror");
+        if (editorEl && editorEl.contains(active)) {
+          e.preventDefault();
+        }
       }
     };
 
