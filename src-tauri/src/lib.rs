@@ -1772,11 +1772,9 @@ fn get_expanded_path() -> String {
     expanded.join(":")
 }
 
-#[tauri::command]
-async fn ai_check_claude_cli() -> Result<bool, String> {
+fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
     use std::process::Command;
 
-    let path = get_expanded_path();
     let which_cmd = if cfg!(target_os = "windows") {
         "where"
     } else {
@@ -1784,38 +1782,37 @@ async fn ai_check_claude_cli() -> Result<bool, String> {
     };
 
     let check_output = Command::new(which_cmd)
-        .arg("claude")
-        .env("PATH", &path)
+        .arg(command_name)
+        .env("PATH", path)
         .output()
-        .map_err(|e| format!("Failed to check for claude CLI: {}", e))?;
+        .map_err(|e| format!("Failed to check for {} CLI: {}", command_name, e))?;
 
     Ok(check_output.status.success())
 }
 
+#[tauri::command]
+async fn ai_check_claude_cli() -> Result<bool, String> {
+    let path = get_expanded_path();
+    check_cli_exists("claude", &path)
+}
+
+#[tauri::command]
+async fn ai_check_codex_cli() -> Result<bool, String> {
+    let path = get_expanded_path();
+    check_cli_exists("codex", &path)
+}
+
 // AI execute command
 #[tauri::command]
-async fn ai_execute_claude(
-    file_path: String,
-    prompt: String,
-) -> Result<AiExecutionResult, String> {
-    use std::process::{Child, Command, Stdio};
+async fn ai_execute_claude(file_path: String, prompt: String) -> Result<AiExecutionResult, String> {
     use std::io::Write;
+    use std::process::{Child, Command, Stdio};
 
     // Check if claude CLI exists
     let path = get_expanded_path();
-    let which_cmd = if cfg!(target_os = "windows") {
-        "where"
-    } else {
-        "which"
-    };
+    let has_claude = check_cli_exists("claude", &path)?;
 
-    let check_output = Command::new(which_cmd)
-        .arg("claude")
-        .env("PATH", &path)
-        .output()
-        .map_err(|e| format!("Failed to check for claude CLI: {}", e))?;
-
-    if !check_output.status.success() {
+    if !has_claude {
         return Ok(AiExecutionResult {
             success: false,
             output: String::new(),
@@ -1861,7 +1858,9 @@ async fn ai_execute_claude(
                             return AiExecutionResult {
                                 success: false,
                                 output: String::new(),
-                                error: Some("Claude process handle was unexpectedly missing".to_string()),
+                                error: Some(
+                                    "Claude process handle was unexpectedly missing".to_string(),
+                                ),
                             };
                         }
                     },
@@ -1915,22 +1914,18 @@ async fn ai_execute_claude(
                             }
                         }
                     }
-                    Err(e) => {
-                        AiExecutionResult {
-                            success: false,
-                            output: String::new(),
-                            error: Some(format!("Failed to wait for claude: {}", e)),
-                        }
-                    }
+                    Err(e) => AiExecutionResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("Failed to wait for claude: {}", e)),
+                    },
                 }
             }
-            Err(e) => {
-                AiExecutionResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!("Failed to execute claude: {}", e)),
-                }
-            }
+            Err(e) => AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute claude: {}", e)),
+            },
         }
     });
 
@@ -1972,6 +1967,176 @@ async fn ai_execute_claude(
 
     Ok(result)
 }
+
+#[tauri::command]
+async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecutionResult, String> {
+    use std::io::Write;
+    use std::process::{Child, Command, Stdio};
+
+    let path = get_expanded_path();
+    let has_codex = check_cli_exists("codex", &path)?;
+
+    if !has_codex {
+        return Ok(AiExecutionResult {
+            success: false,
+            output: String::new(),
+            error: Some(
+                "Codex CLI not found. Please install it from https://github.com/openai/codex"
+                    .to_string(),
+            ),
+        });
+    }
+
+    let timeout_duration = std::time::Duration::from_secs(300); // 5 minute timeout
+    let shared_child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
+    let child_for_task = Arc::clone(&shared_child);
+    let codex_prompt = format!(
+        "Edit only this markdown file: {file_path}\n\
+Apply the user's instructions below directly to that file.\n\
+Do not create, delete, rename, or modify any other files.\n\
+User instructions:\n\
+{prompt}"
+    );
+
+    let mut task = tauri::async_runtime::spawn_blocking(move || {
+        let child = Command::new("codex")
+            .env("PATH", &path)
+            .arg("exec")
+            .arg("--skip-git-repo-check")
+            .arg("--dangerously-bypass-approvals-and-sandbox")
+            .arg("-")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn();
+
+        match child {
+            Ok(process) => {
+                if let Ok(mut child_guard) = child_for_task.lock() {
+                    *child_guard = Some(process);
+                } else {
+                    return AiExecutionResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("Failed to lock codex child process handle".to_string()),
+                    };
+                }
+
+                let mut process = match child_for_task.lock() {
+                    Ok(mut child_guard) => match child_guard.take() {
+                        Some(process) => process,
+                        None => {
+                            return AiExecutionResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some(
+                                    "Codex process handle was unexpectedly missing".to_string(),
+                                ),
+                            };
+                        }
+                    },
+                    Err(_) => {
+                        return AiExecutionResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some("Failed to lock codex child process handle".to_string()),
+                        };
+                    }
+                };
+
+                if let Some(mut stdin) = process.stdin.take() {
+                    if let Err(e) = stdin.write_all(codex_prompt.as_bytes()) {
+                        let _ = process.kill();
+                        let _ = process.wait();
+                        return AiExecutionResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some(format!("Failed to write prompt to codex stdin: {}", e)),
+                        };
+                    }
+                } else {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                    return AiExecutionResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("Failed to open stdin for codex process".to_string()),
+                    };
+                }
+
+                match process.wait_with_output() {
+                    Ok(output) => {
+                        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+                        if output.status.success() {
+                            AiExecutionResult {
+                                success: true,
+                                output: stdout,
+                                error: None,
+                            }
+                        } else {
+                            AiExecutionResult {
+                                success: false,
+                                output: stdout,
+                                error: Some(stderr),
+                            }
+                        }
+                    }
+                    Err(e) => AiExecutionResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("Failed to wait for codex: {}", e)),
+                    },
+                }
+            }
+            Err(e) => AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to execute codex: {}", e)),
+            },
+        }
+    });
+
+    let result = match tokio::time::timeout(timeout_duration, &mut task).await {
+        Ok(join_result) => {
+            join_result.map_err(|e| format!("Failed to join Codex blocking task: {}", e))?
+        }
+        Err(_) => {
+            if let Ok(mut child_guard) = shared_child.lock() {
+                if let Some(mut process) = child_guard.take() {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                }
+            }
+
+            match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
+                Ok(join_result) => {
+                    if let Err(e) = join_result {
+                        return Err(format!(
+                            "Failed to join Codex blocking task after timeout: {}",
+                            e
+                        ));
+                    }
+                }
+                Err(_) => {
+                    return Err(
+                        "Codex CLI timed out and failed to exit after kill signal".to_string()
+                    );
+                }
+            }
+
+            AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some("Codex CLI timed out after 5 minutes".to_string()),
+            }
+        }
+    };
+
+    Ok(result)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -2016,11 +2181,9 @@ pub fn run() {
             // Initialize search index if notes folder is set
             let search_index = if let Some(ref folder) = app_config.notes_folder {
                 if let Ok(index_path) = get_search_index_path(app.handle()) {
-                    SearchIndex::new(&index_path)
-                        .ok()
-                        .inspect(|idx| {
-                            let _ = idx.rebuild_index(&PathBuf::from(folder));
-                        })
+                    SearchIndex::new(&index_path).ok().inspect(|idx| {
+                        let _ = idx.rebuild_index(&PathBuf::from(folder));
+                    })
                 } else {
                     None
                 }
@@ -2066,7 +2229,9 @@ pub fn run() {
             git_add_remote,
             git_push_with_upstream,
             ai_check_claude_cli,
+            ai_check_codex_cli,
             ai_execute_claude,
+            ai_execute_codex,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

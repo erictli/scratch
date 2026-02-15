@@ -1,8 +1,10 @@
-import { ClaudeIcon } from "../icons";
+import { ClaudeIcon, CodexIcon } from "../icons";
 import { mod } from "../../lib/platform";
+import type { AiProvider } from "../../services/ai";
 
 interface AiResponseToastProps {
   output: string;
+  provider: AiProvider;
 }
 
 // Simple markdown-to-React converter for basic formatting
@@ -205,10 +207,12 @@ function parseInlineMarkdown(text: string): React.ReactNode {
   return parts.length > 0 ? parts : remaining;
 }
 
-export function AiResponseToast({ output }: AiResponseToastProps) {
+export function AiResponseToast({ output, provider }: AiResponseToastProps) {
+  const Icon = provider === "codex" ? CodexIcon : ClaudeIcon;
+
   return (
     <div className="flex gap-3 items-start">
-      <ClaudeIcon className="w-4.5 h-4.5 shrink-0 mt-px" />
+      <Icon className="w-4.5 h-4.5 shrink-0 mt-px" />
       <div className="flex-1 space-y-2 min-w-0">
         <div className="font-medium text-sm">AI Edit Complete</div>
         <div className="text-text-muted max-h-60 overflow-y-auto pr-2">

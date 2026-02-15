@@ -39,8 +39,10 @@ import {
   ClaudeIcon,
   ZenIcon,
   MarkdownIcon,
+  CodexIcon,
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
+import type { AiProvider } from "../../services/ai";
 
 interface Command {
   id: string;
@@ -54,7 +56,7 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
-  onOpenAiModal?: () => void;
+  onOpenAiModal?: (provider: AiProvider) => void;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
 }
@@ -141,7 +143,16 @@ export function CommandPalette({
           label: "Edit with Claude Code",
           icon: <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted" />,
           action: () => {
-            onOpenAiModal?.();
+            onOpenAiModal?.("claude");
+            onClose();
+          },
+        },
+        {
+          id: "ai-edit-codex",
+          label: "Edit with OpenAI Codex",
+          icon: <CodexIcon className="w-4.5 h-4.5 fill-text-muted" />,
+          action: () => {
+            onOpenAiModal?.("codex");
             onClose();
           },
         },
