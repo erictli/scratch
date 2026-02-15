@@ -402,6 +402,14 @@ export function Editor({
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  // Delay transition classes until after initial mount to avoid format bar height animation on note load
+  const [hasTransitioned, setHasTransitioned] = useState(false);
+  useEffect(() => {
+    if (!hasTransitioned && currentNote) {
+      const id = requestAnimationFrame(() => setHasTransitioned(true));
+      return () => cancelAnimationFrame(id);
+    }
+  }, [hasTransitioned, currentNote]);
   // Source mode state
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceContent, setSourceContent] = useState("");
@@ -1549,9 +1557,9 @@ export function Editor({
         </div>
       </div>
 
-      {/* Format Bar */}
+      {/* Format Bar – transition only after initial mount to avoid height animation on note load */}
       <div
-        className={`transition-all duration-1000 delay-500 ${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"}`}
+        className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? "transition-all duration-1000 delay-500" : ""}`}
       >
         <FormatBar
           editor={editor}
