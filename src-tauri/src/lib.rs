@@ -2183,6 +2183,8 @@ fn open_file_preview(app: AppHandle, path: String) -> Result<(), String> {
 
 // Handle CLI arguments: open .md files in preview mode
 fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) {
+    let mut opened_file = false;
+
     for arg in args.iter().skip(1) {
         // Skip flags
         if arg.starts_with('-') {
@@ -2195,16 +2197,16 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) {
             PathBuf::from(cwd).join(arg)
         };
 
-        if is_markdown_extension(&path)
-            && path.is_file()
-            && !try_select_in_notes_folder(app, &path)
-        {
-            let _ = create_preview_window(app, &path.to_string_lossy());
+        if is_markdown_extension(&path) && path.is_file() {
+            opened_file = true;
+            if !try_select_in_notes_folder(app, &path) {
+                let _ = create_preview_window(app, &path.to_string_lossy());
+            }
         }
     }
 
-    // If no file args were processed, focus the main window
-    if args.len() <= 1 {
+    // If no files were opened, focus the main window
+    if !opened_file {
         if let Some(main_window) = app.get_webview_window("main") {
             let _ = main_window.set_focus();
         }
