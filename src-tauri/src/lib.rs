@@ -2162,8 +2162,14 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
         .build()
         .map_err(|e| format!("Failed to create preview window: {}", e))?;
 
-    // Focus the preview window so it appears on top of the main window
-    let _ = window.set_focus();
+    // Focus the preview window so it appears on top of the main window.
+    // Use a short delay because during cold start the main window may steal
+    // focus after its WebView finishes loading.
+    let win = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let _ = win.set_focus();
+    });
 
     Ok(())
 }
