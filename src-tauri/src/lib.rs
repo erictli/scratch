@@ -10,7 +10,8 @@ use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
+use tauri::webview::WebviewWindowBuilder;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 
@@ -1098,6 +1099,84 @@ fn update_settings(
     Ok(())
 }
 
+// Preview mode: file content returned by read_file_direct / save_file_direct
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileContent {
+    pub path: String,
+    pub content: String,
+    pub title: String,
+    pub modified: i64,
+}
+
+#[tauri::command]
+async fn read_file_direct(path: String) -> Result<FileContent, String> {
+    let file_path = PathBuf::from(&path);
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+    if !file_path.is_file() {
+        return Err(format!("Not a file: {}", path));
+    }
+
+    let content = fs::read_to_string(&file_path)
+        .await
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let metadata = fs::metadata(&file_path)
+        .await
+        .map_err(|e| format!("Failed to read metadata: {}", e))?;
+
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    let title = extract_title(&content);
+
+    Ok(FileContent {
+        path,
+        content,
+        title,
+        modified,
+    })
+}
+
+#[tauri::command]
+async fn save_file_direct(path: String, content: String) -> Result<FileContent, String> {
+    let file_path = PathBuf::from(&path);
+
+    // Ensure parent directory exists
+    if let Some(parent) = file_path.parent() {
+        if !parent.exists() {
+            return Err(format!("Parent directory does not exist: {}", parent.display()));
+        }
+    }
+
+    fs::write(&file_path, &content)
+        .await
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    let metadata = fs::metadata(&file_path)
+        .await
+        .map_err(|e| format!("Failed to read metadata: {}", e))?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    let title = extract_title(&content);
+
+    Ok(FileContent {
+        path,
+        content,
+        title,
+        modified,
+    })
+}
+
 #[tauri::command]
 async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
     let trimmed_query = query.trim().to_string();
@@ -1972,9 +2051,151 @@ async fn ai_execute_claude(
 
     Ok(result)
 }
+
+// Preview mode: create a lightweight window for editing a single file
+fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    file_path.hash(&mut hasher);
+    let label = format!("preview-{:x}", hasher.finish());
+
+    // If window already exists for this file, focus it
+    if let Some(window) = app.get_webview_window(&label) {
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    // Extract filename for the window title
+    let filename = PathBuf::from(file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Preview".to_string());
+
+    let encoded_path = urlencoding::encode(file_path);
+    let url = format!("index.html?mode=preview&file={}", encoded_path);
+
+    WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title(format!("{} — Scratch", filename))
+        .inner_size(800.0, 600.0)
+        .min_inner_size(400.0, 300.0)
+        .resizable(true)
+        .decorations(true)
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .build()
+        .map_err(|e| format!("Failed to create preview window: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_file_preview(app: AppHandle, path: String, state: State<AppState>) -> Result<(), String> {
+    let file_path = PathBuf::from(&path);
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    // Smart detection: if file is inside the notes folder, tell main window to select it
+    let notes_folder = {
+        state
+            .app_config
+            .read()
+            .expect("app_config read lock")
+            .notes_folder
+            .clone()
+    };
+
+    if let Some(ref folder) = notes_folder {
+        let folder_path = PathBuf::from(folder);
+        if let Ok(canonical_file) = file_path.canonicalize() {
+            if let Ok(canonical_folder) = folder_path.canonicalize() {
+                if canonical_file.starts_with(&canonical_folder) {
+                    // File is inside notes folder — emit event to select it in main window
+                    if let Some(note_id) = id_from_abs_path(&canonical_folder, &canonical_file) {
+                        let _ = app.emit_to("main", "select-note", note_id);
+                        if let Some(main_window) = app.get_webview_window("main") {
+                            let _ = main_window.set_focus();
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    // File is not in notes folder — open in preview window
+    create_preview_window(&app, &path)
+}
+
+// Handle CLI arguments: open .md files in preview mode
+fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) {
+    for arg in args.iter().skip(1) {
+        // Skip flags
+        if arg.starts_with('-') {
+            continue;
+        }
+
+        let path = if PathBuf::from(arg).is_absolute() {
+            PathBuf::from(arg)
+        } else {
+            PathBuf::from(cwd).join(arg)
+        };
+
+        // Only handle .md/.markdown files
+        if let Some(ext) = path.extension() {
+            let ext_str = ext.to_string_lossy().to_lowercase();
+            if (ext_str == "md" || ext_str == "markdown") && path.is_file() {
+                let path_str = path.to_string_lossy().into_owned();
+                // Use open_file_preview logic: smart detection for notes folder files
+                if let Some(state) = app.try_state::<AppState>() {
+                    let notes_folder = state
+                        .app_config
+                        .read()
+                        .expect("app_config read lock")
+                        .notes_folder
+                        .clone();
+
+                    if let Some(ref folder) = notes_folder {
+                        let folder_path = PathBuf::from(folder);
+                        if let (Ok(canonical_file), Ok(canonical_folder)) =
+                            (path.canonicalize(), folder_path.canonicalize())
+                        {
+                            if canonical_file.starts_with(&canonical_folder) {
+                                if let Some(note_id) =
+                                    id_from_abs_path(&canonical_folder, &canonical_file)
+                                {
+                                    let _ = app.emit_to("main", "select-note", note_id);
+                                    if let Some(main_window) = app.get_webview_window("main") {
+                                        let _ = main_window.set_focus();
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                let _ = create_preview_window(app, &path_str);
+            }
+        }
+    }
+
+    // If no file args were processed, focus the main window
+    if args.len() <= 1 {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.set_focus();
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        // Single-instance: forward CLI args from subsequent launches to the running instance
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            handle_cli_args(app, &args, &cwd);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -2037,7 +2258,32 @@ pub fn run() {
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
             };
             app.manage(state);
+
+            // Handle CLI args on first launch
+            let args: Vec<String> = std::env::args().collect();
+            if args.len() > 1 {
+                let cwd = std::env::current_dir()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                handle_cli_args(app.handle(), &args, &cwd);
+            }
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Handle drag-and-drop of .md files onto any window
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                let app = window.app_handle();
+                for path in paths {
+                    if let Some(ext) = path.extension() {
+                        let ext_str = ext.to_string_lossy().to_lowercase();
+                        if (ext_str == "md" || ext_str == "markdown") && path.is_file() {
+                            let _ = create_preview_window(app, &path.to_string_lossy());
+                        }
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_notes_folder,
@@ -2067,7 +2313,23 @@ pub fn run() {
             git_push_with_upstream,
             ai_check_claude_cli,
             ai_execute_claude,
+            read_file_direct,
+            save_file_direct,
+            open_file_preview,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // Use .run() callback to handle macOS "Open With" file events
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Opened { urls } = event {
+            for url in urls {
+                if let Ok(path) = url.to_file_path() {
+                    if path.is_file() {
+                        let _ = create_preview_window(app_handle, &path.to_string_lossy());
+                    }
+                }
+            }
+        }
+    });
 }

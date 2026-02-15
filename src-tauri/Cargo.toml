@@ -27,6 +27,8 @@ tantivy = "0.22"
 tokio = { version = "1", features = ["fs", "sync"] }
 base64 = "0.22"
 url = "2"
+urlencoding = "2"
 open = "5"
 regex = "1"
 walkdir = "2"
+tauri-plugin-single-instance = "2"

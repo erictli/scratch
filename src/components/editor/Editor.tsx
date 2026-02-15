@@ -35,7 +35,7 @@ function isAllowedUrlScheme(url: string): boolean {
 }
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
-import { useNotes } from "../../context/NotesContext";
+import { useOptionalNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Frontmatter } from "./Frontmatter";
 import { LinkEditor } from "./LinkEditor";
@@ -337,28 +337,65 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
   );
 }
 
+// Data source for preview mode — bypasses NotesContext
+export interface PreviewModeData {
+  content: string | null;
+  title: string;
+  filePath: string;
+  modified: number;
+  hasExternalChanges: boolean;
+  reloadVersion: number;
+  save: (content: string) => Promise<void>;
+  reload: () => Promise<void>;
+}
+
 interface EditorProps {
   onToggleSidebar?: () => void;
   sidebarVisible?: boolean;
   focusMode?: boolean;
+  previewMode?: PreviewModeData;
 }
 
 export function Editor({
   onToggleSidebar,
   sidebarVisible,
   focusMode,
+  previewMode,
 }: EditorProps) {
-  const {
-    notes,
-    currentNote,
-    saveNote,
-    createNote,
-    hasExternalChanges,
-    reloadCurrentNote,
-    reloadVersion,
-    pinNote,
-    unpinNote,
-  } = useNotes();
+  // Always call the hook (rules of hooks), but it returns null outside NotesProvider
+  const notesCtx = useOptionalNotes();
+
+  const currentNote = previewMode
+    ? previewMode.content !== null
+      ? {
+          id: previewMode.filePath,
+          title: previewMode.title,
+          content: previewMode.content,
+          path: previewMode.filePath,
+          modified: previewMode.modified,
+        }
+      : null
+    : notesCtx?.currentNote ?? null;
+
+  const saveNote = previewMode
+    ? async (content: string, _noteId?: string) => {
+        await previewMode.save(content);
+      }
+    : notesCtx!.saveNote;
+
+  const createNote = notesCtx?.createNote;
+  const hasExternalChanges = previewMode
+    ? previewMode.hasExternalChanges
+    : notesCtx!.hasExternalChanges;
+  const reloadCurrentNote = previewMode
+    ? previewMode.reload
+    : notesCtx!.reloadCurrentNote;
+  const reloadVersion = previewMode
+    ? previewMode.reloadVersion
+    : notesCtx!.reloadVersion;
+  const pinNote = notesCtx?.pinNote;
+  const unpinNote = notesCtx?.unpinNote;
+  const notes = notesCtx?.notes;
   const { textDirection } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
@@ -407,20 +444,15 @@ export function Editor({
 
   // Load settings when note changes or notes are refreshed (e.g., after pin/unpin)
   useEffect(() => {
-    if (currentNote?.id) {
+    if (currentNote?.id && !previewMode) {
       notesService
         .getSettings()
         .then(setSettings)
         .catch((error) => {
           console.error("Failed to load settings:", error);
-          toast.error(
-            `Failed to load settings: ${
-              error instanceof Error ? error.message : "Unknown error"
-            }`,
-          );
         });
     }
-  }, [currentNote?.id, notes]);
+  }, [currentNote?.id, notes, previewMode]);
 
   // Calculate if current note is pinned
   const isPinned =
@@ -1293,6 +1325,22 @@ export function Editor({
   );
 
   if (!currentNote) {
+    // Preview mode: show loading state (content not yet loaded)
+    if (previewMode) {
+      return (
+        <div className="flex-1 flex flex-col bg-bg">
+          <div
+            className="h-10 shrink-0 flex items-end px-4 pb-1"
+            data-tauri-drag-region
+          ></div>
+          <div className="flex-1 flex items-center justify-center">
+            <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
+          </div>
+        </div>
+      );
+    }
+
+    // Folder mode: show empty state with "New Note" button
     return (
       <div className="flex-1 flex flex-col bg-bg">
         {/* Drag region */}
@@ -1313,18 +1361,20 @@ export function Editor({
             <p className="text-sm">
               Pick up where you left off, or start something new
             </p>
-            <Button
-              onClick={createNote}
-              variant="secondary"
-              size="md"
-              className="mt-4"
-            >
-              New Note{" "}
-              <span className="text-text-muted ml-1">
-                {mod}
-                {isMac ? "" : "+"}N
-              </span>
-            </Button>
+            {createNote && (
+              <Button
+                onClick={createNote}
+                variant="secondary"
+                size="md"
+                className="mt-4"
+              >
+                New Note{" "}
+                <span className="text-text-muted ml-1">
+                  {mod}
+                  {isMac ? "" : "+"}N
+                </span>
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -1390,7 +1440,7 @@ export function Editor({
               </div>
             </Tooltip>
           )}
-          {currentNote && (
+          {currentNote && pinNote && unpinNote && (
             <Tooltip content={isPinned ? "Unpin note" : "Pin note"}>
               <IconButton
                 onClick={async () => {

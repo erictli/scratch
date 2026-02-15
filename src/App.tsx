@@ -12,11 +12,26 @@ import { SettingsPage } from "./components/settings";
 import { SpinnerIcon, ClaudeIcon } from "./components/icons";
 import { AiEditModal } from "./components/ai/AiEditModal";
 import { AiResponseToast } from "./components/ai/AiResponseToast";
+import { PreviewApp } from "./components/preview/PreviewApp";
 import {
   check as checkForUpdate,
   type Update,
 } from "@tauri-apps/plugin-updater";
 import * as aiService from "./services/ai";
+
+// Detect preview mode from URL search params
+function getWindowMode(): {
+  isPreview: boolean;
+  previewFile: string | null;
+} {
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("mode");
+  const file = params.get("file");
+  return {
+    isPreview: mode === "preview" && !!file,
+    previewFile: file,
+  };
+}
 
 type ViewState = "notes" | "settings";
 
@@ -451,6 +466,8 @@ function UpdateToast({
 }
 
 function App() {
+  const { isPreview, previewFile } = useMemo(getWindowMode, []);
+
   // Add platform class for OS-specific styling (e.g., keyboard shortcuts)
   useEffect(() => {
     const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -459,12 +476,26 @@ function App() {
     );
   }, []);
 
-  // Check for app updates on startup
+  // Check for app updates on startup (folder mode only)
   useEffect(() => {
+    if (isPreview) return;
     const timer = setTimeout(() => showUpdateToast(), 3000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [isPreview]);
 
+  // Preview mode: lightweight editor without sidebar, search, git
+  if (isPreview && previewFile) {
+    return (
+      <ThemeProvider>
+        <Toaster />
+        <TooltipProvider>
+          <PreviewApp filePath={decodeURIComponent(previewFile)} />
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+  }
+
+  // Folder mode: full app with sidebar, search, git, etc.
   return (
     <ThemeProvider>
       <Toaster />

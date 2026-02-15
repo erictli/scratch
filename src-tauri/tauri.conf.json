@@ -39,6 +39,13 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "mimeType": "text/markdown",
+        "description": "Markdown Document"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

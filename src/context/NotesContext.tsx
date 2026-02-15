@@ -539,3 +539,11 @@ export function useNotes() {
   const actions = useNotesActions();
   return { ...data, ...actions };
 }
+
+// Optional hook that returns null when outside a NotesProvider (for preview mode)
+export function useOptionalNotes() {
+  const data = useContext(NotesDataContext);
+  const actions = useContext(NotesActionsContext);
+  if (!data || !actions) return null;
+  return { ...data, ...actions };
+}
