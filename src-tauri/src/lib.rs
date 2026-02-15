@@ -1109,7 +1109,7 @@ pub struct FileContent {
 }
 
 /// Validate a file path for preview mode direct file operations.
-/// Ensures the path is a markdown file, resolves symlinks, and rejects sensitive directories.
+/// Ensures the path is a markdown file and resolves symlinks.
 fn validate_preview_path(path: &str) -> Result<PathBuf, String> {
     let file_path = PathBuf::from(path);
 
@@ -1123,34 +1123,6 @@ fn validate_preview_path(path: &str) -> Result<PathBuf, String> {
     let canonical = file_path
         .canonicalize()
         .map_err(|e| format!("Cannot resolve file path: {}", e))?;
-
-    // Block sensitive directories
-    let canonical_str = canonical.to_string_lossy();
-    let blocked_prefixes: &[&str] = if cfg!(target_os = "windows") {
-        &["C:\\Windows", "C:\\Program Files"]
-    } else {
-        &["/etc", "/proc", "/sys", "/dev", "/var/run"]
-    };
-
-    for prefix in blocked_prefixes {
-        if canonical_str.starts_with(prefix) {
-            return Err(format!("Access denied: files in {} are not allowed", prefix));
-        }
-    }
-
-    // Block dotfiles/dotdirs in the path (e.g. ~/.ssh/keys.md)
-    for component in canonical.components() {
-        if let std::path::Component::Normal(name) = component {
-            if let Some(name_str) = name.to_str() {
-                if name_str.starts_with('.') && name_str != "." && name_str != ".." {
-                    return Err(format!(
-                        "Access denied: files in hidden directories are not allowed ({})",
-                        name_str
-                    ));
-                }
-            }
-        }
-    }
 
     Ok(canonical)
 }
