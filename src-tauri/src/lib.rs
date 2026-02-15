@@ -1846,7 +1846,12 @@ fn get_expanded_path() -> String {
 
     let mut expanded = Vec::new();
 
-    // For nvm/fnm, scan for node version dirs containing a bin/ folder
+    // Prefer well-known static locations (e.g. ~/.local/bin for native CLI installs)
+    for dir in static_dirs {
+        expanded.push(dir);
+    }
+
+    // Then scan nvm/fnm node version dirs containing a bin/ folder
     for base in &candidate_dirs {
         if let Ok(entries) = std::fs::read_dir(base) {
             for entry in entries.flatten() {
@@ -1856,10 +1861,6 @@ fn get_expanded_path() -> String {
                 }
             }
         }
-    }
-
-    for dir in static_dirs {
-        expanded.push(dir);
     }
 
     expanded.push(system_path);
@@ -1919,7 +1920,7 @@ async fn ai_execute_claude(
         });
     }
 
-    // Execute: echo "prompt" | claude <file> --permission-mode bypassPermissions --print
+    // Execute: echo "prompt" | claude <file> --dangerously-skip-permissions --print
     let timeout_duration = std::time::Duration::from_secs(300); // 5 minute timeout
     let shared_child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
     let child_for_task = Arc::clone(&shared_child);
@@ -1927,8 +1928,7 @@ async fn ai_execute_claude(
         let child = Command::new("claude")
             .env("PATH", &path)
             .arg(&file_path)
-            .arg("--permission-mode")
-            .arg("bypassPermissions")
+            .arg("--dangerously-skip-permissions")
             .arg("--print")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
