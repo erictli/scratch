@@ -2192,10 +2192,11 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) {
             PathBuf::from(cwd).join(arg)
         };
 
-        if is_markdown_extension(&path) && path.is_file() {
-            if !try_select_in_notes_folder(app, &path) {
-                let _ = create_preview_window(app, &path.to_string_lossy());
-            }
+        if is_markdown_extension(&path)
+            && path.is_file()
+            && !try_select_in_notes_folder(app, &path)
+        {
+            let _ = create_preview_window(app, &path.to_string_lossy());
         }
     }
 
@@ -2294,10 +2295,11 @@ pub fn run() {
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 let app = window.app_handle();
                 for path in paths {
-                    if is_markdown_extension(path) && path.is_file() {
-                        if !try_select_in_notes_folder(app, path) {
-                            let _ = create_preview_window(app, &path.to_string_lossy());
-                        }
+                    if is_markdown_extension(path)
+                        && path.is_file()
+                        && !try_select_in_notes_folder(app, path)
+                    {
+                        let _ = create_preview_window(app, &path.to_string_lossy());
                     }
                 }
             }
@@ -2344,10 +2346,11 @@ pub fn run() {
         if let tauri::RunEvent::Opened { urls } = _event {
             for url in urls {
                 if let Ok(path) = url.to_file_path() {
-                    if is_markdown_extension(&path) && path.is_file() {
-                        if !try_select_in_notes_folder(_app_handle, &path) {
-                            let _ = create_preview_window(_app_handle, &path.to_string_lossy());
-                        }
+                    if is_markdown_extension(&path)
+                        && path.is_file()
+                        && !try_select_in_notes_folder(_app_handle, &path)
+                    {
+                        let _ = create_preview_window(_app_handle, &path.to_string_lossy());
                     }
                 }
             }
