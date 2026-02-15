@@ -1,5 +1,6 @@
 import { useCallback, useMemo, memo, useEffect, useRef, useState } from "react";
-import { Menu, MenuItem } from "@tauri-apps/api/menu";
+import { invoke } from "@tauri-apps/api/core";
+import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { useNotes } from "../../context/NotesContext";
 import {
   ListItem,
@@ -177,6 +178,21 @@ export function NoteList() {
             text: "Duplicate",
             action: () => duplicateNote(noteId),
           }),
+          await MenuItem.new({
+            text: "Copy Filepath",
+            action: async () => {
+              try {
+                const folder = await notesService.getNotesFolder();
+                if (folder) {
+                  const filepath = `${folder}/${noteId}.md`;
+                  await invoke("copy_to_clipboard", { text: filepath });
+                }
+              } catch (error) {
+                console.error("Failed to copy filepath:", error);
+              }
+            },
+          }),
+          await PredefinedMenuItem.new({ item: "Separator" }),
           await MenuItem.new({
             text: "Delete",
             action: () => {
