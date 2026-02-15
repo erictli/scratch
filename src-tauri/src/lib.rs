@@ -2158,9 +2158,12 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    builder
+    let window = builder
         .build()
         .map_err(|e| format!("Failed to create preview window: {}", e))?;
+
+    // Focus the preview window so it appears on top of the main window
+    let _ = window.set_focus();
 
     Ok(())
 }
