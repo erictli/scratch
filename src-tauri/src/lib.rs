@@ -2067,6 +2067,61 @@ async fn ai_execute_claude(
     Ok(result)
 }
 
+/// Check if a markdown file is inside the configured notes folder.
+/// If so, emit a "select-note" event to the main window and focus it, returning true.
+/// Returns false on any failure so callers can fall back to create_preview_window.
+fn try_select_in_notes_folder(app: &AppHandle, path: &Path) -> bool {
+    let state = match app.try_state::<AppState>() {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let notes_folder = state
+        .app_config
+        .read()
+        .expect("app_config read lock")
+        .notes_folder
+        .clone();
+
+    let folder = match notes_folder {
+        Some(f) => f,
+        None => return false,
+    };
+
+    let folder_path = PathBuf::from(&folder);
+    let (canonical_file, canonical_folder) = match (path.canonicalize(), folder_path.canonicalize())
+    {
+        (Ok(f), Ok(d)) => (f, d),
+        _ => return false,
+    };
+
+    if !canonical_file.starts_with(&canonical_folder) {
+        return false;
+    }
+
+    let note_id = match id_from_abs_path(&canonical_folder, &canonical_file) {
+        Some(id) => id,
+        None => return false,
+    };
+
+    let _ = app.emit_to("main", "select-note", note_id);
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.set_focus();
+    }
+    true
+}
+
+/// Check if a file extension is a supported markdown extension.
+fn is_markdown_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|s| {
+            let lower = s.to_ascii_lowercase();
+            lower == "md" || lower == "markdown"
+        })
+        .unwrap_or(false)
+}
+
 // Preview mode: create a lightweight window for editing a single file
 fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String> {
     use std::collections::hash_map::DefaultHasher;
@@ -2091,7 +2146,7 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
     let encoded_path = urlencoding::encode(file_path);
     let url = format!("index.html?mode=preview&file={}", encoded_path);
 
-    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
         .title(format!("{} — Scratch", filename))
         .inner_size(800.0, 600.0)
         .min_inner_size(400.0, 300.0)
@@ -2099,11 +2154,9 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
         .decorations(true);
 
     #[cfg(target_os = "macos")]
-    {
-        builder = builder
-            .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true);
-    }
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
 
     builder
         .build()
@@ -2113,42 +2166,16 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
 }
 
 #[tauri::command]
-fn open_file_preview(app: AppHandle, path: String, state: State<AppState>) -> Result<(), String> {
+fn open_file_preview(app: AppHandle, path: String) -> Result<(), String> {
     let file_path = PathBuf::from(&path);
     if !file_path.exists() {
         return Err(format!("File not found: {}", path));
     }
 
-    // Smart detection: if file is inside the notes folder, tell main window to select it
-    let notes_folder = {
-        state
-            .app_config
-            .read()
-            .expect("app_config read lock")
-            .notes_folder
-            .clone()
-    };
-
-    if let Some(ref folder) = notes_folder {
-        let folder_path = PathBuf::from(folder);
-        if let Ok(canonical_file) = file_path.canonicalize() {
-            if let Ok(canonical_folder) = folder_path.canonicalize() {
-                if canonical_file.starts_with(&canonical_folder) {
-                    // File is inside notes folder — emit event to select it in main window
-                    if let Some(note_id) = id_from_abs_path(&canonical_folder, &canonical_file) {
-                        let _ = app.emit_to("main", "select-note", note_id);
-                        if let Some(main_window) = app.get_webview_window("main") {
-                            let _ = main_window.set_focus();
-                        }
-                        return Ok(());
-                    }
-                }
-            }
-        }
+    if !try_select_in_notes_folder(&app, &file_path) {
+        create_preview_window(&app, &path)?;
     }
-
-    // File is not in notes folder — open in preview window
-    create_preview_window(&app, &path)
+    Ok(())
 }
 
 // Handle CLI arguments: open .md files in preview mode
@@ -2165,40 +2192,9 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) {
             PathBuf::from(cwd).join(arg)
         };
 
-        // Only handle .md/.markdown files
-        if let Some(ext) = path.extension() {
-            let ext_str = ext.to_string_lossy().to_lowercase();
-            if (ext_str == "md" || ext_str == "markdown") && path.is_file() {
-                let path_str = path.to_string_lossy().into_owned();
-                // Use open_file_preview logic: smart detection for notes folder files
-                if let Some(state) = app.try_state::<AppState>() {
-                    let notes_folder = state
-                        .app_config
-                        .read()
-                        .expect("app_config read lock")
-                        .notes_folder
-                        .clone();
-
-                    if let Some(ref folder) = notes_folder {
-                        let folder_path = PathBuf::from(folder);
-                        if let (Ok(canonical_file), Ok(canonical_folder)) =
-                            (path.canonicalize(), folder_path.canonicalize())
-                        {
-                            if canonical_file.starts_with(&canonical_folder) {
-                                if let Some(note_id) =
-                                    id_from_abs_path(&canonical_folder, &canonical_file)
-                                {
-                                    let _ = app.emit_to("main", "select-note", note_id);
-                                    if let Some(main_window) = app.get_webview_window("main") {
-                                        let _ = main_window.set_focus();
-                                    }
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
-                let _ = create_preview_window(app, &path_str);
+        if is_markdown_extension(&path) && path.is_file() {
+            if !try_select_in_notes_folder(app, &path) {
+                let _ = create_preview_window(app, &path.to_string_lossy());
             }
         }
     }
@@ -2298,39 +2294,9 @@ pub fn run() {
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 let app = window.app_handle();
                 for path in paths {
-                    if let Some(ext) = path.extension() {
-                        let ext_str = ext.to_string_lossy().to_lowercase();
-                        if (ext_str == "md" || ext_str == "markdown") && path.is_file() {
-                            let path_str = path.to_string_lossy().into_owned();
-                            // Use smart detection: if file is in notes folder, select it there
-                            if let Some(state) = app.try_state::<AppState>() {
-                                let notes_folder = state
-                                    .app_config
-                                    .read()
-                                    .expect("app_config read lock")
-                                    .notes_folder
-                                    .clone();
-
-                                if let Some(ref folder) = notes_folder {
-                                    let folder_path = PathBuf::from(folder);
-                                    if let (Ok(canonical_file), Ok(canonical_folder)) =
-                                        (path.canonicalize(), folder_path.canonicalize())
-                                    {
-                                        if canonical_file.starts_with(&canonical_folder) {
-                                            if let Some(note_id) =
-                                                id_from_abs_path(&canonical_folder, &canonical_file)
-                                            {
-                                                let _ = app.emit_to("main", "select-note", note_id);
-                                                if let Some(main_window) = app.get_webview_window("main") {
-                                                    let _ = main_window.set_focus();
-                                                }
-                                                continue;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            let _ = create_preview_window(app, &path_str);
+                    if is_markdown_extension(path) && path.is_file() {
+                        if !try_select_in_notes_folder(app, path) {
+                            let _ = create_preview_window(app, &path.to_string_lossy());
                         }
                     }
                 }
@@ -2372,43 +2338,15 @@ pub fn run() {
         .expect("error while building tauri application");
 
     // Use .run() callback to handle macOS "Open With" file events
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::Opened { urls } = event {
+    // RunEvent::Opened is macOS-only in Tauri v2
+    app.run(|_app_handle, _event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = _event {
             for url in urls {
                 if let Ok(path) = url.to_file_path() {
-                    if path.is_file() {
-                        let path_str = path.to_string_lossy().into_owned();
-                        // Use smart detection: if file is in notes folder, select it there
-                        let mut handled = false;
-                        if let Some(state) = app_handle.try_state::<AppState>() {
-                            let notes_folder = state
-                                .app_config
-                                .read()
-                                .expect("app_config read lock")
-                                .notes_folder
-                                .clone();
-
-                            if let Some(ref folder) = notes_folder {
-                                let folder_path = PathBuf::from(folder);
-                                if let (Ok(canonical_file), Ok(canonical_folder)) =
-                                    (path.canonicalize(), folder_path.canonicalize())
-                                {
-                                    if canonical_file.starts_with(&canonical_folder) {
-                                        if let Some(note_id) =
-                                            id_from_abs_path(&canonical_folder, &canonical_file)
-                                        {
-                                            let _ = app_handle.emit_to("main", "select-note", note_id);
-                                            if let Some(main_window) = app_handle.get_webview_window("main") {
-                                                let _ = main_window.set_focus();
-                                            }
-                                            handled = true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if !handled {
-                            let _ = create_preview_window(app_handle, &path_str);
+                    if is_markdown_extension(&path) && path.is_file() {
+                        if !try_select_in_notes_folder(_app_handle, &path) {
+                            let _ = create_preview_window(_app_handle, &path.to_string_lossy());
                         }
                     }
                 }
