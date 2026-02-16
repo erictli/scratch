@@ -926,5 +926,6 @@ table.not-prose th {
   img {
     max-width: 100% !important;
     page-break-inside: avoid;
+    break-inside: avoid;
   }
 }

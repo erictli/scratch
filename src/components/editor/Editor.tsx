@@ -1302,8 +1302,10 @@ export function Editor({
     if (!editor || !currentNote) return;
     try {
       const markdown = getMarkdown(editor);
-      await downloadMarkdown(markdown, currentNote.title);
-      toast.success("Markdown saved successfully");
+      const saved = await downloadMarkdown(markdown, currentNote.title);
+      if (saved) {
+        toast.success("Markdown saved successfully");
+      }
     } catch (error) {
       console.error("Failed to download markdown:", error);
       toast.error("Failed to save markdown");

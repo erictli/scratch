@@ -26,11 +26,12 @@ export async function downloadPdf(
  *
  * @param markdown - The markdown content to save
  * @param noteTitle - The note title for the default filename
+ * @returns Promise<boolean> - Returns true if file was saved successfully, false if user cancelled
  */
 export async function downloadMarkdown(
   markdown: string,
   noteTitle: string
-): Promise<void> {
+): Promise<boolean> {
   const sanitizedTitle = sanitizeFilename(noteTitle);
 
   // Show native save dialog
@@ -39,7 +40,7 @@ export async function downloadMarkdown(
     filters: [{ name: "Markdown", extensions: ["md"] }],
   });
 
-  if (!filePath) return; // User cancelled
+  if (!filePath) return false; // User cancelled
 
   // Convert string to bytes and write file using Tauri command
   const encoder = new TextEncoder();
@@ -48,6 +49,8 @@ export async function downloadMarkdown(
     path: filePath,
     contents: Array.from(uint8Array)
   });
+
+  return true;
 }
 
 /**

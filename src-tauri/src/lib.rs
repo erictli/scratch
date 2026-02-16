@@ -341,99 +341,39 @@ fn sanitize_filename(title: &str) -> String {
     }
 }
 
-/// Expands template tags in a note name template using only stdlib
+/// Expands template tags in a note name template using local timezone
 fn expand_note_name_template(template: &str) -> String {
-    use std::time::SystemTime;
+    use chrono::Local;
 
     let mut result = template.to_string();
 
-    // Get current time
-    let now = SystemTime::now();
-    let timestamp = now
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    // Get current time in local timezone
+    let now = Local::now();
 
-    // Timestamp tag
-    result = result.replace("{timestamp}", &timestamp.to_string());
-
-    // Calculate UTC date/time components from Unix timestamp
-    // Using a simple algorithm (no timezone library needed)
-    let days_since_epoch = timestamp / 86400;
-    let seconds_today = timestamp % 86400;
-
-    // Calculate year, month, day (simplified Gregorian calendar)
-    let (year, month, day) = days_to_date(days_since_epoch as i32);
-
-    // Calculate hours, minutes, seconds
-    let hours = (seconds_today / 3600) % 24;
-    let minutes = (seconds_today / 60) % 60;
-    let seconds = seconds_today % 60;
+    // Timestamp tag (Unix timestamp)
+    result = result.replace("{timestamp}", &now.timestamp().to_string());
 
     // Date tags
-    result = result.replace("{date}", &format!("{:04}-{:02}-{:02}", year, month, day));
-    result = result.replace("{year}", &format!("{:04}", year));
-    result = result.replace("{month}", &format!("{:02}", month));
-    result = result.replace("{day}", &format!("{:02}", day));
+    result = result.replace("{date}", &now.format("%Y-%m-%d").to_string());
+    result = result.replace("{year}", &now.format("%Y").to_string());
+    result = result.replace("{month}", &now.format("%m").to_string());
+    result = result.replace("{day}", &now.format("%d").to_string());
 
     // Time tags (use dash instead of colon for filename safety)
-    result = result.replace("{time}", &format!("{:02}-{:02}-{:02}", hours, minutes, seconds));
+    result = result.replace("{time}", &now.format("%H-%M-%S").to_string());
 
     // Note: {counter} is handled in create_note function
 
     result
 }
 
-/// Convert days since Unix epoch to (year, month, day) in UTC
-/// Simplified Gregorian calendar calculation
-fn days_to_date(days: i32) -> (i32, i32, i32) {
-    // Unix epoch is 1970-01-01
-    let mut year = 1970;
-    let mut remaining_days = days;
-
-    // Calculate year
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if remaining_days < days_in_year {
-            break;
-        }
-        remaining_days -= days_in_year;
-        year += 1;
-    }
-
-    // Calculate month and day
-    let days_in_months = if is_leap_year(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 1;
-    for &days_in_month in &days_in_months {
-        if remaining_days < days_in_month {
-            break;
-        }
-        remaining_days -= days_in_month;
-        month += 1;
-    }
-
-    let day = remaining_days + 1; // Days are 1-indexed
-
-    (year, month, day)
-}
-
-/// Check if a year is a leap year
-fn is_leap_year(year: i32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-}
-
 /// Extracts a display title from a note ID (filename)
 fn extract_title_from_id(id: &str) -> String {
     // Get last path component (filename)
-    let filename = id.split('/').last().unwrap_or(id);
+    let filename = id.rsplit('/').next().unwrap_or(id);
 
     // Convert to display title (replace dashes/underscores with spaces)
-    let title = filename.replace('-', " ").replace('_', " ");
+    let title = filename.replace(['-', '_'], " ");
 
     // Title case
     title

@@ -1,22 +1,20 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getVersion } from "@tauri-apps/api/app";
 import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
-import { showUpdateToast } from "../../App";
 import { Button } from "../ui";
 import { Input } from "../ui";
 import {
   FolderIcon,
   FoldersIcon,
-  RefreshCwIcon,
   ExternalLinkIcon,
   SpinnerIcon,
   CloudPlusIcon,
   ChevronRightIcon,
 } from "../icons";
+import type { Settings } from "../../types/note";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -63,22 +61,14 @@ export function GeneralSettingsSection() {
 
   const [remoteUrl, setRemoteUrl] = useState("");
   const [showRemoteInput, setShowRemoteInput] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("");
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
-
-  useEffect(() => {
-    getVersion()
-      .then(setAppVersion)
-      .catch(() => {});
-  }, []);
 
   // Load template from settings on mount
   useEffect(() => {
     const loadTemplate = async () => {
       try {
-        const settings = await invoke<any>("get_settings");
+        const settings = await invoke<Settings>("get_settings");
         const template = settings.defaultNoteName || "Untitled";
         setNoteTemplate(template);
 
@@ -111,7 +101,7 @@ export function GeneralSettingsSection() {
 
   const handleSaveTemplate = async () => {
     try {
-      const settings = await invoke<any>("get_settings");
+      const settings = await invoke<Settings>("get_settings");
       await invoke("update_settings", {
         newSettings: {
           ...settings,
@@ -122,17 +112,6 @@ export function GeneralSettingsSection() {
     } catch (error) {
       console.error("Failed to save template:", error);
       toast.error("Failed to save template");
-    }
-  };
-
-  const handleCheckForUpdates = async () => {
-    setCheckingUpdate(true);
-    const result = await showUpdateToast();
-    setCheckingUpdate(false);
-    if (result === "no-update") {
-      toast.success("You're on the latest version!");
-    } else if (result === "error") {
-      toast.error("Could not check for updates. Try again later.");
     }
   };
 
@@ -206,9 +185,9 @@ export function GeneralSettingsSection() {
   };
 
   return (
-    <div className="space-y-8 pb-8">
+    <div className="space-y-8 py-8">
       {/* Folder Location */}
-      <section>
+      <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">Folder Location</h2>
         <p className="text-sm text-text-muted mb-4">
           Your notes are stored as markdown files in this folder
@@ -251,7 +230,7 @@ export function GeneralSettingsSection() {
       <div className="border-t border-border border-dashed" />
 
       {/* Git Section */}
-      <section>
+      <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">Version Control</h2>
         <p className="text-sm text-text-muted mb-4">
           Track changes and store backups of your notes using Git
@@ -504,7 +483,7 @@ export function GeneralSettingsSection() {
       <div className="border-t border-border border-dashed" />
 
       {/* New Note Template */}
-      <section>
+      <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">Default Note Name</h2>
         <p className="text-sm text-text-muted mb-4">
           Customize the default name when creating a new note
@@ -553,45 +532,6 @@ export function GeneralSettingsSection() {
             </div>
           </details>
         </div>
-      </section>
-
-      {/* Divider */}
-      <div className="border-t border-border border-dashed" />
-
-      {/* About */}
-      <section>
-        <h2 className="text-xl font-medium mb-0.5">About Scratch</h2>
-        <p className="text-sm text-text-muted mb-3">
-          You are currently using Scratch v{appVersion || "..."}. Learn more on{" "}
-          <a
-            href="https://github.com/erictli/scratch"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-text-muted border-b border-text-muted/50 hover:text-text hover:border-text cursor-pointer transition-colors"
-          >
-            GitHub
-          </a>
-          .
-        </p>
-        <Button
-          onClick={handleCheckForUpdates}
-          disabled={checkingUpdate}
-          variant="outline"
-          size="md"
-          className="gap-1.25"
-        >
-          {checkingUpdate ? (
-            <>
-              <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
-              Checking...
-            </>
-          ) : (
-            <>
-              <RefreshCwIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-              Check for Updates
-            </>
-          )}
-        </Button>
       </section>
     </div>
   );

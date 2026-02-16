@@ -1,16 +1,23 @@
-import { useState, useEffect } from "react";
-import { ArrowLeftIcon, FolderIcon, SwatchIcon, KeyboardIcon } from "../icons";
+import { useState, useEffect, useRef } from "react";
+import {
+  ArrowLeftIcon,
+  FolderIcon,
+  SwatchIcon,
+  KeyboardIcon,
+  InfoIcon,
+} from "../icons";
 import { Button, IconButton } from "../ui";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { AppearanceSettingsSection } from "./EditorSettingsSection";
 import { ShortcutsSettingsSection } from "./ShortcutsSettingsSection";
+import { AboutSettingsSection } from "./AboutSettingsSection";
 import { mod, isMac } from "../../lib/platform";
 
 interface SettingsPageProps {
   onBack: () => void;
 }
 
-type SettingsTab = "general" | "editor" | "shortcuts";
+type SettingsTab = "general" | "editor" | "shortcuts" | "about";
 
 const tabs: {
   id: SettingsTab;
@@ -21,10 +28,19 @@ const tabs: {
   { id: "general", label: "General", icon: FolderIcon, shortcut: "1" },
   { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "2" },
   { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, shortcut: "3" },
+  { id: "about", label: "About", icon: InfoIcon, shortcut: "4" },
 ];
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Reset scroll position when tab changes
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+  }, [activeTab]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -39,6 +55,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         } else if (e.key === "3") {
           e.preventDefault();
           setActiveTab("shortcuts");
+        } else if (e.key === "4") {
+          e.preventDefault();
+          setActiveTab("about");
         }
       }
     };
@@ -57,7 +76,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         {/* Header with back button and Settings title */}
         <div className="flex items-center justify-between px-3 pb-2 border-b border-border shrink-0">
           <div className="flex items-center gap-1">
-            <IconButton onClick={onBack} title={`Back (${mod}${isMac ? "" : "+"},)`}>
+            <IconButton
+              onClick={onBack}
+              title={`Back (${mod}${isMac ? "" : "+"},)`}
+            >
               <ArrowLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
             <div className="font-medium text-base">Settings</div>
@@ -97,11 +119,12 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         <div className="h-11 shrink-0" data-tauri-drag-region></div>
 
         {/* Content - centered with max width */}
-        <div className="flex-1 overflow-auto">
+        <div ref={scrollContainerRef} className="flex-1 overflow-auto">
           <div className="w-full max-w-3xl mx-auto px-6 pb-6">
             {activeTab === "general" && <GeneralSettingsSection />}
             {activeTab === "editor" && <AppearanceSettingsSection />}
             {activeTab === "shortcuts" && <ShortcutsSettingsSection />}
+            {activeTab === "about" && <AboutSettingsSection />}
           </div>
         </div>
       </div>

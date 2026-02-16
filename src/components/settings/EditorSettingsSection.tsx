@@ -51,7 +51,7 @@ export function AppearanceSettingsSection() {
     field: "baseFontSize" | "lineHeight",
     value: string,
     min: number,
-    max: number
+    max: number,
   ) => {
     const parsed = parseFloat(value);
     if (!Number.isFinite(parsed)) return;
@@ -71,7 +71,7 @@ export function AppearanceSettingsSection() {
   // Filter weight options based on font family
   const isMonospace = editorFontSettings.baseFontFamily === "monospace";
   const availableWeightOptions = boldWeightOptions.filter(
-    (opt) => !isMonospace || !opt.excludeForMonospace
+    (opt) => !isMonospace || !opt.excludeForMonospace,
   );
 
   // Handle font family change - bump up weight if needed
@@ -84,9 +84,9 @@ export function AppearanceSettingsSection() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 py-8">
       {/* Theme Section */}
-      <section>
+      <section className="pb-2">
         <h2 className="text-xl font-medium mb-3">Theme</h2>
         <div className="flex gap-2 p-1 rounded-[10px] border border-border">
           {(["light", "dark", "system"] as const).map((mode) => (
@@ -196,7 +196,9 @@ export function AppearanceSettingsSection() {
 
           {/* Text Direction */}
           <div className="flex items-center justify-between">
-            <label className="text-sm text-text font-medium">Text Direction</label>
+            <label className="text-sm text-text font-medium">
+              Text Direction
+            </label>
             <Select
               value={textDirection}
               onChange={(e) =>
@@ -217,9 +219,7 @@ export function AppearanceSettingsSection() {
             <label className="text-sm text-text font-medium">Page Width</label>
             <Select
               value={editorWidth}
-              onChange={(e) =>
-                setEditorWidth(e.target.value as EditorWidth)
-              }
+              onChange={(e) => setEditorWidth(e.target.value as EditorWidth)}
               className="w-40"
             >
               {editorWidthOptions.map((opt) => (
@@ -246,8 +246,8 @@ export function AppearanceSettingsSection() {
                   editorFontSettings.baseFontFamily === "system-sans"
                     ? "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
                     : editorFontSettings.baseFontFamily === "serif"
-                    ? "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"
-                    : "ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
+                      ? "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"
+                      : "ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
                 fontSize: `${editorFontSettings.baseFontSize}px`,
               }}
             >

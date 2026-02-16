@@ -176,7 +176,7 @@ export function CommandPalette({
         },
         {
           id: "copy-markdown",
-          label: "Copy Note as Markdown",
+          label: "Copy Markdown",
           icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
@@ -191,7 +191,7 @@ export function CommandPalette({
         },
         {
           id: "copy-plain",
-          label: "Copy Note as Plain Text",
+          label: "Copy Plain Text",
           icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
@@ -215,8 +215,28 @@ export function CommandPalette({
           },
         },
         {
+          id: "copy-html",
+          label: "Copy HTML",
+          icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              if (!editorRef?.current) {
+                toast.error("Editor not available");
+                return;
+              }
+              const html = editorRef.current.getHTML();
+              await invoke("copy_to_clipboard", { text: html });
+              toast.success("Copied as HTML");
+              onClose();
+            } catch (error) {
+              console.error("Failed to copy HTML:", error);
+              toast.error("Failed to copy");
+            }
+          },
+        },
+        {
           id: "download-pdf",
-          label: "Print Note as PDF",
+          label: "Print as PDF",
           icon: <DownloadIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
@@ -236,7 +256,7 @@ export function CommandPalette({
         },
         {
           id: "download-markdown",
-          label: "Download Note as Markdown",
+          label: "Export Markdown",
           icon: <DownloadIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
@@ -244,8 +264,10 @@ export function CommandPalette({
                 toast.error("No note selected");
                 return;
               }
-              await downloadMarkdown(currentNote.content, currentNote.title);
-              toast.success("Markdown saved successfully");
+              const saved = await downloadMarkdown(currentNote.content, currentNote.title);
+              if (saved) {
+                toast.success("Markdown saved successfully");
+              }
               onClose();
             } catch (error) {
               console.error("Failed to download markdown:", error);
