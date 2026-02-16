@@ -42,6 +42,7 @@ import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
 import { cn } from "../../lib/utils";
+import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import type { Settings } from "../../types/note";
@@ -1254,14 +1255,15 @@ export function Editor({
   const handleCopyPlainText = useCallback(async () => {
     if (!editor) return;
     try {
-      const plainText = editor.getText();
+      const markdown = getMarkdown(editor);
+      const plainText = plainTextFromMarkdown(markdown);
       await invoke("copy_to_clipboard", { text: plainText });
       toast.success("Copied as plain text");
     } catch (error) {
       console.error("Failed to copy plain text:", error);
       toast.error("Failed to copy");
     }
-  }, [editor]);
+  }, [editor, getMarkdown]);
 
   const handleCopyHtml = useCallback(async () => {
     if (!editor) return;

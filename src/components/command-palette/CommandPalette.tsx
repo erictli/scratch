@@ -26,6 +26,7 @@ import {
   AlertDialogTitle,
 } from "../ui";
 import { cleanTitle } from "../../lib/utils";
+import { plainTextFromMarkdown } from "../../lib/plainText";
 import { duplicateNote } from "../../services/notes";
 import {
   CopyIcon,
@@ -190,16 +191,7 @@ export function CommandPalette({
           icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
-              // Remove markdown formatting for plain text
-              const plainText = currentNote.content
-                .replace(/^#{1,6}\s+/gm, "") // Remove headers
-                .replace(/\*\*(.+?)\*\*/g, "$1") // Remove bold
-                .replace(/\*(.+?)\*/g, "$1") // Remove italic
-                .replace(/\[(.+?)\]\(.+?\)/g, "$1") // Remove links, keep text
-                .replace(/`(.+?)`/g, "$1") // Remove inline code
-                .replace(/^[-*+]\s+/gm, "") // Remove list markers
-                .replace(/^\d+\.\s+/gm, "") // Remove numbered list markers
-                .replace(/^>\s+/gm, ""); // Remove blockquotes
+              const plainText = plainTextFromMarkdown(currentNote.content);
               await invoke("copy_to_clipboard", { text: plainText });
               toast.success("Copied as plain text");
               onClose();
