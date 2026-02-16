@@ -44,6 +44,7 @@ import { SlashCommand } from "./SlashCommand";
 import { cn } from "../../lib/utils";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
+import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import type { Settings } from "../../types/note";
 import {
   BoldIcon,
@@ -66,6 +67,8 @@ import {
   SpinnerIcon,
   CircleCheckIcon,
   CopyIcon,
+  DownloadIcon,
+  ShareIcon,
   PanelLeftIcon,
   RefreshCwIcon,
   PinIcon,
@@ -354,12 +357,14 @@ interface EditorProps {
   sidebarVisible?: boolean;
   focusMode?: boolean;
   previewMode?: PreviewModeData;
+  onEditorReady?: (editor: TiptapEditor | null) => void;
 }
 
 export function Editor({
   onToggleSidebar,
   sidebarVisible,
   focusMode,
+  onEditorReady,
   previewMode,
 }: EditorProps) {
   // Always call the hook (rules of hooks), but it returns null outside NotesProvider
@@ -775,6 +780,11 @@ export function Editor({
   const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
   // Track reloadVersion to detect manual refreshes
   const lastReloadVersionRef = useRef(0);
+
+  // Notify parent component when editor is ready
+  useEffect(() => {
+    onEditorReady?.(editor);
+  }, [editor, onEditorReady]);
 
   // Search navigation functions (defined after editor is created)
   const goToNextMatch = useCallback(() => {
@@ -1275,6 +1285,31 @@ export function Editor({
     }
   }, [editor]);
 
+  // Download handlers
+  const handleDownloadPdf = useCallback(async () => {
+    if (!editor || !currentNote) return;
+    try {
+      await downloadPdf(editor, currentNote.title);
+      // Note: window.print() opens the print dialog but doesn't wait for user action
+      // No success toast needed - the print dialog provides its own feedback
+    } catch (error) {
+      console.error("Failed to open print dialog:", error);
+      toast.error("Failed to open print dialog");
+    }
+  }, [editor, currentNote]);
+
+  const handleDownloadMarkdown = useCallback(async () => {
+    if (!editor || !currentNote) return;
+    try {
+      const markdown = getMarkdown(editor);
+      await downloadMarkdown(markdown, currentNote.title);
+      toast.success("Markdown saved successfully");
+    } catch (error) {
+      console.error("Failed to download markdown:", error);
+      toast.error("Failed to save markdown");
+    }
+  }, [editor, currentNote, getMarkdown]);
+
   // Toggle source mode
   const toggleSourceMode = useCallback(() => {
     if (!editor) return;
@@ -1509,11 +1544,11 @@ export function Editor({
           )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
             <Tooltip
-              content={`Copy as... (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}C)`}
+              content={`Export (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}C)`}
             >
               <DropdownMenu.Trigger asChild>
                 <IconButton>
-                  <CopyIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                  <ShareIcon className="w-4.25 h-4.25 stroke-[1.6]" />
                 </IconButton>
               </DropdownMenu.Trigger>
             </Tooltip>
@@ -1534,22 +1569,40 @@ export function Editor({
                 }}
               >
                 <DropdownMenu.Item
-                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
                   onSelect={handleCopyMarkdown}
                 >
-                  Markdown
+                  <CopyIcon className="w-4 h-4 stroke-[1.6]" />
+                  Copy Markdown
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
-                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
                   onSelect={handleCopyPlainText}
                 >
-                  Plain Text
+                  <CopyIcon className="w-4 h-4 stroke-[1.6]" />
+                  Copy Plain Text
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
-                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted"
+                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
                   onSelect={handleCopyHtml}
                 >
-                  HTML
+                  <CopyIcon className="w-4 h-4 stroke-[1.6]" />
+                  Copy HTML
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator className="h-px bg-border my-1" />
+                <DropdownMenu.Item
+                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
+                  onSelect={handleDownloadPdf}
+                >
+                  <DownloadIcon className="w-4 h-4 stroke-[1.6]" />
+                  Print as PDF
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
+                  onSelect={handleDownloadMarkdown}
+                >
+                  <DownloadIcon className="w-4 h-4 stroke-[1.6]" />
+                  Export Markdown
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>

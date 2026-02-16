@@ -100,6 +100,8 @@ pub struct Settings {
     pub text_direction: Option<String>,
     #[serde(rename = "editorWidth")]
     pub editor_width: Option<String>,
+    #[serde(rename = "defaultNoteName")]
+    pub default_note_name: Option<String>,
 }
 
 // Search result
@@ -333,10 +335,118 @@ fn sanitize_filename(title: &str) -> String {
 
     let trimmed = sanitized.trim();
     if trimmed.is_empty() || is_effectively_empty(trimmed) {
-        "untitled".to_string()
+        "Untitled".to_string()
     } else {
         trimmed.to_string()
     }
+}
+
+/// Expands template tags in a note name template using only stdlib
+fn expand_note_name_template(template: &str) -> String {
+    use std::time::SystemTime;
+
+    let mut result = template.to_string();
+
+    // Get current time
+    let now = SystemTime::now();
+    let timestamp = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Timestamp tag
+    result = result.replace("{timestamp}", &timestamp.to_string());
+
+    // Calculate UTC date/time components from Unix timestamp
+    // Using a simple algorithm (no timezone library needed)
+    let days_since_epoch = timestamp / 86400;
+    let seconds_today = timestamp % 86400;
+
+    // Calculate year, month, day (simplified Gregorian calendar)
+    let (year, month, day) = days_to_date(days_since_epoch as i32);
+
+    // Calculate hours, minutes, seconds
+    let hours = (seconds_today / 3600) % 24;
+    let minutes = (seconds_today / 60) % 60;
+    let seconds = seconds_today % 60;
+
+    // Date tags
+    result = result.replace("{date}", &format!("{:04}-{:02}-{:02}", year, month, day));
+    result = result.replace("{year}", &format!("{:04}", year));
+    result = result.replace("{month}", &format!("{:02}", month));
+    result = result.replace("{day}", &format!("{:02}", day));
+
+    // Time tags (use dash instead of colon for filename safety)
+    result = result.replace("{time}", &format!("{:02}-{:02}-{:02}", hours, minutes, seconds));
+
+    // Note: {counter} is handled in create_note function
+
+    result
+}
+
+/// Convert days since Unix epoch to (year, month, day) in UTC
+/// Simplified Gregorian calendar calculation
+fn days_to_date(days: i32) -> (i32, i32, i32) {
+    // Unix epoch is 1970-01-01
+    let mut year = 1970;
+    let mut remaining_days = days;
+
+    // Calculate year
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        year += 1;
+    }
+
+    // Calculate month and day
+    let days_in_months = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 1;
+    for &days_in_month in &days_in_months {
+        if remaining_days < days_in_month {
+            break;
+        }
+        remaining_days -= days_in_month;
+        month += 1;
+    }
+
+    let day = remaining_days + 1; // Days are 1-indexed
+
+    (year, month, day)
+}
+
+/// Check if a year is a leap year
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// Extracts a display title from a note ID (filename)
+fn extract_title_from_id(id: &str) -> String {
+    // Get last path component (filename)
+    let filename = id.split('/').last().unwrap_or(id);
+
+    // Convert to display title (replace dashes/underscores with spaces)
+    let title = filename.replace('-', " ").replace('_', " ");
+
+    // Title case
+    title
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // Utility: Check if a string is effectively empty
@@ -1031,21 +1141,57 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
     };
     let folder_path = PathBuf::from(&folder);
 
-    // Generate unique ID
-    let base_id = "untitled";
-    let mut final_id = base_id.to_string();
-    let mut counter = 1;
+    // Get template from settings (default "Untitled")
+    let template = {
+        let settings = state.settings.read().expect("settings read lock");
+        settings
+            .default_note_name
+            .clone()
+            .unwrap_or_else(|| "Untitled".to_string())
+    };
 
+    // Expand template tags
+    let expanded = expand_note_name_template(&template);
+
+    // Sanitize filename
+    let sanitized = sanitize_filename(&expanded);
+
+    // Handle {counter} tag
+    let has_counter = template.contains("{counter}");
+    let base_id = if has_counter {
+        sanitized.replace("{counter}", "1")
+    } else {
+        sanitized.clone()
+    };
+
+    let mut final_id = base_id.clone();
+    let mut counter = if has_counter { 2 } else { 1 };
+
+    // Ensure filename uniqueness
     while abs_path_from_id(&folder_path, &final_id)
         .map(|p| p.exists())
         .unwrap_or(false)
     {
-        final_id = format!("{}-{}", base_id, counter);
+        if has_counter {
+            final_id = sanitized.replace("{counter}", &counter.to_string());
+        } else {
+            final_id = format!("{}-{}", base_id, counter);
+        }
         counter += 1;
     }
 
-    let content = "# Untitled\n\n".to_string();
+    // Extract display title from filename
+    let display_title = extract_title_from_id(&final_id);
+
+    let content = format!("# {}\n\n", display_title);
     let file_path = abs_path_from_id(&folder_path, &final_id)?;
+
+    // Create parent directories (for templates like {year}/{month}/{day})
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
     fs::write(&file_path, &content)
         .await
@@ -1060,13 +1206,13 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.index_note(&final_id, "Untitled", &content, modified);
+            let _ = search_index.index_note(&final_id, &display_title, &content, modified);
         }
     }
 
     Ok(Note {
         id: final_id,
-        title: "Untitled".to_string(),
+        title: display_title,
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
@@ -1097,6 +1243,28 @@ fn update_settings(
     save_settings(&folder, &settings).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+async fn write_file(path: String, contents: Vec<u8>) -> Result<(), String> {
+    fs::write(&path, contents)
+        .await
+        .map_err(|e| format!("Failed to write file: {}", e))
+}
+
+#[tauri::command]
+fn preview_note_name(template: String) -> Result<String, String> {
+    let expanded = expand_note_name_template(&template);
+    let sanitized = sanitize_filename(&expanded);
+
+    // Show first note name (with counter as 1 if present)
+    let preview = if template.contains("{counter}") {
+        sanitized.replace("{counter}", "1")
+    } else {
+        sanitized
+    };
+
+    Ok(preview)
 }
 
 // Preview mode: file content returned by read_file_direct / save_file_direct
@@ -2325,6 +2493,8 @@ pub fn run() {
             create_note,
             get_settings,
             update_settings,
+            preview_note_name,
+            write_file,
             search_notes,
             start_file_watcher,
             rebuild_search_index,

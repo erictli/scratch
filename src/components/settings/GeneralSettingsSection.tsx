@@ -15,6 +15,7 @@ import {
   ExternalLinkIcon,
   SpinnerIcon,
   CloudPlusIcon,
+  ChevronRightIcon,
 } from "../icons";
 
 // Format remote URL for display - extract user/repo from full URL
@@ -64,12 +65,65 @@ export function GeneralSettingsSection() {
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [appVersion, setAppVersion] = useState<string>("");
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
+  const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
 
   useEffect(() => {
     getVersion()
       .then(setAppVersion)
       .catch(() => {});
   }, []);
+
+  // Load template from settings on mount
+  useEffect(() => {
+    const loadTemplate = async () => {
+      try {
+        const settings = await invoke<any>("get_settings");
+        const template = settings.defaultNoteName || "Untitled";
+        setNoteTemplate(template);
+
+        // Update preview
+        const preview = await invoke<string>("preview_note_name", { template });
+        setPreviewNoteName(preview);
+      } catch (error) {
+        console.error("Failed to load template:", error);
+      }
+    };
+    loadTemplate();
+  }, []);
+
+  // Update preview when template changes (debounced)
+  useEffect(() => {
+    const updatePreview = async () => {
+      try {
+        const preview = await invoke<string>("preview_note_name", {
+          template: noteTemplate,
+        });
+        setPreviewNoteName(preview);
+      } catch (error) {
+        setPreviewNoteName("Invalid template");
+      }
+    };
+
+    const timer = setTimeout(updatePreview, 300);
+    return () => clearTimeout(timer);
+  }, [noteTemplate]);
+
+  const handleSaveTemplate = async () => {
+    try {
+      const settings = await invoke<any>("get_settings");
+      await invoke("update_settings", {
+        newSettings: {
+          ...settings,
+          defaultNoteName: noteTemplate || undefined,
+        },
+      });
+      toast.success("Template saved");
+    } catch (error) {
+      console.error("Failed to save template:", error);
+      toast.error("Failed to save template");
+    }
+  };
 
   const handleCheckForUpdates = async () => {
     setCheckingUpdate(true);
@@ -152,7 +206,7 @@ export function GeneralSettingsSection() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-8">
       {/* Folder Location */}
       <section>
         <h2 className="text-xl font-medium mb-0.5">Folder Location</h2>
@@ -444,6 +498,61 @@ export function GeneralSettingsSection() {
             </div>
           </>
         )}
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* New Note Template */}
+      <section>
+        <h2 className="text-xl font-medium mb-0.5">Default Note Name</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Customize the default name when creating a new note
+        </p>
+
+        <div className="space-y-2">
+          <div>
+            <Input
+              type="text"
+              value={noteTemplate}
+              onChange={(e) => setNoteTemplate(e.target.value)}
+              onBlur={handleSaveTemplate}
+              placeholder="Untitled"
+            />
+          </div>
+          <div className="text-2xs text-text-muted font-mono p-2 rounded-md bg-bg-muted mb-4">
+            Preview: {previewNoteName}
+          </div>
+
+          {/* Template Tags Reference */}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-text-muted hover:text-text select-none flex items-center gap-1 font-medium">
+              <ChevronRightIcon className="w-3.5 h-3.5 stroke-2 transition-transform [[open]>&]:rotate-90" />
+              Add template tags to your name
+            </summary>
+            <div className="mt-2 space-y-1.5 pl-2 text-text-muted">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs">
+                <code>{"{timestamp}"}</code>
+                <span>1739586000</span>
+                <code>{"{date}"}</code>
+                <span>2026-02-15</span>
+                <code>{"{time}"}</code>
+                <span>14-30-45</span>
+                <code>{"{year}"}</code>
+                <span>2026</span>
+                <code>{"{month}"}</code>
+                <span>02</span>
+                <code>{"{day}"}</code>
+                <span>15</span>
+                <code>{"{counter}"}</code>
+                <span>1, 2, 3...</span>
+              </div>
+              <p className="text-xs mt-2 pt-2 border-t border-border">
+                Examples: <code>Note-{"{year}-{month}-{day}"}</code>
+              </p>
+            </div>
+          </details>
+        </div>
       </section>
 
       {/* Divider */}

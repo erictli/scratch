@@ -13,7 +13,9 @@ import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
 import * as notesService from "../../services/notes";
+import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import type { Settings } from "../../types/note";
+import type { Editor } from "@tiptap/react";
 import {
   CommandItem,
   AlertDialog,
@@ -29,6 +31,7 @@ import { cleanTitle } from "../../lib/utils";
 import { duplicateNote } from "../../services/notes";
 import {
   CopyIcon,
+  DownloadIcon,
   SettingsIcon,
   SwatchIcon,
   GitCommitIcon,
@@ -57,6 +60,7 @@ interface CommandPaletteProps {
   onOpenAiModal?: () => void;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
+  editorRef?: React.RefObject<Editor | null>;
 }
 
 export function CommandPalette({
@@ -66,6 +70,7 @@ export function CommandPalette({
   onOpenAiModal,
   focusMode,
   onToggleFocusMode,
+  editorRef,
 }: CommandPaletteProps) {
   const {
     notes,
@@ -206,6 +211,45 @@ export function CommandPalette({
             } catch (error) {
               console.error("Failed to copy plain text:", error);
               toast.error("Failed to copy");
+            }
+          },
+        },
+        {
+          id: "download-pdf",
+          label: "Print Note as PDF",
+          icon: <DownloadIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              if (!editorRef?.current || !currentNote) {
+                toast.error("Editor not available");
+                return;
+              }
+              await downloadPdf(editorRef.current, currentNote.title);
+              // Note: window.print() opens the print dialog but doesn't wait for user action
+              // No success toast needed - the print dialog provides its own feedback
+              onClose();
+            } catch (error) {
+              console.error("Failed to open print dialog:", error);
+              toast.error("Failed to open print dialog");
+            }
+          },
+        },
+        {
+          id: "download-markdown",
+          label: "Download Note as Markdown",
+          icon: <DownloadIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              if (!currentNote) {
+                toast.error("No note selected");
+                return;
+              }
+              await downloadMarkdown(currentNote.content, currentNote.title);
+              toast.success("Markdown saved successfully");
+              onClose();
+            } catch (error) {
+              console.error("Failed to download markdown:", error);
+              toast.error("Failed to save markdown");
             }
           },
         },
