@@ -22,9 +22,9 @@ export function plainTextFromMarkdown(markdown: string): string {
     text = text.replace(/\[(.+?)\]\([^)]*\)/g, "$1");
     text = text.replace(/`([^`]+)`/g, "$1");
     text = text.replace(/\*\*(.+?)\*\*/g, "$1");
-    text = text.replace(/__(.+?)__/g, "$1");
+    text = text.replace(/(?<!\w)__(.+?)__(?!\w)/g, "$1");
     text = text.replace(/\*(.+?)\*/g, "$1");
-    text = text.replace(/_(.+?)_/g, "$1");
+    text = text.replace(/(?<!\w)_(.+?)_(?!\w)/g, "$1");
     text = text.replace(/~~(.+?)~~/g, "$1");
 
     return text;
