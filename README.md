@@ -72,7 +72,7 @@ Scratch is designed to be usable without a mouse. Here are the essentials to get
 | `Cmd+P`             | Command palette        |
 | `Cmd+K`             | Add/edit link          |
 | `Cmd+F`             | Find in note           |
-| `Cmd+Shift+C`       | Copy as...             |
+| `Cmd+Shift+C`       | Copy & Export menu     |
 | `Cmd+Shift+M`       | Toggle Markdown source |
 | `Cmd+Shift+Enter`   | Toggle Focus mode      |
 | `Cmd+Shift+F`       | Search notes           |
