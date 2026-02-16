@@ -13,7 +13,7 @@ A minimalist, offline-first markdown note-taking app for macOS, Windows, and Lin
 - **Offline-first** - No cloud, no account, no internet required
 - **Markdown-based** - Notes stored as plain `.md` files you own
 - **WYSIWYG editing** - Rich text editing that saves as markdown
-- **Preview mode** - Open any `.md` file via drag-and-drop, CLI, or "Open With" without a notes folder
+- **Preview mode** - Open any `.md` file via drag-and-drop or "Open With" without a notes folder
 - **Markdown source mode** - Toggle to view and edit raw markdown (`Cmd+Shift+M`)
 - **Slash commands** - Type `/` to quickly insert headings, lists, code blocks, and more
 - **Focus mode** - Distraction-free writing with animated sidebar/toolbar fade (`Cmd+Shift+Enter`)
@@ -22,7 +22,7 @@ A minimalist, offline-first markdown note-taking app for macOS, Windows, and Lin
 - **Keyboard optimized** - Lots of shortcuts and a command palette
 - **Customizable** - Theme, typography, page width, and RTL text direction
 - **Git integration** - Optional version control for your notes
-- **Lightweight** - Less than 10% the size of Obsidian or Notion
+- **Lightweight** - 5-10x smaller than Obsidian or Notion
 
 ## Screenshot
 
