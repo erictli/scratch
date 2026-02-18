@@ -1722,41 +1722,33 @@ async fn open_folder_dialog(
 }
 
 #[tauri::command]
-async fn reveal_in_file_manager(path: String) -> Result<(), String> {
+async fn open_in_file_manager(path: String) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
-    if !path_buf.exists() {
-        return Err("Path does not exist".to_string());
+    if !path_buf.exists() || !path_buf.is_dir() {
+        return Err("Path does not exist or is not a directory".to_string());
     }
 
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .args(["-R", &path])
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "windows")]
     {
-        // Windows explorer /select requires backslashes
         let windows_path = path.replace("/", "\\");
         std::process::Command::new("explorer")
-            .args(["/select,", &windows_path])
+            .arg(&windows_path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "linux")]
     {
-        // Linux: open containing directory (most file managers don't support selecting)
-        let parent = path_buf
-            .parent()
-            .ok_or_else(|| "Cannot determine parent directory".to_string())?;
-        let parent_str = parent
-            .to_str()
-            .ok_or_else(|| "Path contains invalid UTF-8".to_string())?;
         std::process::Command::new("xdg-open")
-            .arg(parent_str)
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -2442,7 +2434,7 @@ pub fn run() {
             copy_image_to_assets,
             save_clipboard_image,
             open_folder_dialog,
-            reveal_in_file_manager,
+            open_in_file_manager,
             open_url_safe,
             git_is_available,
             git_get_status,
