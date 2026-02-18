@@ -349,7 +349,9 @@ function AppContent() {
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible && !focusMode}
               focusMode={focusMode}
-              onEditorReady={(editor) => { editorRef.current = editor; }}
+              onEditorReady={(editor) => {
+                editorRef.current = editor;
+              }}
             />
           </>
         )}
@@ -397,7 +399,7 @@ function AppContent() {
             )}
             <div className="text-sm font-medium text-text">
               {aiProvider === "codex"
-                ? "OpenAI Codex is editing your note..."
+                ? "Codex is editing your note..."
                 : "Claude is editing your note..."}
             </div>
           </div>

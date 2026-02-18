@@ -24,7 +24,7 @@ export function AiEditModal({
   const isCodex = provider === "codex";
   const ProviderIcon = isCodex ? CodexIcon : ClaudeIcon;
   const providerName = isCodex ? "Codex" : "Claude";
-  const cliName = isCodex ? "Codex CLI" : "Claude Code CLI";
+  const cliName = isCodex ? "OpenAI Codex CLI" : "Claude Code CLI";
   const installUrl = isCodex
     ? "https://github.com/openai/codex"
     : "https://code.claude.com/docs/en/quickstart";
