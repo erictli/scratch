@@ -17,8 +17,7 @@ A minimalist, offline-first markdown note-taking app for macOS, Windows, and Lin
 - **Markdown source mode** - Toggle to view and edit raw markdown (`Cmd+Shift+M`)
 - **Slash commands** - Type `/` to quickly insert headings, lists, code blocks, and more
 - **Focus mode** - Distraction-free writing with animated sidebar/toolbar fade (`Cmd+Shift+Enter`)
-- **Edit with Claude Code** - Use your local Claude Code CLI to edit notes
-- **Edit with OpenAI Codex** - Use your local Codex CLI to edit notes
+- **Edit with Claude Code or OpenAI Codex** - Use your local Claude Code CLI or Codex CLI to edit notes
 - **Works with other AI agents** - Detects external file changes
 - **Keyboard optimized** - Lots of shortcuts and a command palette
 - **Customizable** - Theme, typography, page width, and RTL text direction
@@ -72,21 +71,21 @@ npm run tauri build    # Production build
 
 Scratch is designed to be usable without a mouse. Here are the essentials to get started:
 
-| Shortcut            | Action                 |
-| ------------------- | ---------------------- |
-| `Cmd+N`             | New note               |
-| `Cmd+P`             | Command palette        |
-| `Cmd+K`             | Add/edit link          |
-| `Cmd+F`             | Find in note           |
-| `Cmd+Shift+C`       | Copy & Export menu     |
-| `Cmd+Shift+M`       | Toggle Markdown source |
-| `Cmd+Shift+Enter`   | Toggle Focus mode      |
-| `Cmd+Shift+F`       | Search notes           |
-| `Cmd+R`             | Reload current note    |
-| `Cmd+,`             | Open settings          |
-| `Cmd+\`             | Toggle sidebar         |
-| `Cmd+B/I`           | Bold/Italic            |
-| `↑/↓`               | Navigate notes         |
+| Shortcut          | Action                 |
+| ----------------- | ---------------------- |
+| `Cmd+N`           | New note               |
+| `Cmd+P`           | Command palette        |
+| `Cmd+K`           | Add/edit link          |
+| `Cmd+F`           | Find in note           |
+| `Cmd+Shift+C`     | Copy & Export menu     |
+| `Cmd+Shift+M`     | Toggle Markdown source |
+| `Cmd+Shift+Enter` | Toggle Focus mode      |
+| `Cmd+Shift+F`     | Search notes           |
+| `Cmd+R`           | Reload current note    |
+| `Cmd+,`           | Open settings          |
+| `Cmd+\`           | Toggle sidebar         |
+| `Cmd+B/I`         | Bold/Italic            |
+| `↑/↓`             | Navigate notes         |
 
 **Note:** On Windows, use `Ctrl` instead of `Cmd` for all shortcuts.
 

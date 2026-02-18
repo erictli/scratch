@@ -23,7 +23,7 @@ export function AiEditModal({
   const inputRef = useRef<HTMLInputElement>(null);
   const isCodex = provider === "codex";
   const ProviderIcon = isCodex ? CodexIcon : ClaudeIcon;
-  const providerName = isCodex ? "OpenAI Codex" : "Claude";
+  const providerName = isCodex ? "Codex" : "Claude";
   const cliName = isCodex ? "Codex CLI" : "Claude Code CLI";
   const installUrl = isCodex
     ? "https://github.com/openai/codex"
