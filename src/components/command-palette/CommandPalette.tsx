@@ -264,7 +264,19 @@ export function CommandPalette({
                 toast.error("No note selected");
                 return;
               }
-              const saved = await downloadMarkdown(currentNote.content, currentNote.title);
+              // Use live editor content with nbsp cleanup, fall back to saved content
+              let markdown = currentNote.content;
+              const editorInstance = editorRef?.current;
+              if (editorInstance) {
+                const manager = editorInstance.storage.markdown?.manager;
+                if (manager) {
+                  markdown = manager.serialize(editorInstance.getJSON());
+                  markdown = markdown.replace(/&nbsp;|&#160;/g, " ");
+                } else {
+                  markdown = editorInstance.getText();
+                }
+              }
+              const saved = await downloadMarkdown(markdown, currentNote.title);
               if (saved) {
                 toast.success("Markdown saved successfully");
               }

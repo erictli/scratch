@@ -108,10 +108,10 @@ export function GeneralSettingsSection() {
           defaultNoteName: noteTemplate || undefined,
         },
       });
-      toast.success("Template saved");
+      toast.success("Default name saved");
     } catch (error) {
-      console.error("Failed to save template:", error);
-      toast.error("Failed to save template");
+      console.error("Failed to save default name:", error);
+      toast.error("Failed to save default name");
     }
   };
 
