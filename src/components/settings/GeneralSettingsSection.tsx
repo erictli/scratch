@@ -135,7 +135,7 @@ export function GeneralSettingsSection() {
   const handleOpenFolder = async () => {
     if (!notesFolder) return;
     try {
-      await invoke("reveal_in_file_manager", { path: notesFolder });
+      await invoke("open_in_file_manager", { path: notesFolder });
     } catch (err) {
       console.error("Failed to open folder:", err);
       toast.error("Failed to open folder");

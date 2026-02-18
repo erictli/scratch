@@ -43,6 +43,7 @@ import {
   ClaudeIcon,
   ZenIcon,
   MarkdownIcon,
+  FolderIcon,
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
 
@@ -82,6 +83,7 @@ export function CommandPalette({
     refreshNotes,
     pinNote,
     unpinNote,
+    notesFolder,
   } = useNotes();
   const { theme, setTheme } = useTheme();
   const { status, gitAvailable, commit, push } = useGit();
@@ -350,6 +352,24 @@ export function CommandPalette({
       },
     );
 
+    // Open notes folder
+    if (notesFolder) {
+      baseCommands.push({
+        id: "open-folder",
+        label: "Open Notes Folder",
+        icon: <FolderIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: async () => {
+          try {
+            await invoke("open_in_file_manager", { path: notesFolder });
+            onClose();
+          } catch (error) {
+            console.error("Failed to open folder:", error);
+            toast.error("Failed to open folder");
+          }
+        },
+      });
+    }
+
     // Settings and theme commands at the bottom
     baseCommands.push(
       {
@@ -412,6 +432,7 @@ export function CommandPalette({
     unpinNote,
     focusMode,
     onToggleFocusMode,
+    notesFolder,
   ]);
 
   // Debounced search using Tantivy (local state, doesn't affect sidebar)
