@@ -279,8 +279,8 @@ export function CommandPalette({
               const saved = await downloadMarkdown(markdown, currentNote.title);
               if (saved) {
                 toast.success("Markdown saved successfully");
+                onClose();
               }
-              onClose();
             } catch (error) {
               console.error("Failed to download markdown:", error);
               toast.error("Failed to save markdown");
