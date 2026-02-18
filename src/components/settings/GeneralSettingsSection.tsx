@@ -1,21 +1,20 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getVersion } from "@tauri-apps/api/app";
 import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
-import { showUpdateToast } from "../../App";
 import { Button } from "../ui";
 import { Input } from "../ui";
 import {
   FolderIcon,
   FoldersIcon,
-  RefreshCwIcon,
   ExternalLinkIcon,
   SpinnerIcon,
   CloudPlusIcon,
+  ChevronRightIcon,
 } from "../icons";
+import type { Settings } from "../../types/note";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -62,23 +61,57 @@ export function GeneralSettingsSection() {
 
   const [remoteUrl, setRemoteUrl] = useState("");
   const [showRemoteInput, setShowRemoteInput] = useState(false);
-  const [appVersion, setAppVersion] = useState<string>("");
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
+  const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
 
+  // Load template from settings on mount
   useEffect(() => {
-    getVersion()
-      .then(setAppVersion)
-      .catch(() => {});
+    const loadTemplate = async () => {
+      try {
+        const settings = await invoke<Settings>("get_settings");
+        const template = settings.defaultNoteName || "Untitled";
+        setNoteTemplate(template);
+
+        // Update preview
+        const preview = await invoke<string>("preview_note_name", { template });
+        setPreviewNoteName(preview);
+      } catch (error) {
+        console.error("Failed to load template:", error);
+      }
+    };
+    loadTemplate();
   }, []);
 
-  const handleCheckForUpdates = async () => {
-    setCheckingUpdate(true);
-    const result = await showUpdateToast();
-    setCheckingUpdate(false);
-    if (result === "no-update") {
-      toast.success("You're on the latest version!");
-    } else if (result === "error") {
-      toast.error("Could not check for updates. Try again later.");
+  // Update preview when template changes (debounced)
+  useEffect(() => {
+    const updatePreview = async () => {
+      try {
+        const preview = await invoke<string>("preview_note_name", {
+          template: noteTemplate,
+        });
+        setPreviewNoteName(preview);
+      } catch (error) {
+        setPreviewNoteName("Invalid template");
+      }
+    };
+
+    const timer = setTimeout(updatePreview, 300);
+    return () => clearTimeout(timer);
+  }, [noteTemplate]);
+
+  const handleSaveTemplate = async () => {
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: {
+          ...settings,
+          defaultNoteName: noteTemplate || undefined,
+        },
+      });
+      toast.success("Default name saved");
+    } catch (error) {
+      console.error("Failed to save default name:", error);
+      toast.error("Failed to save default name");
     }
   };
 
@@ -152,9 +185,9 @@ export function GeneralSettingsSection() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 py-8">
       {/* Folder Location */}
-      <section>
+      <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">Folder Location</h2>
         <p className="text-sm text-text-muted mb-4">
           Your notes are stored as markdown files in this folder
@@ -197,7 +230,7 @@ export function GeneralSettingsSection() {
       <div className="border-t border-border border-dashed" />
 
       {/* Git Section */}
-      <section>
+      <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">Version Control</h2>
         <p className="text-sm text-text-muted mb-4">
           Track changes and store backups of your notes using Git
@@ -449,40 +482,56 @@ export function GeneralSettingsSection() {
       {/* Divider */}
       <div className="border-t border-border border-dashed" />
 
-      {/* About */}
-      <section>
-        <h2 className="text-xl font-medium mb-0.5">About Scratch</h2>
-        <p className="text-sm text-text-muted mb-3">
-          You are currently using Scratch v{appVersion || "..."}. Learn more on{" "}
-          <a
-            href="https://github.com/erictli/scratch"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-text-muted border-b border-text-muted/50 hover:text-text hover:border-text cursor-pointer transition-colors"
-          >
-            GitHub
-          </a>
-          .
+      {/* New Note Template */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">Default Note Name</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Customize the default name when creating a new note
         </p>
-        <Button
-          onClick={handleCheckForUpdates}
-          disabled={checkingUpdate}
-          variant="outline"
-          size="md"
-          className="gap-1.25"
-        >
-          {checkingUpdate ? (
-            <>
-              <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
-              Checking...
-            </>
-          ) : (
-            <>
-              <RefreshCwIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-              Check for Updates
-            </>
-          )}
-        </Button>
+
+        <div className="space-y-2">
+          <div>
+            <Input
+              type="text"
+              value={noteTemplate}
+              onChange={(e) => setNoteTemplate(e.target.value)}
+              onBlur={handleSaveTemplate}
+              placeholder="Untitled"
+            />
+          </div>
+          <div className="text-2xs text-text-muted font-mono p-2 rounded-md bg-bg-muted mb-4">
+            Preview: {previewNoteName}
+          </div>
+
+          {/* Template Tags Reference */}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-text-muted hover:text-text select-none flex items-center gap-1 font-medium">
+              <ChevronRightIcon className="w-3.5 h-3.5 stroke-2 transition-transform [[open]>&]:rotate-90" />
+              Add template tags to your name
+            </summary>
+            <div className="mt-2 space-y-1.5 pl-2 text-text-muted">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs">
+                <code>{"{timestamp}"}</code>
+                <span>1739586000</span>
+                <code>{"{date}"}</code>
+                <span>2026-02-15</span>
+                <code>{"{time}"}</code>
+                <span>14-30-45</span>
+                <code>{"{year}"}</code>
+                <span>2026</span>
+                <code>{"{month}"}</code>
+                <span>02</span>
+                <code>{"{day}"}</code>
+                <span>15</span>
+                <code>{"{counter}"}</code>
+                <span>1, 2, 3...</span>
+              </div>
+              <p className="text-xs mt-2 pt-2 border-t border-border">
+                Examples: <code>Note-{"{year}-{month}-{day}"}</code>
+              </p>
+            </div>
+          </details>
+        </div>
       </section>
     </div>
   );

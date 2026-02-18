@@ -1,6 +1,6 @@
 [package]
 name = "Scratch"
-version = "0.5.1"
+version = "0.6.0"
 description = "An offline markdown-based notes app"
 authors = ["erictli"]
 edition = "2021"
@@ -32,3 +32,4 @@ open = "5"
 regex = "1"
 walkdir = "2"
 tauri-plugin-single-instance = "2"
+chrono = "0.4"

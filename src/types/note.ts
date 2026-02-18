@@ -36,4 +36,5 @@ export interface Settings {
   pinnedNoteIds?: string[];
   textDirection?: TextDirection;
   editorWidth?: EditorWidth;
+  defaultNoteName?: string;
 }

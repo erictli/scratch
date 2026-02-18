@@ -100,6 +100,8 @@ pub struct Settings {
     pub text_direction: Option<String>,
     #[serde(rename = "editorWidth")]
     pub editor_width: Option<String>,
+    #[serde(rename = "defaultNoteName")]
+    pub default_note_name: Option<String>,
 }
 
 // Search result
@@ -333,10 +335,58 @@ fn sanitize_filename(title: &str) -> String {
 
     let trimmed = sanitized.trim();
     if trimmed.is_empty() || is_effectively_empty(trimmed) {
-        "untitled".to_string()
+        "Untitled".to_string()
     } else {
         trimmed.to_string()
     }
+}
+
+/// Expands template tags in a note name template using local timezone
+fn expand_note_name_template(template: &str) -> String {
+    use chrono::Local;
+
+    let mut result = template.to_string();
+
+    // Get current time in local timezone
+    let now = Local::now();
+
+    // Timestamp tag (Unix timestamp)
+    result = result.replace("{timestamp}", &now.timestamp().to_string());
+
+    // Date tags
+    result = result.replace("{date}", &now.format("%Y-%m-%d").to_string());
+    result = result.replace("{year}", &now.format("%Y").to_string());
+    result = result.replace("{month}", &now.format("%m").to_string());
+    result = result.replace("{day}", &now.format("%d").to_string());
+
+    // Time tags (use dash instead of colon for filename safety)
+    result = result.replace("{time}", &now.format("%H-%M-%S").to_string());
+
+    // Note: {counter} is handled in create_note function
+
+    result
+}
+
+/// Extracts a display title from a note ID (filename)
+fn extract_title_from_id(id: &str) -> String {
+    // Get last path component (filename)
+    let filename = id.rsplit('/').next().unwrap_or(id);
+
+    // Convert to display title (replace dashes/underscores with spaces)
+    let title = filename.replace(['-', '_'], " ");
+
+    // Title case
+    title
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // Utility: Check if a string is effectively empty
@@ -1031,21 +1081,57 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
     };
     let folder_path = PathBuf::from(&folder);
 
-    // Generate unique ID
-    let base_id = "untitled";
-    let mut final_id = base_id.to_string();
-    let mut counter = 1;
+    // Get template from settings (default "Untitled")
+    let template = {
+        let settings = state.settings.read().expect("settings read lock");
+        settings
+            .default_note_name
+            .clone()
+            .unwrap_or_else(|| "Untitled".to_string())
+    };
 
+    // Expand template tags
+    let expanded = expand_note_name_template(&template);
+
+    // Sanitize filename
+    let sanitized = sanitize_filename(&expanded);
+
+    // Handle {counter} tag
+    let has_counter = template.contains("{counter}");
+    let base_id = if has_counter {
+        sanitized.replace("{counter}", "1")
+    } else {
+        sanitized.clone()
+    };
+
+    let mut final_id = base_id.clone();
+    let mut counter = if has_counter { 2 } else { 1 };
+
+    // Ensure filename uniqueness
     while abs_path_from_id(&folder_path, &final_id)
         .map(|p| p.exists())
         .unwrap_or(false)
     {
-        final_id = format!("{}-{}", base_id, counter);
+        if has_counter {
+            final_id = sanitized.replace("{counter}", &counter.to_string());
+        } else {
+            final_id = format!("{}-{}", base_id, counter);
+        }
         counter += 1;
     }
 
-    let content = "# Untitled\n\n".to_string();
+    // Extract display title from filename
+    let display_title = extract_title_from_id(&final_id);
+
+    let content = format!("# {}\n\n", display_title);
     let file_path = abs_path_from_id(&folder_path, &final_id)?;
+
+    // Create parent directories (for templates like {year}/{month}/{day})
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
     fs::write(&file_path, &content)
         .await
@@ -1060,13 +1146,13 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.index_note(&final_id, "Untitled", &content, modified);
+            let _ = search_index.index_note(&final_id, &display_title, &content, modified);
         }
     }
 
     Ok(Note {
         id: final_id,
-        title: "Untitled".to_string(),
+        title: display_title,
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
@@ -1097,6 +1183,28 @@ fn update_settings(
     save_settings(&folder, &settings).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+async fn write_file(path: String, contents: Vec<u8>) -> Result<(), String> {
+    fs::write(&path, contents)
+        .await
+        .map_err(|e| format!("Failed to write file: {}", e))
+}
+
+#[tauri::command]
+fn preview_note_name(template: String) -> Result<String, String> {
+    let expanded = expand_note_name_template(&template);
+    let sanitized = sanitize_filename(&expanded);
+
+    // Show first note name (with counter as 1 if present)
+    let preview = if template.contains("{counter}") {
+        sanitized.replace("{counter}", "1")
+    } else {
+        sanitized
+    };
+
+    Ok(preview)
 }
 
 // Preview mode: file content returned by read_file_direct / save_file_direct
@@ -2487,6 +2595,8 @@ pub fn run() {
             create_note,
             get_settings,
             update_settings,
+            preview_note_name,
+            write_file,
             search_notes,
             start_file_watcher,
             rebuild_search_index,

@@ -4,10 +4,11 @@ version = 4
 
 [[package]]
 name = "Scratch"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "chrono",
  "notify",
  "open",
  "regex",
@@ -530,8 +531,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fac4744fb15ae8337dc853fee7fb3f4e48c0fbaa23d0afe49c447b4fab126118"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 

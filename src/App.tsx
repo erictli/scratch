@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { NotesProvider, useNotes } from "./context/NotesContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -6,6 +6,7 @@ import { GitProvider } from "./context/GitContext";
 import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Editor } from "./components/editor/Editor";
+import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
 import { SettingsPage } from "./components/settings";
@@ -56,6 +57,7 @@ function AppContent() {
   const [aiEditing, setAiEditing] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
+  const editorRef = useRef<TiptapEditor | null>(null);
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
@@ -347,6 +349,7 @@ function AppContent() {
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible && !focusMode}
               focusMode={focusMode}
+              onEditorReady={(editor) => { editorRef.current = editor; }}
             />
           </>
         )}
@@ -373,6 +376,7 @@ function AppContent() {
         }}
         focusMode={focusMode}
         onToggleFocusMode={toggleFocusMode}
+        editorRef={editorRef}
       />
       <AiEditModal
         open={aiModalOpen}

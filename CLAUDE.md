@@ -68,7 +68,7 @@ These must be configured in the repo settings (Settings > Secrets and variables 
 
 The app checks for updates via the Tauri updater plugin, which fetches `latest.json` from GitHub releases:
 - Endpoint: `https://github.com/erictli/scratch/releases/latest/download/latest.json`
-- On startup (after 3s delay) and manually via Settings > General > "Check for Updates"
+- On startup (after 3s delay) and manually via Settings > About > "Check for Updates"
 - If a newer version is found, a toast appears with an "Update Now" button
 - Config is in `src-tauri/tauri.conf.json` under `plugins.updater`
 
@@ -110,8 +110,8 @@ scratch/
 │   │   │   ├── SettingsPage.tsx    # Tabbed settings interface
 │   │   │   ├── GeneralSettingsSection.tsx       # Notes folder picker
 │   │   │   ├── AppearanceSettingsSection.tsx    # Theme & typography
-│   │   │   ├── GitSettingsSection.tsx           # Git config & remote
-│   │   │   └── ShortcutsSettingsSection.tsx     # Keyboard shortcuts reference
+│   │   │   ├── ShortcutsSettingsSection.tsx     # Keyboard shortcuts reference
+│   │   │   └── AboutSettingsSection.tsx         # App version, updates, and links
 │   │   ├── ai/                     # AI editing components
 │   │   │   ├── AiEditModal.tsx     # AI prompt input modal
 │   │   │   └── AiResponseToast.tsx # AI response display with undo
@@ -171,6 +171,7 @@ The settings page provides UI for:
 - Page width (narrow/normal/wide/full)
 - Git integration (optional)
 - Keyboard shortcuts reference
+- App version, updates, and project links
 
 Power users can edit the settings JSON directly to customize colors.
 
@@ -185,7 +186,7 @@ TipTap editor with extensions and features:
 
 **Key Features:**
 - Auto-save with 300ms debounce
-- Copy-as menu (Markdown/Plain Text/HTML) via `Cmd+Shift+C`
+- Copy & Export menu (Markdown/Plain Text/HTML/PDF) via `Cmd+Shift+C`
 - Inline link editor popup (`Cmd+K`) for add/edit/remove
 - Format bar with 13 tools (bold, italic, headings, lists, code, etc.)
 - Slash commands (`/`) for quick block insertion (headings, lists, code, etc.)
@@ -220,7 +221,7 @@ TipTap editor with extensions and features:
 - `CommandPalette` - Cmd+P for quick actions and note search
 - `GitStatus` - Floating commit UI in sidebar
 - `NoteList` - Scrollable list with context menu and smart date formatting
-- `SettingsPage` - Tabbed settings (General, Appearance, Git, Shortcuts)
+- `SettingsPage` - Tabbed settings (General, Appearance, Shortcuts, About)
 - `AiEditModal` - AI prompt input for Claude Code CLI integration
 - `AiResponseToast` - AI response display with markdown parsing and undo button
 
@@ -275,13 +276,13 @@ Current capabilities include:
 - `Cmd+P` - Command palette
 - `Cmd+K` - Add/edit link (when in editor)
 - `Cmd+F` - Find in current note
-- `Cmd+Shift+C` - Copy as (Markdown/Plain Text/HTML)
+- `Cmd+Shift+C` - Open Copy & Export menu
 - `Cmd+Shift+M` - Toggle Markdown source mode
 - `Cmd+Shift+Enter` - Toggle Focus mode
 - `Cmd+Shift+F` - Search notes
 - `Cmd+R` - Reload current note (pull external changes)
 - `Cmd+,` - Open settings
-- `Cmd+1/2/3` - Switch settings tabs (General/Appearance/Shortcuts)
+- `Cmd+1/2/3/4` - Switch settings tabs (General/Appearance/Shortcuts/About)
 - `Cmd+\` - Toggle sidebar
 - `Cmd+B/I` - Bold/Italic
 - Arrow keys - Navigate note list (when focused)

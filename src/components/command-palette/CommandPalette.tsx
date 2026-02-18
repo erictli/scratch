@@ -13,7 +13,9 @@ import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
 import * as notesService from "../../services/notes";
+import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import type { Settings } from "../../types/note";
+import type { Editor } from "@tiptap/react";
 import {
   CommandItem,
   AlertDialog,
@@ -26,9 +28,11 @@ import {
   AlertDialogTitle,
 } from "../ui";
 import { cleanTitle } from "../../lib/utils";
+import { plainTextFromMarkdown } from "../../lib/plainText";
 import { duplicateNote } from "../../services/notes";
 import {
   CopyIcon,
+  DownloadIcon,
   SettingsIcon,
   SwatchIcon,
   GitCommitIcon,
@@ -59,6 +63,7 @@ interface CommandPaletteProps {
   onOpenAiModal?: (provider: AiProvider) => void;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
+  editorRef?: React.RefObject<Editor | null>;
 }
 
 export function CommandPalette({
@@ -68,6 +73,7 @@ export function CommandPalette({
   onOpenAiModal,
   focusMode,
   onToggleFocusMode,
+  editorRef,
 }: CommandPaletteProps) {
   const {
     notes,
@@ -182,7 +188,7 @@ export function CommandPalette({
         },
         {
           id: "copy-markdown",
-          label: "Copy Note as Markdown",
+          label: "Copy Markdown",
           icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
@@ -197,26 +203,90 @@ export function CommandPalette({
         },
         {
           id: "copy-plain",
-          label: "Copy Note as Plain Text",
+          label: "Copy Plain Text",
           icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
             try {
-              // Remove markdown formatting for plain text
-              const plainText = currentNote.content
-                .replace(/^#{1,6}\s+/gm, "") // Remove headers
-                .replace(/\*\*(.+?)\*\*/g, "$1") // Remove bold
-                .replace(/\*(.+?)\*/g, "$1") // Remove italic
-                .replace(/\[(.+?)\]\(.+?\)/g, "$1") // Remove links, keep text
-                .replace(/`(.+?)`/g, "$1") // Remove inline code
-                .replace(/^[-*+]\s+/gm, "") // Remove list markers
-                .replace(/^\d+\.\s+/gm, "") // Remove numbered list markers
-                .replace(/^>\s+/gm, ""); // Remove blockquotes
+              const plainText = plainTextFromMarkdown(currentNote.content);
               await invoke("copy_to_clipboard", { text: plainText });
               toast.success("Copied as plain text");
               onClose();
             } catch (error) {
               console.error("Failed to copy plain text:", error);
               toast.error("Failed to copy");
+            }
+          },
+        },
+        {
+          id: "copy-html",
+          label: "Copy HTML",
+          icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              if (!editorRef?.current) {
+                toast.error("Editor not available");
+                return;
+              }
+              const html = editorRef.current.getHTML();
+              await invoke("copy_to_clipboard", { text: html });
+              toast.success("Copied as HTML");
+              onClose();
+            } catch (error) {
+              console.error("Failed to copy HTML:", error);
+              toast.error("Failed to copy");
+            }
+          },
+        },
+        {
+          id: "download-pdf",
+          label: "Print as PDF",
+          icon: <DownloadIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              if (!editorRef?.current || !currentNote) {
+                toast.error("Editor not available");
+                return;
+              }
+              await downloadPdf(editorRef.current, currentNote.title);
+              // Note: window.print() opens the print dialog but doesn't wait for user action
+              // No success toast needed - the print dialog provides its own feedback
+              onClose();
+            } catch (error) {
+              console.error("Failed to open print dialog:", error);
+              toast.error("Failed to open print dialog");
+            }
+          },
+        },
+        {
+          id: "download-markdown",
+          label: "Export Markdown",
+          icon: <DownloadIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              if (!currentNote) {
+                toast.error("No note selected");
+                return;
+              }
+              // Use live editor content with nbsp cleanup, fall back to saved content
+              let markdown = currentNote.content;
+              const editorInstance = editorRef?.current;
+              if (editorInstance) {
+                const manager = editorInstance.storage.markdown?.manager;
+                if (manager) {
+                  markdown = manager.serialize(editorInstance.getJSON());
+                  markdown = markdown.replace(/&nbsp;|&#160;/g, " ");
+                } else {
+                  markdown = editorInstance.getText();
+                }
+              }
+              const saved = await downloadMarkdown(markdown, currentNote.title);
+              if (saved) {
+                toast.success("Markdown saved successfully");
+                onClose();
+              }
+            } catch (error) {
+              console.error("Failed to download markdown:", error);
+              toast.error("Failed to save markdown");
             }
           },
         },

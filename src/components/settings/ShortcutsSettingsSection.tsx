@@ -39,7 +39,7 @@ const shortcuts: Shortcut[] = [
   },
   {
     keys: [mod, "Shift", "C"],
-    description: "Copy as (Markdown/Plain Text/HTML)",
+    description: "Open Copy & Export menu",
     category: "Editor",
   },
   {
@@ -80,6 +80,11 @@ const shortcuts: Shortcut[] = [
   {
     keys: [mod, "3"],
     description: "Go to Shortcuts settings",
+    category: "Settings",
+  },
+  {
+    keys: [mod, "4"],
+    description: "Go to About settings",
     category: "Settings",
   },
 ];
@@ -132,7 +137,7 @@ export function ShortcutsSettingsSection() {
               <div className="border-t border-border border-dashed" />
             )}
             <section>
-              <h2 className="text-xl font-medium pt-6 mb-4">{category}</h2>
+              <h2 className="text-xl font-medium pt-8 mb-4">{category}</h2>
               <div className="space-y-3">
                 {categoryShortcuts.map((shortcut, index) => (
                   <div
