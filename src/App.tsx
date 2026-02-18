@@ -10,7 +10,7 @@ import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
 import { SettingsPage } from "./components/settings";
-import { SpinnerIcon, ClaudeIcon } from "./components/icons";
+import { SpinnerIcon, ClaudeIcon, CodexIcon } from "./components/icons";
 import { AiEditModal } from "./components/ai/AiEditModal";
 import { AiResponseToast } from "./components/ai/AiResponseToast";
 import { PreviewApp } from "./components/preview/PreviewApp";
@@ -19,6 +19,7 @@ import {
   type Update,
 } from "@tauri-apps/plugin-updater";
 import * as aiService from "./services/ai";
+import type { AiProvider } from "./services/ai";
 
 // Detect preview mode from URL search params
 function getWindowMode(): {
@@ -55,6 +56,7 @@ function AppContent() {
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
 
   const toggleSidebar = useCallback(() => {
@@ -98,11 +100,10 @@ function AppContent() {
       setAiEditing(true);
 
       try {
-        // Execute Claude CLI on current file
-        const result = await aiService.executeClaudeEdit(
-          currentNote.path,
-          prompt,
-        );
+        const result =
+          aiProvider === "codex"
+            ? await aiService.executeCodexEdit(currentNote.path, prompt)
+            : await aiService.executeClaudeEdit(currentNote.path, prompt);
 
         // Reload the current note from disk
         await reloadCurrentNote();
@@ -112,12 +113,15 @@ function AppContent() {
           // Close modal after success
           setAiModalOpen(false);
 
-          // Show success toast with Claude's response
-          toast(<AiResponseToast output={result.output} />, {
-            duration: Infinity,
-            closeButton: true,
-            className: "!min-w-[450px] !max-w-[600px]",
-          });
+          // Show success toast with provider response
+          toast(
+            <AiResponseToast output={result.output} provider={aiProvider} />,
+            {
+              duration: Infinity,
+              closeButton: true,
+              className: "!min-w-[450px] !max-w-[600px]",
+            },
+          );
         } else {
           toast.error(
             <div className="space-y-1">
@@ -136,7 +140,7 @@ function AppContent() {
         setAiEditing(false);
       }
     },
-    [currentNote, reloadCurrentNote],
+    [aiProvider, currentNote, reloadCurrentNote],
   );
 
   // Memoize display items to prevent unnecessary recalculations
@@ -345,7 +349,9 @@ function AppContent() {
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible && !focusMode}
               focusMode={focusMode}
-              onEditorReady={(editor) => { editorRef.current = editor; }}
+              onEditorReady={(editor) => {
+                editorRef.current = editor;
+              }}
             />
           </>
         )}
@@ -366,13 +372,17 @@ function AppContent() {
         open={paletteOpen}
         onClose={handleClosePalette}
         onOpenSettings={toggleSettings}
-        onOpenAiModal={() => setAiModalOpen(true)}
+        onOpenAiModal={(provider) => {
+          setAiProvider(provider);
+          setAiModalOpen(true);
+        }}
         focusMode={focusMode}
         onToggleFocusMode={toggleFocusMode}
         editorRef={editorRef}
       />
       <AiEditModal
         open={aiModalOpen}
+        provider={aiProvider}
         onBack={handleBackToPalette}
         onExecute={handleAiEdit}
         isExecuting={aiEditing}
@@ -382,9 +392,15 @@ function AppContent() {
       {aiEditing && (
         <div className="fixed inset-0 bg-bg/50 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="flex items-center gap-2">
-            <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
+            {aiProvider === "codex" ? (
+              <CodexIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
+            ) : (
+              <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
+            )}
             <div className="text-sm font-medium text-text">
-              Claude is editing your note...
+              {aiProvider === "codex"
+                ? "Codex is editing your note..."
+                : "Claude is editing your note..."}
             </div>
           </div>
         </div>

@@ -1967,11 +1967,9 @@ fn get_expanded_path() -> String {
     expanded.join(":")
 }
 
-#[tauri::command]
-async fn ai_check_claude_cli() -> Result<bool, String> {
+fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
     use std::process::Command;
 
-    let path = get_expanded_path();
     let which_cmd = if cfg!(target_os = "windows") {
         "where"
     } else {
@@ -1979,164 +1977,199 @@ async fn ai_check_claude_cli() -> Result<bool, String> {
     };
 
     let check_output = Command::new(which_cmd)
-        .arg("claude")
-        .env("PATH", &path)
+        .arg(command_name)
+        .env("PATH", path)
         .output()
-        .map_err(|e| format!("Failed to check for claude CLI: {}", e))?;
+        .map_err(|e| format!("Failed to check for {} CLI: {}", command_name, e))?;
 
     Ok(check_output.status.success())
 }
 
-// AI execute command
 #[tauri::command]
-async fn ai_execute_claude(
-    file_path: String,
-    prompt: String,
+async fn ai_check_claude_cli() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let path = get_expanded_path();
+        check_cli_exists("claude", &path)
+    })
+    .await
+    .map_err(|e| format!("Failed to check Claude CLI: {}", e))?
+}
+
+#[tauri::command]
+async fn ai_check_codex_cli() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let path = get_expanded_path();
+        check_cli_exists("codex", &path)
+    })
+    .await
+    .map_err(|e| format!("Failed to check Codex CLI: {}", e))?
+}
+
+/// Shared AI CLI execution: spawns `command` with `args`, writes `stdin_input` to stdin,
+/// and returns the result with a 5-minute timeout.
+async fn execute_ai_cli(
+    cli_name: &str,
+    command: String,
+    args: Vec<String>,
+    stdin_input: String,
+    not_found_msg: String,
 ) -> Result<AiExecutionResult, String> {
-    use std::process::{Child, Command, Stdio};
     use std::io::Write;
+    use std::process::{Child, Command, Stdio};
 
-    // Check if claude CLI exists
-    let path = get_expanded_path();
-    let which_cmd = if cfg!(target_os = "windows") {
-        "where"
-    } else {
-        "which"
-    };
-
-    let check_output = Command::new(which_cmd)
-        .arg("claude")
-        .env("PATH", &path)
-        .output()
-        .map_err(|e| format!("Failed to check for claude CLI: {}", e))?;
-
-    if !check_output.status.success() {
-        return Ok(AiExecutionResult {
-            success: false,
-            output: String::new(),
-            error: Some(
-                "Claude CLI not found. Please install it from https://claude.ai/code".to_string(),
-            ),
-        });
-    }
-
-    // Execute: echo "prompt" | claude <file> --dangerously-skip-permissions --print
-    let timeout_duration = std::time::Duration::from_secs(300); // 5 minute timeout
+    let cli_name = cli_name.to_string();
+    let timeout_duration = std::time::Duration::from_secs(300);
     let shared_child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
     let child_for_task = Arc::clone(&shared_child);
+    let cli_name_task = cli_name.clone();
+
     let mut task = tauri::async_runtime::spawn_blocking(move || {
-        let child = Command::new("claude")
-            .env("PATH", &path)
-            .arg(&file_path)
-            .arg("--dangerously-skip-permissions")
-            .arg("--print")
+        // Blocking I/O: expand PATH and check CLI exists
+        let path = get_expanded_path();
+        match check_cli_exists(&command, &path) {
+            Ok(false) => {
+                return AiExecutionResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(not_found_msg),
+                };
+            }
+            Err(e) => {
+                return AiExecutionResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(e),
+                };
+            }
+            Ok(true) => {}
+        }
+
+        let mut cmd = Command::new(&command);
+        cmd.env("PATH", &path);
+        for arg in &args {
+            cmd.arg(arg);
+        }
+        let process = match cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn();
-
-        match child {
-            Ok(process) => {
-                if let Ok(mut child_guard) = child_for_task.lock() {
-                    *child_guard = Some(process);
-                } else {
-                    return AiExecutionResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some("Failed to lock claude child process handle".to_string()),
-                    };
-                }
-
-                // Work with the process by taking it from the shared handle.
-                let mut process = match child_for_task.lock() {
-                    Ok(mut child_guard) => match child_guard.take() {
-                        Some(process) => process,
-                        None => {
-                            return AiExecutionResult {
-                                success: false,
-                                output: String::new(),
-                                error: Some("Claude process handle was unexpectedly missing".to_string()),
-                            };
-                        }
-                    },
-                    Err(_) => {
-                        return AiExecutionResult {
-                            success: false,
-                            output: String::new(),
-                            error: Some("Failed to lock claude child process handle".to_string()),
-                        };
-                    }
-                };
-
-                // Write prompt to stdin, surfacing errors
-                if let Some(mut stdin) = process.stdin.take() {
-                    if let Err(e) = stdin.write_all(prompt.as_bytes()) {
-                        let _ = process.kill();
-                        let _ = process.wait();
-                        return AiExecutionResult {
-                            success: false,
-                            output: String::new(),
-                            error: Some(format!("Failed to write prompt to claude stdin: {}", e)),
-                        };
-                    }
-                } else {
-                    let _ = process.kill();
-                    let _ = process.wait();
-                    return AiExecutionResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some("Failed to open stdin for claude process".to_string()),
-                    };
-                }
-
-                // Wait for completion and get output
-                match process.wait_with_output() {
-                    Ok(output) => {
-                        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-                        if output.status.success() {
-                            AiExecutionResult {
-                                success: true,
-                                output: stdout,
-                                error: None,
-                            }
-                        } else {
-                            AiExecutionResult {
-                                success: false,
-                                output: stdout,
-                                error: Some(stderr),
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        AiExecutionResult {
-                            success: false,
-                            output: String::new(),
-                            error: Some(format!("Failed to wait for claude: {}", e)),
-                        }
-                    }
-                }
-            }
+            .spawn()
+        {
+            Ok(p) => p,
             Err(e) => {
-                AiExecutionResult {
+                return AiExecutionResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Failed to execute claude: {}", e)),
+                    error: Some(format!("Failed to execute {}: {}", cli_name_task, e)),
+                };
+            }
+        };
+
+        // Store process in shared state so the timeout handler can kill it.
+        // We only take individual I/O handles below — the Child stays in the
+        // mutex so it remains reachable for kill().
+        if let Ok(mut guard) = child_for_task.lock() {
+            *guard = Some(process);
+        } else {
+            return AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to lock {} process handle", cli_name_task)),
+            };
+        }
+
+        // Take stdin handle (briefly locks then releases)
+        let stdin_handle = child_for_task
+            .lock()
+            .ok()
+            .and_then(|mut g| g.as_mut().and_then(|p| p.stdin.take()));
+
+        if let Some(mut stdin) = stdin_handle {
+            if let Err(e) = stdin.write_all(stdin_input.as_bytes()) {
+                if let Ok(mut g) = child_for_task.lock() {
+                    if let Some(ref mut p) = *g {
+                        let _ = p.kill();
+                        let _ = p.wait();
+                    }
                 }
+                return AiExecutionResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to write to {} stdin: {}", cli_name_task, e)),
+                };
+            }
+            // stdin dropped here — closes the pipe
+        } else {
+            if let Ok(mut g) = child_for_task.lock() {
+                if let Some(ref mut p) = *g {
+                    let _ = p.kill();
+                    let _ = p.wait();
+                }
+            }
+            return AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to open stdin for {}", cli_name_task)),
+            };
+        }
+
+        // Take stdout/stderr handles so we can read without holding the lock.
+        // This allows the timeout handler to lock the mutex and kill the process.
+        let stdout_handle = child_for_task
+            .lock()
+            .ok()
+            .and_then(|mut g| g.as_mut().and_then(|p| p.stdout.take()));
+        let stderr_handle = child_for_task
+            .lock()
+            .ok()
+            .and_then(|mut g| g.as_mut().and_then(|p| p.stderr.take()));
+
+        use std::io::Read;
+
+        let mut stdout_str = String::new();
+        if let Some(mut out) = stdout_handle {
+            let _ = out.read_to_string(&mut stdout_str);
+        }
+
+        let mut stderr_str = String::new();
+        if let Some(mut err) = stderr_handle {
+            let _ = err.read_to_string(&mut stderr_str);
+        }
+
+        // Collect exit status — process has exited after stdout/stderr close
+        let success = child_for_task
+            .lock()
+            .ok()
+            .and_then(|mut g| g.as_mut().and_then(|p| p.wait().ok()))
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        if success {
+            AiExecutionResult {
+                success: true,
+                output: stdout_str,
+                error: None,
+            }
+        } else {
+            AiExecutionResult {
+                success: false,
+                output: stdout_str,
+                error: Some(stderr_str),
             }
         }
     });
 
     let result = match tokio::time::timeout(timeout_duration, &mut task).await {
         Ok(join_result) => {
-            join_result.map_err(|e| format!("Failed to join Claude blocking task: {}", e))?
+            join_result.map_err(|e| format!("Failed to join {} blocking task: {}", cli_name, e))?
         }
         Err(_) => {
-            if let Ok(mut child_guard) = shared_child.lock() {
-                if let Some(mut process) = child_guard.take() {
+            // Kill through the shared handle — the Child is still in the mutex
+            // because the blocking task only takes I/O handles, not the Child.
+            // This sends SIGKILL, which closes the pipes and unblocks the reads.
+            if let Ok(mut guard) = shared_child.lock() {
+                if let Some(ref mut process) = *guard {
                     let _ = process.kill();
-                    let _ = process.wait();
                 }
             }
 
@@ -2144,27 +2177,69 @@ async fn ai_execute_claude(
                 Ok(join_result) => {
                     if let Err(e) = join_result {
                         return Err(format!(
-                            "Failed to join Claude blocking task after timeout: {}",
-                            e
+                            "Failed to join {} blocking task after timeout: {}",
+                            cli_name, e
                         ));
                     }
                 }
                 Err(_) => {
-                    return Err(
-                        "Claude CLI timed out and failed to exit after kill signal".to_string()
-                    );
+                    return Err(format!(
+                        "{} CLI timed out and failed to exit after kill signal",
+                        cli_name
+                    ));
                 }
             }
 
             AiExecutionResult {
                 success: false,
                 output: String::new(),
-                error: Some("Claude CLI timed out after 5 minutes".to_string()),
+                error: Some(format!("{} CLI timed out after 5 minutes", cli_name)),
             }
         }
     };
 
     Ok(result)
+}
+
+#[tauri::command]
+async fn ai_execute_claude(file_path: String, prompt: String) -> Result<AiExecutionResult, String> {
+    execute_ai_cli(
+        "Claude",
+        "claude".to_string(),
+        vec![
+            file_path,
+            "--dangerously-skip-permissions".to_string(),
+            "--print".to_string(),
+        ],
+        prompt,
+        "Claude CLI not found. Please install it from https://claude.ai/code".to_string(),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecutionResult, String> {
+    let stdin_input = format!(
+        "Edit only this markdown file: {file_path}\n\
+         Apply the user's instructions below directly to that file.\n\
+         Do not create, delete, rename, or modify any other files.\n\
+         User instructions:\n\
+         {prompt}"
+    );
+
+    execute_ai_cli(
+        "Codex",
+        "codex".to_string(),
+        vec![
+            "exec".to_string(),
+            "--skip-git-repo-check".to_string(),
+            "--dangerously-bypass-approvals-and-sandbox".to_string(),
+            "-".to_string(),
+        ],
+        stdin_input,
+        "Codex CLI not found. Please install it from https://github.com/openai/codex".to_string(),
+    )
+    .await
 }
 
 /// Check if a markdown file is inside the configured notes folder.
@@ -2367,11 +2442,9 @@ pub fn run() {
             // Initialize search index if notes folder is set
             let search_index = if let Some(ref folder) = app_config.notes_folder {
                 if let Ok(index_path) = get_search_index_path(app.handle()) {
-                    SearchIndex::new(&index_path)
-                        .ok()
-                        .inspect(|idx| {
-                            let _ = idx.rebuild_index(&PathBuf::from(folder));
-                        })
+                    SearchIndex::new(&index_path).ok().inspect(|idx| {
+                        let _ = idx.rebuild_index(&PathBuf::from(folder));
+                    })
                 } else {
                     None
                 }
@@ -2444,7 +2517,9 @@ pub fn run() {
             git_add_remote,
             git_push_with_upstream,
             ai_check_claude_cli,
+            ai_check_codex_cli,
             ai_execute_claude,
+            ai_execute_codex,
             read_file_direct,
             save_file_direct,
             open_file_preview,
