@@ -250,7 +250,7 @@ pub fn push(path: &Path) -> GitResult {
 /// Fetch from remote to update tracking refs
 pub fn fetch(path: &Path) -> GitResult {
     let output = Command::new("git")
-        .args(["fetch", "--quiet"])
+        .args(["fetch", "--quiet", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10"])
         .current_dir(path)
         .output();
 
@@ -432,6 +432,8 @@ fn parse_pull_error(stderr: &str) -> String {
         "Could not connect to remote. Check your internet connection.".to_string()
     } else if stderr.contains("not possible to fast-forward") {
         "Pull failed: local and remote have diverged. Try pulling with rebase or merging manually.".to_string()
+    } else if stderr.contains("unrelated histories") {
+        "Pull failed: repositories have unrelated histories. Merge them manually or re-run with --allow-unrelated-histories.".to_string()
     } else {
         stderr.trim().to_string()
     }

@@ -192,9 +192,11 @@ export function GitProvider({ children }: { children: ReactNode }) {
     gitService.isGitAvailable().then(setGitAvailable);
   }, []);
 
-  // Keep a stable ref so the file-change listener doesn't need to re-register
+  // Keep stable refs so listeners/timers don't need to re-register
   const refreshStatusRef = useRef(refreshStatus);
   refreshStatusRef.current = refreshStatus;
+  const isPullingRef = useRef(false);
+  isPullingRef.current = isPulling;
 
   // Refresh status when folder changes
   useEffect(() => {
@@ -213,8 +215,10 @@ export function GitProvider({ children }: { children: ReactNode }) {
     let timer: number;
 
     const poll = async () => {
-      await gitService.gitFetch().catch(() => {});
-      await refreshStatusRef.current();
+      if (!isPullingRef.current) {
+        await gitService.gitFetch().catch(() => {});
+        await refreshStatusRef.current();
+      }
       if (!cancelled) {
         timer = window.setTimeout(poll, 60_000);
       }

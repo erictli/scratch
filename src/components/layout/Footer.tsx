@@ -171,7 +171,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
               <IconButton
                 onClick={handlePull}
                 disabled={isPulling}
-                title="Sync"
+                aria-label="Sync"
               >
                 {isPulling ? (
                   <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
