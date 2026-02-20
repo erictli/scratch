@@ -29,7 +29,7 @@ interface GitContextValue {
   initRepo: () => Promise<boolean>;
   commit: (message: string) => Promise<boolean>;
   push: () => Promise<boolean>;
-  pull: () => Promise<boolean>;
+  pull: () => Promise<string | false>;
   addRemote: (url: string) => Promise<boolean>;
   pushWithUpstream: () => Promise<boolean>;
   clearError: () => void;
@@ -129,7 +129,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshStatus]);
 
-  const pull = useCallback(async () => {
+  const pull = useCallback(async (): Promise<string | false> => {
     setIsPulling(true);
     try {
       const result = await gitService.gitPull();
@@ -138,7 +138,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
         return false;
       }
       await refreshStatus();
-      return true;
+      return result.message || "Pulled latest changes";
     } catch (err) {
       setLastError(err instanceof Error ? err.message : "Failed to pull");
       return false;
@@ -205,15 +205,27 @@ export function GitProvider({ children }: { children: ReactNode }) {
 
   // Poll remote for changes periodically (every 60s) when a remote is configured
   // Fetch is separated from status to keep status checks fast and offline-friendly
+  // Uses recursive setTimeout to prevent overlapping runs on slow networks
   useEffect(() => {
     if (!notesFolder || !gitAvailable || !status?.hasRemote) return;
 
-    const interval = window.setInterval(async () => {
-      await gitService.gitFetch().catch(() => {});
-      refreshStatusRef.current();
-    }, 60_000);
+    let cancelled = false;
+    let timer: number;
 
-    return () => clearInterval(interval);
+    const poll = async () => {
+      await gitService.gitFetch().catch(() => {});
+      await refreshStatusRef.current();
+      if (!cancelled) {
+        timer = window.setTimeout(poll, 60_000);
+      }
+    };
+
+    timer = window.setTimeout(poll, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [notesFolder, gitAvailable, status?.hasRemote]);
 
   // Refresh status on file changes (debounced via existing file watcher)

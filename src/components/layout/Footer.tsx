@@ -11,6 +11,7 @@ import {
   SpinnerIcon,
   SettingsIcon,
 } from "../icons";
+import { cn } from "../../lib/utils";
 import { mod, isMac } from "../../lib/platform";
 
 interface FooterProps {
@@ -58,9 +59,9 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
 
   const handlePull = useCallback(async () => {
     if (isPulling) return;
-    const success = await pull();
-    if (success) {
-      toast.success("Pulled latest changes");
+    const result = await pull();
+    if (result) {
+      toast.success(result);
     } else {
       toast.error("Failed to pull");
     }
@@ -177,9 +178,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
                 ) : (
                   <span className="relative flex items-center">
                     <RefreshCwIcon
-                      className={`w-4.5 h-4.5 stroke-[1.5] ${
-                        behindCount > 0 ? "text-text" : "opacity-50"
-                      }`}
+                      className={cn("w-4.5 h-4.5 stroke-[1.5]", behindCount > 0 ? "text-text" : "opacity-50")}
                     />
                     {behindCount > 0 && (
                       <span className="absolute -top-1.5 -right-1.5 min-w-3.5 h-3.5 flex items-center justify-center rounded-full bg-accent text-text-inverse text-[9px] font-bold leading-none px-0.5">

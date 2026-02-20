@@ -266,7 +266,7 @@ pub fn fetch(path: &Path) -> GitResult {
                 GitResult {
                     success: false,
                     message: None,
-                    error: Some(parse_push_error(&String::from_utf8_lossy(&output.stderr))),
+                    error: Some(parse_pull_error(&String::from_utf8_lossy(&output.stderr))),
                 }
             }
         }
