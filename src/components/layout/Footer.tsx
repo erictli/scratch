@@ -200,7 +200,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
               <IconButton
                 onClick={handlePush}
                 disabled={isPushing}
-                title="Push"
+                aria-label="Push"
               >
                 {isPushing ? (
                   <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
