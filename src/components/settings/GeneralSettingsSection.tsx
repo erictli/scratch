@@ -448,6 +448,19 @@ export function GeneralSettingsSection() {
                 </div>
               )}
 
+              {/* Commits to pull */}
+              {status.behindCount > 0 && status.hasUpstream && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text font-medium">
+                    Commits to pull
+                  </span>
+                  <span className="text-sm text-text-muted">
+                    {status.behindCount} commit
+                    {status.behindCount === 1 ? "" : "s"}
+                  </span>
+                </div>
+              )}
+
               {/* Error display */}
               {lastError && (
                 <div className="pt-3 border-t border-border">

@@ -19,6 +19,7 @@ interface GitContextValue {
   isLoading: boolean;
   isCommitting: boolean;
   isPushing: boolean;
+  isPulling: boolean;
   isAddingRemote: boolean;
   gitAvailable: boolean;
   lastError: string | null;
@@ -28,6 +29,7 @@ interface GitContextValue {
   initRepo: () => Promise<boolean>;
   commit: (message: string) => Promise<boolean>;
   push: () => Promise<boolean>;
+  pull: () => Promise<boolean>;
   addRemote: (url: string) => Promise<boolean>;
   pushWithUpstream: () => Promise<boolean>;
   clearError: () => void;
@@ -41,6 +43,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
   const [isAddingRemote, setIsAddingRemote] = useState(false);
   const [gitAvailable, setGitAvailable] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -126,6 +129,24 @@ export function GitProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshStatus]);
 
+  const pull = useCallback(async () => {
+    setIsPulling(true);
+    try {
+      const result = await gitService.gitPull();
+      if (result.error) {
+        setLastError(result.error);
+        return false;
+      }
+      await refreshStatus();
+      return true;
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : "Failed to pull");
+      return false;
+    } finally {
+      setIsPulling(false);
+    }
+  }, [refreshStatus]);
+
   const addRemote = useCallback(async (url: string) => {
     setIsAddingRemote(true);
     try {
@@ -182,6 +203,19 @@ export function GitProvider({ children }: { children: ReactNode }) {
     }
   }, [notesFolder, gitAvailable, refreshStatus]);
 
+  // Poll remote for changes periodically (every 60s) when a remote is configured
+  // Fetch is separated from status to keep status checks fast and offline-friendly
+  useEffect(() => {
+    if (!notesFolder || !gitAvailable || !status?.hasRemote) return;
+
+    const interval = window.setInterval(async () => {
+      await gitService.gitFetch().catch(() => {});
+      refreshStatusRef.current();
+    }, 60_000);
+
+    return () => clearInterval(interval);
+  }, [notesFolder, gitAvailable, status?.hasRemote]);
+
   // Refresh status on file changes (debounced via existing file watcher)
   // Uses a ref so the listener is registered only once
   useEffect(() => {
@@ -212,6 +246,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isLoading,
       isCommitting,
       isPushing,
+      isPulling,
       isAddingRemote,
       gitAvailable,
       lastError,
@@ -219,6 +254,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       initRepo,
       commit,
       push,
+      pull,
       addRemote,
       pushWithUpstream,
       clearError,
@@ -228,6 +264,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isLoading,
       isCommitting,
       isPushing,
+      isPulling,
       isAddingRemote,
       gitAvailable,
       lastError,
@@ -235,6 +272,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       initRepo,
       commit,
       push,
+      pull,
       addRemote,
       pushWithUpstream,
       clearError,

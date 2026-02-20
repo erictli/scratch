@@ -7,9 +7,9 @@ import {
   GitBranchDeletedIcon,
   GitCommitIcon,
   UploadIcon,
+  RefreshCwIcon,
   SpinnerIcon,
   SettingsIcon,
-  CloudCheckIcon,
 } from "../icons";
 import { mod, isMac } from "../../lib/platform";
 
@@ -22,9 +22,11 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
     status,
     isLoading,
     isPushing,
+    isPulling,
     isCommitting,
     gitAvailable,
     push,
+    pull,
     initRepo,
     commit,
     lastError,
@@ -53,6 +55,16 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
       toast.error("Failed to push");
     }
   }, [push]);
+
+  const handlePull = useCallback(async () => {
+    if (isPulling) return;
+    const success = await pull();
+    if (success) {
+      toast.success("Pulled latest changes");
+    } else {
+      toast.error("Failed to pull");
+    }
+  }, [pull, isPulling]);
 
   const handleEnableGit = useCallback(async () => {
     const success = await initRepo();
@@ -135,7 +147,8 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
   const hasChanges = (status?.changedCount ?? 0) > 0;
   const showCommitButton = gitAvailable && status?.isRepo && hasChanges;
   const canPush = status?.hasRemote && (status?.aheadCount ?? 0) > 0;
-  const showCloudCheck = status?.hasRemote && !hasChanges && !canPush;
+  const behindCount = status?.behindCount ?? 0;
+  const showSyncButton = status?.hasRemote && status?.hasUpstream;
 
   return (
     <div className="shrink-0 border-t border-border">
@@ -143,7 +156,42 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
       <div className="pl-4 pr-3 pt-2 pb-2.5 flex items-center justify-between">
         {renderGitStatus()}
         <div className="flex items-center gap-px">
-          {/* Push button or cloud check icon */}
+          {/* Sync (pull) button — always visible when upstream is configured */}
+          {showSyncButton && (
+            <Tooltip
+              content={
+                isPulling
+                  ? "Syncing..."
+                  : behindCount > 0
+                    ? `${behindCount} commit${behindCount === 1 ? "" : "s"} to pull`
+                    : "Synced with remote"
+              }
+            >
+              <IconButton
+                onClick={handlePull}
+                disabled={isPulling}
+                title="Sync"
+              >
+                {isPulling ? (
+                  <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
+                ) : (
+                  <span className="relative flex items-center">
+                    <RefreshCwIcon
+                      className={`w-4.5 h-4.5 stroke-[1.5] ${
+                        behindCount > 0 ? "text-text" : "opacity-50"
+                      }`}
+                    />
+                    {behindCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-3.5 h-3.5 flex items-center justify-center rounded-full bg-accent text-text-inverse text-[9px] font-bold leading-none px-0.5">
+                        {behindCount}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </IconButton>
+            </Tooltip>
+          )}
+          {/* Push button */}
           {canPush && (
             <Tooltip
               content={`${status?.aheadCount} commit${
@@ -161,13 +209,6 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
                   <UploadIcon className="w-4.5 h-4.5 stroke-[1.5]" />
                 )}
               </IconButton>
-            </Tooltip>
-          )}
-          {showCloudCheck && (
-            <Tooltip content="Synced with remote">
-              <span className="text-text-muted flex items-center justify-center h-6 w-6">
-                <CloudCheckIcon className="w-4.5 h-4.5 stroke-[1.5] opacity-50" />
-              </span>
             </Tooltip>
           )}
           {showCommitButton && (
