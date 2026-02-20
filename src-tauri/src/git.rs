@@ -250,7 +250,7 @@ pub fn push(path: &Path) -> GitResult {
 /// Fetch from remote to update tracking refs
 pub fn fetch(path: &Path) -> GitResult {
     let output = Command::new("git")
-        .args(["fetch", "--quiet", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10"])
+        .args(["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10", "fetch", "--quiet"])
         .env("GIT_SSH_COMMAND", "ssh -o ConnectTimeout=10")
         .current_dir(path)
         .output();
@@ -282,7 +282,7 @@ pub fn fetch(path: &Path) -> GitResult {
 /// Pull from remote
 pub fn pull(path: &Path) -> GitResult {
     let output = Command::new("git")
-        .args(["pull", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10"])
+        .args(["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10", "pull"])
         .env("GIT_SSH_COMMAND", "ssh -o ConnectTimeout=10")
         .current_dir(path)
         .output();
