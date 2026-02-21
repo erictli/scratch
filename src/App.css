@@ -377,6 +377,18 @@ html.dark {
   text-decoration: underline;
 }
 
+/* Wikilinks - pill-style inline link to another note */
+.prose span[data-wikilink] {
+  color: var(--color-accent);
+  background-color: var(--color-bg-muted);
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+.prose span[data-wikilink]:hover {
+  background-color: var(--color-bg-emphasis);
+}
+
 /* Blockquotes */
 .prose
   :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {

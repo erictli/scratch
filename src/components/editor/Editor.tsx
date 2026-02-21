@@ -41,6 +41,8 @@ import { Frontmatter } from "./Frontmatter";
 import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
+import { Wikilink, type WikilinkStorage } from "./Wikilink";
+import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -660,6 +662,8 @@ export function Editor({
         currentIndex: 0,
       }),
       SlashCommand,
+      Wikilink,
+      WikilinkSuggestion,
     ],
     editorProps: {
       attributes: {
@@ -787,6 +791,14 @@ export function Editor({
     onEditorReady?.(editor);
   }, [editor, onEditorReady]);
 
+  // Sync notes list into editor storage for wikilink autocomplete
+  useEffect(() => {
+    if (editor && notes) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((editor.storage as any).wikilink as WikilinkStorage).notes = notes;
+    }
+  }, [editor, notes]);
+
   // Search navigation functions (defined after editor is created)
   const goToNextMatch = useCallback(() => {
     if (searchMatches.length === 0 || !editor) return;
@@ -832,17 +844,35 @@ export function Editor({
     return () => clearTimeout(timer);
   }, [searchQuery, editor, findMatches, updateSearchDecorations]);
 
-  // Prevent links from opening unless Cmd/Ctrl+Click
+  // Handle clicks on wikilinks and external links
   useEffect(() => {
     if (!editor) return;
 
-    const handleLinkClick = (e: MouseEvent) => {
-      const link = (e.target as HTMLElement).closest("a");
+    const handleEditorClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
 
+      // Check for wikilink click first (no modifier key required)
+      const wikilinkEl = target.closest("[data-wikilink]");
+      if (wikilinkEl) {
+        e.preventDefault();
+        const noteTitle = wikilinkEl.getAttribute("data-note-title");
+        if (noteTitle && notes) {
+          const note = notes.find(
+            (n) => n.title.toLowerCase() === noteTitle.toLowerCase(),
+          );
+          if (note) {
+            notesCtx?.selectNote(note.id);
+          } else {
+            toast.info(`Note "${noteTitle}" does not exist yet`);
+          }
+        }
+        return;
+      }
+
+      // Prevent links from opening unless Cmd/Ctrl+Click
+      const link = target.closest("a");
       if (link) {
-        e.preventDefault(); // Always prevent default link behavior
-
-        // If Cmd/Ctrl is pressed, open in browser
+        e.preventDefault();
         if ((e.metaKey || e.ctrlKey) && link.href) {
           if (isAllowedUrlScheme(link.href)) {
             openUrl(link.href).catch((error) =>
@@ -856,12 +886,12 @@ export function Editor({
     };
 
     const editorElement = editor.view.dom;
-    editorElement.addEventListener("click", handleLinkClick);
+    editorElement.addEventListener("click", handleEditorClick);
 
     return () => {
-      editorElement.removeEventListener("click", handleLinkClick);
+      editorElement.removeEventListener("click", handleEditorClick);
     };
-  }, [editor]);
+  }, [editor, notes, notesCtx]);
 
   // Load note content when the current note changes
   useEffect(() => {
