@@ -34,7 +34,7 @@ export const Wikilink = Node.create<object, WikilinkStorage>({
         "data-wikilink": "",
         "data-note-title": node.attrs.noteTitle,
       },
-      `[[${node.attrs.noteTitle}]]`,
+      `[[${node.attrs.noteTitle ?? ""}]]`,
     ];
   },
 
