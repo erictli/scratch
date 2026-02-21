@@ -243,7 +243,7 @@ export function AppearanceSettingsSection() {
                 variant="ghost"
                 size="sm"
                 onClick={() =>
-                  setInterfaceZoom(Math.max(interfaceZoom - 0.05, 0.7))
+                  setInterfaceZoom((prev) => prev - 0.05)
                 }
                 disabled={interfaceZoom <= 0.7}
                 className="px-2"
@@ -257,7 +257,7 @@ export function AppearanceSettingsSection() {
                 variant="ghost"
                 size="sm"
                 onClick={() =>
-                  setInterfaceZoom(Math.min(interfaceZoom + 0.05, 1.5))
+                  setInterfaceZoom((prev) => prev + 0.05)
                 }
                 disabled={interfaceZoom >= 1.5}
                 className="px-2"

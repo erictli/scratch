@@ -59,7 +59,7 @@ interface ThemeContextType {
   editorWidth: EditorWidth;
   setEditorWidth: (width: EditorWidth) => void;
   interfaceZoom: number;
-  setInterfaceZoom: (zoom: number) => void;
+  setInterfaceZoom: (zoomOrUpdater: number | ((prev: number) => number)) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -322,17 +322,28 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, []);
 
-  // Save and set interface zoom
-  const setInterfaceZoom = useCallback(async (zoom: number) => {
-    const clamped = Math.min(Math.max(zoom, 0.7), 1.5);
-    setInterfaceZoomState(clamped);
-    try {
-      const settings = await getSettings();
-      await updateSettings({ ...settings, interfaceZoom: clamped });
-    } catch (error) {
-      console.error("Failed to save interface zoom:", error);
-    }
-  }, []);
+  // Save and set interface zoom (accepts absolute value or updater function)
+  const setInterfaceZoom = useCallback(
+    (zoomOrUpdater: number | ((prev: number) => number)) => {
+      setInterfaceZoomState((prev) => {
+        const raw =
+          typeof zoomOrUpdater === "function"
+            ? zoomOrUpdater(prev)
+            : zoomOrUpdater;
+        const clamped = Math.min(Math.max(raw, 0.7), 1.5);
+        // Persist asynchronously
+        getSettings()
+          .then((settings) =>
+            updateSettings({ ...settings, interfaceZoom: clamped }),
+          )
+          .catch((error) =>
+            console.error("Failed to save interface zoom:", error),
+          );
+        return clamped;
+      });
+    },
+    [],
+  );
 
   // Don't render until initialized to prevent flash
   if (!isInitialized) {

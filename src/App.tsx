@@ -50,7 +50,7 @@ function AppContent() {
     reloadCurrentNote,
     currentNote,
   } = useNotes();
-  const { interfaceZoom, setInterfaceZoom } = useTheme();
+  const { setInterfaceZoom } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -167,14 +167,14 @@ function AppContent() {
       // Cmd+= or Cmd++ - Zoom in (works everywhere, including settings)
       if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
-        setInterfaceZoom(Math.min(interfaceZoom + 0.05, 1.5));
+        setInterfaceZoom((prev) => prev + 0.05);
         return;
       }
 
       // Cmd+- - Zoom out (works everywhere, including settings)
       if ((e.metaKey || e.ctrlKey) && e.key === "-") {
         e.preventDefault();
-        setInterfaceZoom(Math.max(interfaceZoom - 0.05, 0.7));
+        setInterfaceZoom((prev) => prev - 0.05);
         return;
       }
 
@@ -334,7 +334,6 @@ function AppContent() {
     toggleFocusMode,
     focusMode,
     view,
-    interfaceZoom,
     setInterfaceZoom,
   ]);
 

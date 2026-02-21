@@ -88,7 +88,7 @@ const shortcuts: Shortcut[] = [
     category: "Settings",
   },
   {
-    keys: [mod, "+"],
+    keys: [mod, "="],
     description: "Zoom in",
     category: "Navigation",
   },
