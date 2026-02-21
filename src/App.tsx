@@ -172,7 +172,7 @@ function AppContent() {
       }
 
       // Cmd+- - Zoom out (works everywhere, including settings)
-      if ((e.metaKey || e.ctrlKey) && e.key === "-") {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "-" || e.key === "_")) {
         e.preventDefault();
         setInterfaceZoom((prev) => prev - 0.05);
         return;
