@@ -102,6 +102,8 @@ pub struct Settings {
     pub editor_width: Option<String>,
     #[serde(rename = "defaultNoteName")]
     pub default_note_name: Option<String>,
+    #[serde(rename = "interfaceZoom")]
+    pub interface_zoom: Option<f32>,
 }
 
 // Search result

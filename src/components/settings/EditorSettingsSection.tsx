@@ -44,6 +44,8 @@ export function AppearanceSettingsSection() {
     setTextDirection,
     editorWidth,
     setEditorWidth,
+    interfaceZoom,
+    setInterfaceZoom,
   } = useTheme();
 
   // Validated numeric change handler
@@ -66,7 +68,8 @@ export function AppearanceSettingsSection() {
     editorFontSettings.boldWeight !== 600 ||
     editorFontSettings.lineHeight !== 1.6 ||
     textDirection !== "ltr" ||
-    editorWidth !== "normal";
+    editorWidth !== "normal" ||
+    interfaceZoom !== 1.0;
 
   // Filter weight options based on font family
   const isMonospace = editorFontSettings.baseFontFamily === "monospace";
@@ -228,6 +231,40 @@ export function AppearanceSettingsSection() {
                 </option>
               ))}
             </Select>
+          </div>
+
+          {/* Interface Zoom */}
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-text font-medium">
+              Interface Zoom
+            </label>
+            <div className="flex items-center gap-2 w-40 justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setInterfaceZoom(Math.max(interfaceZoom - 0.05, 0.7))
+                }
+                disabled={interfaceZoom <= 0.7}
+                className="px-2"
+              >
+                −
+              </Button>
+              <span className="text-sm font-medium tabular-nums w-12 text-center">
+                {Math.round(interfaceZoom * 100)}%
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setInterfaceZoom(Math.min(interfaceZoom + 0.05, 1.5))
+                }
+                disabled={interfaceZoom >= 1.5}
+                className="px-2"
+              >
+                +
+              </Button>
+            </div>
           </div>
         </div>
 
