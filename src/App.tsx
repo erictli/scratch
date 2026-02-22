@@ -51,6 +51,8 @@ function AppContent() {
     currentNote,
   } = useNotes();
   const { interfaceZoom, setInterfaceZoom } = useTheme();
+  const interfaceZoomRef = useRef(interfaceZoom);
+  interfaceZoomRef.current = interfaceZoom;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -168,7 +170,7 @@ function AppContent() {
       if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         setInterfaceZoom((prev) => prev + 0.05);
-        const newZoom = Math.round(Math.min(interfaceZoom + 0.05, 1.5) * 20) / 20;
+        const newZoom = Math.round(Math.min(interfaceZoomRef.current + 0.05, 1.5) * 20) / 20;
         toast(`Zoom ${Math.round(newZoom * 100)}%`, { id: "zoom", duration: 1500 });
         return;
       }
@@ -177,7 +179,7 @@ function AppContent() {
       if ((e.metaKey || e.ctrlKey) && (e.key === "-" || e.key === "_")) {
         e.preventDefault();
         setInterfaceZoom((prev) => prev - 0.05);
-        const newZoom = Math.round(Math.max(interfaceZoom - 0.05, 0.7) * 20) / 20;
+        const newZoom = Math.round(Math.max(interfaceZoomRef.current - 0.05, 0.7) * 20) / 20;
         toast(`Zoom ${Math.round(newZoom * 100)}%`, { id: "zoom", duration: 1500 });
         return;
       }
@@ -339,7 +341,6 @@ function AppContent() {
     toggleFocusMode,
     focusMode,
     view,
-    interfaceZoom,
     setInterfaceZoom,
   ]);
 
