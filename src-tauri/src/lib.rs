@@ -774,6 +774,9 @@ fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Res
         save_app_config(&app, &app_config).map_err(|e| e.to_string())?;
     }
 
+    // Add notes folder to asset protocol scope so images can be served
+    let _ = app.asset_protocol_scope().allow_directory(&path_buf, true);
+
     // Initialize search index
     if let Ok(index_path) = get_search_index_path(&app) {
         if let Ok(search_index) = SearchIndex::new(&index_path) {
@@ -2461,6 +2464,11 @@ pub fn run() {
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
             };
             app.manage(state);
+
+            // Add notes folder to asset protocol scope so images can be served
+            if let Some(ref folder) = app.state::<AppState>().app_config.read().expect("app_config read lock").notes_folder.clone() {
+                let _ = app.asset_protocol_scope().allow_directory(folder, true);
+            }
 
             // Handle CLI args on first launch
             let args: Vec<String> = std::env::args().collect();
