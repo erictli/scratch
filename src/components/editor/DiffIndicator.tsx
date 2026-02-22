@@ -1,241 +1,41 @@
-import { useCallback, useEffect, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type RefObject,
+} from "react";
 import { Extension } from "@tiptap/core";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import type { AiEditRawChange } from "../../lib/diff";
+import type {
+  AiDiffIndicatorType,
+  AiDiffSession,
+} from "../../lib/diff";
+import { DiffMenu } from "./DiffMenu";
 
 export const aiDiffIndicatorPluginKey = new PluginKey<DecorationSet>(
   "aiDiffIndicator",
 );
 
-type BlockRange = {
-  from: number;
-  to: number;
-};
-
-type DiffIndicatorType = "add" | "modify";
-
-type TypedBlockRange = BlockRange & {
-  indicatorType?: DiffIndicatorType;
-  hasDeletionAnchor?: boolean;
-};
-
-function getTopLevelBlockRanges(doc: ProseMirrorNode): BlockRange[] {
-  const ranges: BlockRange[] = [];
-
-  doc.forEach((node, offset) => {
-    if (!node.isBlock) return;
-    ranges.push({
-      from: offset,
-      to: offset + node.nodeSize,
-    });
-  });
-
-  return ranges;
-}
-
-function getMergedIndicatorType(
-  existingType: DiffIndicatorType | undefined,
-  nextType: DiffIndicatorType,
-): DiffIndicatorType {
-  if (!existingType) return nextType;
-  if (existingType === "modify" || nextType === "modify") return "modify";
-  return "add";
-}
-
-function findContainingRanges(
-  ranges: BlockRange[],
-  from: number,
-  to: number,
-): BlockRange[] {
-  return ranges.filter((range) => from < range.to && to > range.from);
-}
-
-function findNearestBlockForCollapsedPosition(
-  ranges: BlockRange[],
-  position: number,
-): BlockRange | null {
-  if (ranges.length === 0) return null;
-
-  const containing = ranges.find((range) => {
-    return position >= range.from && position < range.to;
-  });
-  if (containing) return containing;
-
-  if (position >= ranges[ranges.length - 1].to) {
-    return ranges[ranges.length - 1];
-  }
-
-  let nearest: BlockRange | null = null;
-  let nearestDistance = Number.POSITIVE_INFINITY;
-
-  for (const range of ranges) {
-    const distance =
-      position < range.from
-        ? range.from - position
-        : position > range.to
-          ? position - range.to
-          : 0;
-
-    if (distance < nearestDistance) {
-      nearestDistance = distance;
-      nearest = range;
-    }
-  }
-
-  return nearest;
-}
-
-export function buildAiDiffBlockDecorations(
-  doc: ProseMirrorNode,
-  changes: AiEditRawChange[],
-): Decoration[] {
-  if (changes.length === 0) return [];
-
-  const topLevelRanges = getTopLevelBlockRanges(doc);
-  if (topLevelRanges.length === 0) return [];
-
-  const touchedBlocks = new Map<string, TypedBlockRange>();
-
-  const upsertTouchedBlock = (range: BlockRange): TypedBlockRange => {
-    const key = `${range.from}:${range.to}`;
-    const existing = touchedBlocks.get(key);
-    if (existing) return existing;
-
-    const next: TypedBlockRange = { ...range };
-    touchedBlocks.set(key, next);
-    return next;
-  };
-
-  const markTouchedBlock = (
-    range: BlockRange,
-    indicatorType: DiffIndicatorType,
-  ) => {
-    const block = upsertTouchedBlock(range);
-    block.indicatorType = getMergedIndicatorType(
-      block.indicatorType,
-      indicatorType,
-    );
-  };
-
-  const markDeletionAnchor = (range: BlockRange) => {
-    const block = upsertTouchedBlock(range);
-    block.hasDeletionAnchor = true;
-  };
-
-  for (const change of changes) {
-    const changeFrom = Math.max(0, Math.min(change.fromB, doc.content.size));
-    const changeTo = Math.max(0, Math.min(change.toB, doc.content.size));
-
-    if (change.kind === "delete-block" && changeTo === changeFrom) {
-      const nearestTopLevel = findNearestBlockForCollapsedPosition(
-        topLevelRanges,
-        changeFrom,
-      );
-      if (nearestTopLevel) {
-        markDeletionAnchor(nearestTopLevel);
-        continue;
-      }
-    }
-
-    if (changeTo > changeFrom) {
-      for (const range of findContainingRanges(
-        topLevelRanges,
-        changeFrom,
-        changeTo,
-      )) {
-        const indicatorType: DiffIndicatorType =
-          change.kind === "add" ? "add" : "modify";
-
-        markTouchedBlock(range, indicatorType);
-      }
-      continue;
-    }
-
-    if (change.kind === "delete-block") continue;
-
-    const nearestTopLevel = findNearestBlockForCollapsedPosition(
-      topLevelRanges,
-      changeFrom,
-    );
-    if (nearestTopLevel) {
-      markTouchedBlock(nearestTopLevel, "modify");
-    }
-  }
-
-  return Array.from(touchedBlocks.values())
-    .map((range) => {
-      const classes: string[] = [];
-      if (range.indicatorType) {
-        classes.push(
-          "ai-diff-indicator-block",
-          `ai-diff-indicator-block--${range.indicatorType}`,
-        );
-      }
-      if (range.hasDeletionAnchor) {
-        classes.push("ai-diff-deletion-anchor-block");
-      }
-
-      if (classes.length === 0) return null;
-
-      return Decoration.node(range.from, range.to, {
-        class: classes.join(" "),
-      });
-    })
-    .filter((decoration): decoration is Decoration => decoration !== null);
-}
-
-export function createAiDiffDecorationSet(
-  doc: ProseMirrorNode,
-  changes: AiEditRawChange[],
-): DecorationSet {
-  return DecorationSet.create(doc, buildAiDiffBlockDecorations(doc, changes));
-}
-
-export const AiDiffIndicatorExtension = Extension.create({
-  name: "aiDiffIndicator",
-
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: aiDiffIndicatorPluginKey,
-        state: {
-          init: () => DecorationSet.empty,
-          apply: (tr, oldSet) => {
-            const mapped = oldSet.map(tr.mapping, tr.doc);
-            const meta = tr.getMeta(aiDiffIndicatorPluginKey);
-            if (meta !== undefined) {
-              return meta.decorationSet;
-            }
-            return mapped;
-          },
-        },
-        props: {
-          decorations: (state) => aiDiffIndicatorPluginKey.getState(state),
-        },
-      }),
-    ];
-  },
-});
-
-interface DiffIndicatorProps {
-  editor: TiptapEditor | null;
-  changes?: AiEditRawChange[];
-  scrollContainerRef?: RefObject<HTMLDivElement | null>;
-}
-
-type MarkerLayout = {
-  top: number;
-  height: number;
-  indicatorType: DiffIndicatorType;
-};
+const aiDiffWordDiffPluginKey = new PluginKey<DecorationSet>("aiDiffWordDiff");
 
 type DeletionDividerLayout = {
   top: number;
   left: number;
   width: number;
+};
+
+type MarkerLayout = {
+  blockId: string;
+  top: number;
+  height: number;
+  indicatorType: AiDiffIndicatorType;
+  blockTop: number;
+  blockLeft: number;
+  blockWidth: number;
 };
 
 function parseCssLengthToPx(value: string, baseFontSizePx: number): number {
@@ -251,6 +51,10 @@ function parseCssLengthToPx(value: string, baseFontSizePx: number): number {
 
   const numeric = Number.parseFloat(raw);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function clampPosition(value: number, size: number): number {
+  return Math.max(0, Math.min(value, size));
 }
 
 function computeIndicatorLeftPx(
@@ -269,6 +73,119 @@ function computeIndicatorLeftPx(
   return editorRect.left - scrollRect.left + offsetPx;
 }
 
+function buildAiDiffBlockDecorations(
+  doc: ProseMirrorNode,
+  aiDiffSession: AiDiffSession | null | undefined,
+): Decoration[] {
+  if (!aiDiffSession || aiDiffSession.blocks.length === 0) return [];
+
+  const docSize = doc.content.size;
+
+  return aiDiffSession.blocks
+    .map((block) => {
+      const from = clampPosition(block.from, docSize);
+      const to = clampPosition(block.to, docSize);
+      if (to <= from) return null;
+
+      const classes: string[] = [];
+      if (block.indicatorType) {
+        classes.push(
+          "ai-diff-indicator-block",
+          `ai-diff-indicator-block--${block.indicatorType}`,
+        );
+      }
+      if (block.hasDeletionAnchor) {
+        classes.push("ai-diff-deletion-anchor-block");
+      }
+
+      if (classes.length === 0) return null;
+
+      return Decoration.node(from, to, {
+        class: classes.join(" "),
+        "data-ai-diff-block-id": block.id,
+      });
+    })
+    .filter((decoration): decoration is Decoration => decoration !== null);
+}
+
+function createAiDiffBlockDecorationSet(
+  doc: ProseMirrorNode,
+  aiDiffSession: AiDiffSession | null | undefined,
+): DecorationSet {
+  return DecorationSet.create(doc, buildAiDiffBlockDecorations(doc, aiDiffSession));
+}
+
+function buildDeletedWidget(text: string): HTMLElement {
+  const span = document.createElement("span");
+  span.className = "ai-diff-word-delete";
+  span.textContent = text;
+  return span;
+}
+
+function buildAiWordDiffDecorations(
+  doc: ProseMirrorNode,
+  aiDiffSession: AiDiffSession | null | undefined,
+  activeBlockId: string | null,
+): Decoration[] {
+  if (!aiDiffSession || !activeBlockId) return [];
+
+  const activeBlock = aiDiffSession.blocks.find(
+    (block) => block.id === activeBlockId && !!block.indicatorType,
+  );
+  if (!activeBlock) return [];
+
+  const docSize = doc.content.size;
+  const blockFrom = clampPosition(activeBlock.from, docSize);
+  const blockTo = clampPosition(activeBlock.to, docSize);
+  if (blockTo <= blockFrom) return [];
+
+  const decorations: Decoration[] = [];
+
+  for (const changeIndex of activeBlock.relatedChangeIndexes) {
+    const change = aiDiffSession.changes[changeIndex];
+    if (!change) continue;
+
+    const insertedFrom = clampPosition(change.fromB, docSize);
+    const insertedTo = clampPosition(change.toB, docSize);
+    const from = Math.max(insertedFrom, blockFrom);
+    const to = Math.min(insertedTo, blockTo);
+
+    if (to > from) {
+      decorations.push(
+        Decoration.inline(from, to, {
+          class: "ai-diff-word-add",
+        }),
+      );
+    }
+
+    if (change.deletedText.length > 0) {
+      const anchor = Math.max(
+        blockFrom,
+        Math.min(clampPosition(change.fromB, docSize), blockTo),
+      );
+      decorations.push(
+        Decoration.widget(anchor, () => buildDeletedWidget(change.deletedText), {
+          side: -1,
+          ignoreSelection: true,
+        }),
+      );
+    }
+  }
+
+  return decorations;
+}
+
+function createAiWordDiffDecorationSet(
+  doc: ProseMirrorNode,
+  aiDiffSession: AiDiffSession | null | undefined,
+  activeBlockId: string | null,
+): DecorationSet {
+  return DecorationSet.create(
+    doc,
+    buildAiWordDiffDecorations(doc, aiDiffSession, activeBlockId),
+  );
+}
+
 function collectMarkerLayouts(
   editorDom: HTMLElement,
   scrollContainer: HTMLDivElement,
@@ -276,41 +193,39 @@ function collectMarkerLayouts(
   const targets = Array.from(
     editorDom.querySelectorAll<HTMLElement>(".ai-diff-indicator-block"),
   );
-
   const scrollRect = scrollContainer.getBoundingClientRect();
-  const markersByKey = new Map<string, MarkerLayout>();
+  const markersById = new Map<string, MarkerLayout>();
 
   for (const target of targets) {
+    const blockId = target.dataset.aiDiffBlockId;
+    if (!blockId) continue;
+
     const rect = target.getBoundingClientRect();
     if (rect.height <= 0) continue;
 
-    const top = rect.top - scrollRect.top + scrollContainer.scrollTop + 2;
+    const blockTop = rect.top - scrollRect.top + scrollContainer.scrollTop;
+    const top = blockTop + 2;
     const height = Math.max(10, rect.height - 4);
-    const indicatorType: DiffIndicatorType = target.classList.contains(
+    const blockLeft = rect.left - scrollRect.left;
+    const blockWidth = rect.width;
+    const indicatorType: AiDiffIndicatorType = target.classList.contains(
       "ai-diff-indicator-block--add",
     )
       ? "add"
       : "modify";
-    const dedupeKey = `${Math.round(top)}:${Math.round(height)}`;
-    const existing = markersByKey.get(dedupeKey);
 
-    if (!existing) {
-      markersByKey.set(dedupeKey, { top, height, indicatorType });
-      continue;
-    }
-
-    markersByKey.set(dedupeKey, {
-      ...existing,
-      indicatorType: getMergedIndicatorType(
-        existing.indicatorType,
-        indicatorType,
-      ),
+    markersById.set(blockId, {
+      blockId,
+      top,
+      height,
+      indicatorType,
+      blockTop,
+      blockLeft,
+      blockWidth,
     });
   }
 
-  const markers = Array.from(markersByKey.values());
-  markers.sort((a, b) => a.top - b.top);
-  return markers;
+  return Array.from(markersById.values()).sort((a, b) => a.top - b.top);
 }
 
 function computeDeletionDividerFrame(
@@ -360,10 +275,61 @@ function collectDeletionDividerLayouts(
     .map((top) => ({ top, left, width }));
 }
 
+export const AiDiffIndicatorExtension = Extension.create({
+  name: "aiDiffIndicator",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: aiDiffIndicatorPluginKey,
+        state: {
+          init: () => DecorationSet.empty,
+          apply: (tr, oldSet) => {
+            const mapped = oldSet.map(tr.mapping, tr.doc);
+            const meta = tr.getMeta(aiDiffIndicatorPluginKey);
+            if (meta !== undefined) {
+              return meta.decorationSet;
+            }
+            return mapped;
+          },
+        },
+        props: {
+          decorations: (state) => aiDiffIndicatorPluginKey.getState(state),
+        },
+      }),
+      new Plugin({
+        key: aiDiffWordDiffPluginKey,
+        state: {
+          init: () => DecorationSet.empty,
+          apply: (tr, oldSet) => {
+            const mapped = oldSet.map(tr.mapping, tr.doc);
+            const meta = tr.getMeta(aiDiffWordDiffPluginKey);
+            if (meta !== undefined) {
+              return meta.decorationSet;
+            }
+            return mapped;
+          },
+        },
+        props: {
+          decorations: (state) => aiDiffWordDiffPluginKey.getState(state),
+        },
+      }),
+    ];
+  },
+});
+
+interface DiffIndicatorProps {
+  editor: TiptapEditor | null;
+  aiDiffSession?: AiDiffSession | null;
+  scrollContainerRef?: RefObject<HTMLDivElement | null>;
+  onRejectBlock?: (blockId: string) => void;
+}
+
 export function DiffIndicator({
   editor,
-  changes = [],
+  aiDiffSession,
   scrollContainerRef,
+  onRejectBlock,
 }: DiffIndicatorProps) {
   const [markers, setMarkers] = useState<MarkerLayout[]>([]);
   const [deletionDividers, setDeletionDividers] = useState<
@@ -371,6 +337,22 @@ export function DiffIndicator({
   >([]);
   const [leftPx, setLeftPx] = useState(0);
   const [overlayHeight, setOverlayHeight] = useState(0);
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!aiDiffSession || aiDiffSession.blocks.length === 0) {
+      setActiveBlockId(null);
+      return;
+    }
+
+    if (!activeBlockId) return;
+    const activeStillExists = aiDiffSession.blocks.some(
+      (block) => block.id === activeBlockId && !!block.indicatorType,
+    );
+    if (!activeStillExists) {
+      setActiveBlockId(null);
+    }
+  }, [aiDiffSession, activeBlockId]);
 
   const updateOverlay = useCallback(() => {
     if (!editor || !scrollContainerRef?.current) {
@@ -393,18 +375,36 @@ export function DiffIndicator({
     setMarkers(nextMarkers);
     setDeletionDividers(nextDeletionDividers);
     setOverlayHeight(scrollContainer.scrollHeight);
-  }, [changes, editor, scrollContainerRef]);
+  }, [editor, scrollContainerRef]);
 
   useEffect(() => {
     if (!editor) return;
 
-    const decorationSet = createAiDiffDecorationSet(editor.state.doc, changes);
+    const decorationSet = createAiDiffBlockDecorationSet(
+      editor.state.doc,
+      aiDiffSession,
+    );
     const tr = editor.state.tr.setMeta(aiDiffIndicatorPluginKey, {
       decorationSet,
     });
     editor.view.dispatch(tr);
     requestAnimationFrame(updateOverlay);
-  }, [editor, changes, updateOverlay]);
+  }, [editor, aiDiffSession, updateOverlay]);
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const wordDecorationSet = createAiWordDiffDecorationSet(
+      editor.state.doc,
+      aiDiffSession,
+      activeBlockId,
+    );
+    const tr = editor.state.tr.setMeta(aiDiffWordDiffPluginKey, {
+      decorationSet: wordDecorationSet,
+    });
+    editor.view.dispatch(tr);
+    requestAnimationFrame(updateOverlay);
+  }, [editor, aiDiffSession, activeBlockId, updateOverlay]);
 
   useEffect(() => {
     if (!editor || !scrollContainerRef?.current) return;
@@ -434,14 +434,19 @@ export function DiffIndicator({
     };
   }, [editor, scrollContainerRef, updateOverlay]);
 
+  const activeMarker = useMemo(() => {
+    if (!activeBlockId) return null;
+    return markers.find((marker) => marker.blockId === activeBlockId) ?? null;
+  }, [activeBlockId, markers]);
+
+  const handleMarkerClick = useCallback((blockId: string) => {
+    setActiveBlockId((current) => (current === blockId ? null : blockId));
+  }, []);
+
   if (markers.length === 0 && deletionDividers.length === 0) return null;
 
   return (
-    <div
-      className="ai-diff-indicator-overlay"
-      aria-hidden="true"
-      style={{ height: overlayHeight }}
-    >
+    <div className="ai-diff-indicator-overlay" style={{ height: overlayHeight }}>
       {deletionDividers.map((divider, index) => (
         <div
           key={`${divider.top}:${index}`}
@@ -455,17 +460,43 @@ export function DiffIndicator({
           <span className="ai-diff-deletion-divider__label">Deleted</span>
         </div>
       ))}
-      {markers.map((marker, index) => (
-        <div
-          key={`${marker.top}:${marker.height}:${index}`}
-          className={`ai-diff-indicator-marker ai-diff-indicator-marker--${marker.indicatorType}`}
+      {markers.map((marker) => (
+        <button
+          key={marker.blockId}
+          type="button"
+          className={`ai-diff-indicator-marker ai-diff-indicator-marker--${marker.indicatorType}${activeBlockId === marker.blockId ? " ai-diff-indicator-marker--active" : ""}`}
           style={{
             top: marker.top,
             height: marker.height,
             left: leftPx,
           }}
+          onClick={() => handleMarkerClick(marker.blockId)}
+          aria-label={
+            marker.indicatorType === "add"
+              ? "Show added content diff"
+              : "Show modified content diff"
+          }
+          aria-pressed={activeBlockId === marker.blockId}
+          title={
+            marker.indicatorType === "add"
+              ? "Show block additions"
+              : "Show block word diff"
+          }
         />
       ))}
+      {activeMarker && onRejectBlock && (
+        <DiffMenu
+          top={Math.max(0, activeMarker.blockTop + 4)}
+          left={Math.max(
+            0,
+            activeMarker.blockLeft + activeMarker.blockWidth - 28,
+          )}
+          onReject={() => {
+            onRejectBlock(activeMarker.blockId);
+            setActiveBlockId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

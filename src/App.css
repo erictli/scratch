@@ -416,8 +416,24 @@ html.dark {
 
 .ai-diff-indicator-marker {
   position: absolute;
+  border: 0;
+  padding: 0;
   width: 3px;
   border-radius: 9999px;
+  pointer-events: auto;
+  cursor: pointer;
+  transition:
+    width 120ms ease,
+    filter 120ms ease;
+}
+
+.ai-diff-indicator-marker:hover {
+  width: 5px;
+}
+
+.ai-diff-indicator-marker--active {
+  width: 5px;
+  filter: brightness(1.15);
 }
 
 .ai-diff-indicator-marker--add {
@@ -456,6 +472,54 @@ html.dark {
 
 .ai-diff-deletion-anchor-block {
   margin-top: 2.25rem !important;
+}
+
+.ai-diff-word-add {
+  background: color-mix(
+    in oklab,
+    var(--color-ai-diff-add) 26%,
+    transparent 74%
+  );
+  border-radius: 0.125rem;
+}
+
+.ai-diff-word-delete {
+  display: inline;
+  color: var(--color-ai-diff-delete);
+  background: color-mix(
+    in oklab,
+    var(--color-ai-diff-delete) 24%,
+    transparent 76%
+  );
+  border-radius: 0.125rem;
+  text-decoration: line-through;
+  padding: 0 0.12em;
+  margin-right: 0.08em;
+  white-space: pre-wrap;
+}
+
+.ai-diff-menu {
+  position: absolute;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.ai-diff-menu-trigger {
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 120ms ease;
+}
+
+.ai-diff-menu-trigger:hover {
+  color: var(--color-text);
+  background: var(--color-bg-muted);
 }
 
 .prose ul,

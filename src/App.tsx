@@ -20,7 +20,7 @@ import {
 } from "@tauri-apps/plugin-updater";
 import * as aiService from "./services/ai";
 import type { AiProvider } from "./services/ai";
-import { listAiEditRawChanges, type AiEditRawChange } from "./lib/diff";
+import { createAiDiffSession, type AiDiffSession } from "./lib/diff";
 import { useWaitForUpdatedEditorSnapshot } from "./hooks/useWaitForUpdatedEditorSnapshot";
 
 // Detect preview mode from URL search params
@@ -57,7 +57,9 @@ function AppContent() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
-  const [aiEditChanges, setAiEditChanges] = useState<AiEditRawChange[]>([]);
+  const [aiDiffSession, setAiDiffSession] = useState<AiDiffSession | null>(
+    null,
+  );
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
@@ -106,7 +108,7 @@ function AppContent() {
         return;
       }
 
-      setAiEditChanges([]);
+      setAiDiffSession(null);
       setAiEditing(true);
 
       // Capture snapshot of the original document
@@ -124,7 +126,7 @@ function AppContent() {
 
         const afterJson = await waitForUpdatedEditorSnapshot(beforeSerialized);
 
-        const changes = listAiEditRawChanges({
+        const nextAiDiffSession = createAiDiffSession({
           schema: editorRef.current.state.schema,
           before: beforeJson,
           after: afterJson,
@@ -132,7 +134,7 @@ function AppContent() {
 
         // Show results
         if (result.success) {
-          setAiEditChanges(changes);
+          setAiDiffSession(nextAiDiffSession);
           // Close modal after success
           setAiModalOpen(false);
 
@@ -167,7 +169,7 @@ function AppContent() {
   );
 
   useEffect(() => {
-    setAiEditChanges([]);
+    setAiDiffSession(null);
   }, [selectedNoteId]);
 
   // Memoize display items to prevent unnecessary recalculations
@@ -376,7 +378,8 @@ function AppContent() {
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible && !focusMode}
               focusMode={focusMode}
-              aiEditChanges={aiEditChanges}
+              aiDiffSession={aiDiffSession}
+              onAiDiffSessionChange={setAiDiffSession}
               onEditorReady={(editor) => {
                 editorRef.current = editor;
               }}

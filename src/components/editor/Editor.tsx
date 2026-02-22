@@ -48,7 +48,10 @@ import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import type { Settings } from "../../types/note";
-import type { AiEditRawChange } from "../../lib/diff";
+import {
+  createAiDiffSession,
+  type AiDiffSession,
+} from "../../lib/diff";
 import {
   BoldIcon,
   ItalicIcon,
@@ -359,7 +362,8 @@ interface EditorProps {
   onToggleSidebar?: () => void;
   sidebarVisible?: boolean;
   focusMode?: boolean;
-  aiEditChanges?: AiEditRawChange[];
+  aiDiffSession?: AiDiffSession | null;
+  onAiDiffSessionChange?: (next: AiDiffSession | null) => void;
   previewMode?: PreviewModeData;
   onEditorReady?: (editor: TiptapEditor | null) => void;
 }
@@ -368,7 +372,8 @@ export function Editor({
   onToggleSidebar,
   sidebarVisible,
   focusMode,
-  aiEditChanges,
+  aiDiffSession,
+  onAiDiffSessionChange,
   onEditorReady,
   previewMode,
 }: EditorProps) {
@@ -1319,6 +1324,65 @@ export function Editor({
     }
   }, [editor, currentNote, getMarkdown]);
 
+  const handleRejectAiDiffBlock = useCallback(
+    (blockId: string) => {
+      if (!editor || !aiDiffSession) return;
+
+      const targetBlock = aiDiffSession.blocks.find((block) => block.id === blockId);
+      if (!targetBlock) return;
+
+      const editorDom = editor.view.dom as HTMLElement;
+      const escapedId =
+        typeof CSS !== "undefined" && typeof CSS.escape === "function"
+          ? CSS.escape(blockId)
+          : blockId.replace(/"/g, '\\"');
+      const blockSelector = `.ai-diff-indicator-block[data-ai-diff-block-id="${escapedId}"]`;
+      const blockElement = editorDom.querySelector<HTMLElement>(blockSelector);
+
+      if (!blockElement) {
+        toast.error("Could not find the selected diff block");
+        return;
+      }
+
+      try {
+        const from = editor.view.posAtDOM(blockElement, 0);
+        const to = editor.view.posAtDOM(
+          blockElement,
+          blockElement.childNodes.length,
+        );
+
+        if (to <= from) return;
+
+        let tr = editor.state.tr;
+        if (targetBlock.originalBlock) {
+          const originalNode = editor.state.schema.nodeFromJSON(
+            targetBlock.originalBlock,
+          );
+          tr = tr.replaceWith(from, to, originalNode);
+        } else if (targetBlock.indicatorType === "add") {
+          tr = tr.delete(from, to);
+        } else {
+          toast.error("Original content is unavailable for this block");
+          return;
+        }
+
+        editor.view.dispatch(tr);
+
+        const nextSession = createAiDiffSession({
+          schema: editor.state.schema,
+          before: aiDiffSession.before,
+          after: editor.getJSON(),
+        });
+
+        onAiDiffSessionChange?.(nextSession);
+      } catch (error) {
+        console.error("Failed to reject AI diff block:", error);
+        toast.error("Failed to reject changes for this block");
+      }
+    },
+    [editor, aiDiffSession, onAiDiffSessionChange],
+  );
+
   // Toggle source mode
   const toggleSourceMode = useCallback(() => {
     if (!editor) return;
@@ -1659,8 +1723,9 @@ export function Editor({
           <>
             <DiffIndicator
               editor={editor}
-              changes={aiEditChanges}
+              aiDiffSession={aiDiffSession}
               scrollContainerRef={scrollContainerRef}
+              onRejectBlock={handleRejectAiDiffBlock}
             />
             {searchOpen && (
               <div className="sticky top-2 z-10 animate-in fade-in slide-in-from-top-4 duration-200 pointer-events-none pr-2 flex justify-end">
