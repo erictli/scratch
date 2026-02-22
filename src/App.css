@@ -138,7 +138,7 @@ body {
 }
 
 .prose a::after {
-  content: "Ctrl+click to open";
+  content: "Ctrl + click to open";
   position: absolute;
   bottom: 100%;
   left: 50%;
@@ -159,7 +159,7 @@ body {
 
 /* Mac-specific tooltip */
 .platform-mac .prose a::after {
-  content: "⌘+click to open";
+  content: "⌘ + click to open";
 }
 
 .prose a:hover::after {
@@ -371,22 +371,30 @@ html.dark {
   overflow-x: auto;
 }
 
-/* Links - same color as text with underline */
+/* Links - solid bottom border, muted at rest */
 .prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
   color: var(--color-text);
-  text-decoration: underline;
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid currentColor;
+  transition: color 0.15s;
+}
+.prose
+  :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):hover {
+  color: var(--color-text-muted);
 }
 
-/* Wikilinks - pill-style inline link to another note */
+/* Wikilinks - dashed bottom border to distinguish from external links */
 .prose span[data-wikilink] {
-  color: var(--color-accent);
-  background-color: var(--color-bg-muted);
-  padding: 0.1em 0.3em;
-  border-radius: 0.25rem;
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px dashed currentColor;
   cursor: pointer;
+  transition: color 0.15s;
 }
 .prose span[data-wikilink]:hover {
-  background-color: var(--color-bg-emphasis);
+  color: var(--color-text-muted);
 }
 
 /* Blockquotes */

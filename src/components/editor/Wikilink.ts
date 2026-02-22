@@ -34,7 +34,7 @@ export const Wikilink = Node.create<object, WikilinkStorage>({
         "data-wikilink": "",
         "data-note-title": node.attrs.noteTitle,
       },
-      `[[${node.attrs.noteTitle ?? ""}]]`,
+      node.attrs.noteTitle ?? "",
     ];
   },
 
@@ -51,6 +51,7 @@ export const Wikilink = Node.create<object, WikilinkStorage>({
     level: "inline" as const,
     start: "[[",
     tokenize(src: string, _tokens: MarkdownToken[]) {
+      // Note: titles containing ']' are not supported (e.g. [[Note [v2]]])
       const match = src.match(/^\[\[([^\]]+?)\]\]/);
       if (!match) return undefined;
       return {

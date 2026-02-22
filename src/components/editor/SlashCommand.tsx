@@ -19,7 +19,7 @@ import {
   SeparatorIcon,
   ImageIcon,
   TableIcon,
-  LinkIcon,
+  BracketsIcon,
 } from "../icons";
 import { SlashCommandList, type SlashCommandListRef } from "./SlashCommandList";
 
@@ -157,7 +157,7 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
   {
     title: "Wikilink",
     description: "Link to another note",
-    icon: <LinkIcon />,
+    icon: <BracketsIcon />,
     aliases: ["link", "note", "wikilink", "[["],
     command: (editor) => {
       editor.chain().focus().insertContent("[[").run();

@@ -65,6 +65,7 @@ import {
   InlineCodeIcon,
   SeparatorIcon,
   LinkIcon,
+  BracketsIcon,
   ImageIcon,
   TableIcon,
   SpinnerIcon,
@@ -306,6 +307,13 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
       >
         <LinkIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
+      <ToolbarButton
+        onClick={() => editor.chain().focus().insertContent("[[").run()}
+        isActive={false}
+        title="Insert Wikilink"
+      >
+        <BracketsIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+      </ToolbarButton>
       <ToolbarButton onClick={onAddImage} isActive={false} title="Add Image">
         <ImageIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
@@ -437,6 +445,11 @@ export function Editor({
   const currentNoteIdRef = useRef<string | null>(null);
   // Track if we need to save (use ref to avoid computing markdown on every keystroke)
   const needsSaveRef = useRef(false);
+  // Stable refs for wikilink click handler (avoids re-registering listener on every notes change)
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
+  const notesCtxRef = useRef(notesCtx);
+  notesCtxRef.current = notesCtx;
 
   // Keep ref in sync with current note ID
   currentNoteIdRef.current = currentNote?.id ?? null;
@@ -793,10 +806,12 @@ export function Editor({
 
   // Sync notes list into editor storage for wikilink autocomplete
   useEffect(() => {
-    if (editor && notes) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((editor.storage as any).wikilink as WikilinkStorage).notes = notes;
-    }
+    if (!editor || !notes) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const storage = (editor.storage as any).wikilink as
+      | WikilinkStorage
+      | undefined;
+    if (storage) storage.notes = notes;
   }, [editor, notes]);
 
   // Search navigation functions (defined after editor is created)
@@ -856,12 +871,13 @@ export function Editor({
       if (wikilinkEl) {
         e.preventDefault();
         const noteTitle = wikilinkEl.getAttribute("data-note-title");
-        if (noteTitle && notes) {
-          const note = notes.find(
+        const currentNotes = notesRef.current;
+        if (noteTitle && currentNotes) {
+          const note = currentNotes.find(
             (n) => n.title.toLowerCase() === noteTitle.toLowerCase(),
           );
           if (note) {
-            notesCtx?.selectNote(note.id);
+            notesCtxRef.current?.selectNote(note.id);
           } else {
             toast.info(`Note "${noteTitle}" does not exist yet`);
           }
@@ -891,7 +907,7 @@ export function Editor({
     return () => {
       editorElement.removeEventListener("click", handleEditorClick);
     };
-  }, [editor, notes, notesCtx]);
+  }, [editor]);
 
   // Load note content when the current note changes
   useEffect(() => {
