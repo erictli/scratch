@@ -119,7 +119,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         <div className="h-11 shrink-0" data-tauri-drag-region></div>
 
         {/* Content - centered with max width */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-auto">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-auto settings-scroll-container"
+        >
           <div className="w-full max-w-3xl mx-auto px-6 pb-6">
             {activeTab === "general" && <GeneralSettingsSection />}
             {activeTab === "editor" && <AppearanceSettingsSection />}
