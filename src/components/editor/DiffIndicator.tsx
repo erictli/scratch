@@ -15,6 +15,12 @@ type BlockRange = {
   to: number;
 };
 
+type DiffIndicatorType = "add" | "modify";
+
+type TypedBlockRange = BlockRange & {
+  indicatorType: DiffIndicatorType;
+};
+
 function getTopLevelBlockRanges(doc: ProseMirrorNode): BlockRange[] {
   const ranges: BlockRange[] = [];
 
@@ -29,18 +35,19 @@ function getTopLevelBlockRanges(doc: ProseMirrorNode): BlockRange[] {
   return ranges;
 }
 
-function dedupeRanges(ranges: BlockRange[]): BlockRange[] {
-  const seen = new Set<string>();
-  const deduped: BlockRange[] = [];
+function getChangeLengths(change: AiEditRawChange) {
+  const insertedLength = Math.max(0, change.toB - change.fromB);
+  const deletedLength = Math.max(0, change.toA - change.fromA);
+  return { insertedLength, deletedLength };
+}
 
-  for (const range of ranges) {
-    const key = `${range.from}:${range.to}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(range);
-  }
-
-  return deduped;
+function getMergedIndicatorType(
+  existingType: DiffIndicatorType | undefined,
+  nextType: DiffIndicatorType,
+): DiffIndicatorType {
+  if (!existingType) return nextType;
+  if (existingType === "modify" || nextType === "modify") return "modify";
+  return "add";
 }
 
 function findContainingRanges(
@@ -95,16 +102,37 @@ export function buildAiDiffBlockDecorations(
   const topLevelRanges = getTopLevelBlockRanges(doc);
   if (topLevelRanges.length === 0) return [];
 
-  const touchedBlocks: BlockRange[] = [];
+  const touchedBlocks = new Map<string, TypedBlockRange>();
+
+  const markTouchedBlock = (
+    range: BlockRange,
+    indicatorType: DiffIndicatorType,
+  ) => {
+    const key = `${range.from}:${range.to}`;
+    const existing = touchedBlocks.get(key);
+    touchedBlocks.set(key, {
+      ...range,
+      indicatorType: getMergedIndicatorType(existing?.indicatorType, indicatorType),
+    });
+  };
 
   for (const change of changes) {
+    const { insertedLength, deletedLength } = getChangeLengths(change);
     const changeFrom = Math.max(0, Math.min(change.fromB, doc.content.size));
     const changeTo = Math.max(0, Math.min(change.toB, doc.content.size));
 
     if (changeTo > changeFrom) {
-      touchedBlocks.push(
-        ...findContainingRanges(topLevelRanges, changeFrom, changeTo),
-      );
+      for (const range of findContainingRanges(
+        topLevelRanges,
+        changeFrom,
+        changeTo,
+      )) {
+        // Treat pure insertions as add, even when they occur inside existing blocks.
+        const indicatorType: DiffIndicatorType =
+          insertedLength > 0 && deletedLength === 0 ? "add" : "modify";
+
+        markTouchedBlock(range, indicatorType);
+      }
       continue;
     }
 
@@ -113,13 +141,13 @@ export function buildAiDiffBlockDecorations(
       changeFrom,
     );
     if (nearestTopLevel) {
-      touchedBlocks.push(nearestTopLevel);
+      markTouchedBlock(nearestTopLevel, "modify");
     }
   }
 
-  return dedupeRanges(touchedBlocks).map((range) =>
+  return Array.from(touchedBlocks.values()).map((range) =>
     Decoration.node(range.from, range.to, {
-      class: "ai-diff-indicator-block",
+      class: `ai-diff-indicator-block ai-diff-indicator-block--${range.indicatorType}`,
     }),
   );
 }
@@ -166,6 +194,7 @@ interface DiffIndicatorProps {
 type MarkerLayout = {
   top: number;
   height: number;
+  indicatorType: DiffIndicatorType;
 };
 
 function parseCssLengthToPx(value: string, baseFontSizePx: number): number {
@@ -208,8 +237,7 @@ function collectMarkerLayouts(
   );
 
   const scrollRect = scrollContainer.getBoundingClientRect();
-  const seen = new Set<string>();
-  const markers: MarkerLayout[] = [];
+  const markersByKey = new Map<string, MarkerLayout>();
 
   for (const target of targets) {
     const rect = target.getBoundingClientRect();
@@ -217,13 +245,26 @@ function collectMarkerLayouts(
 
     const top = rect.top - scrollRect.top + scrollContainer.scrollTop + 2;
     const height = Math.max(10, rect.height - 4);
+    const indicatorType: DiffIndicatorType = target.classList.contains(
+      "ai-diff-indicator-block--add",
+    )
+      ? "add"
+      : "modify";
     const dedupeKey = `${Math.round(top)}:${Math.round(height)}`;
+    const existing = markersByKey.get(dedupeKey);
 
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    markers.push({ top, height });
+    if (!existing) {
+      markersByKey.set(dedupeKey, { top, height, indicatorType });
+      continue;
+    }
+
+    markersByKey.set(dedupeKey, {
+      ...existing,
+      indicatorType: getMergedIndicatorType(existing.indicatorType, indicatorType),
+    });
   }
 
+  const markers = Array.from(markersByKey.values());
   markers.sort((a, b) => a.top - b.top);
   return markers;
 }
@@ -304,7 +345,7 @@ export function DiffIndicator({
       {markers.map((marker, index) => (
         <div
           key={`${marker.top}:${marker.height}:${index}`}
-          className="ai-diff-indicator-marker"
+          className={`ai-diff-indicator-marker ai-diff-indicator-marker--${marker.indicatorType}`}
           style={{
             top: marker.top,
             height: marker.height,

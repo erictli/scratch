@@ -17,6 +17,8 @@
   --color-border-solid: #d6d3d1; /* stone-300 - for table borders */
   --color-accent: #1c1917;
   --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
+  --color-ai-diff-add: #34d399;
+  --color-ai-diff-modify: #f59e0b;
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
   --editor-font-family:
@@ -49,6 +51,8 @@
   --color-border-solid: #57534e; /* stone-600 - for table borders */
   --color-accent: #fafaf9;
   --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
+  --color-ai-diff-add: #6ee7b7;
+  --color-ai-diff-modify: #fbbf24;
 }
 
 /* Register theme colors with Tailwind */
@@ -412,7 +416,14 @@ html.dark {
   position: absolute;
   width: 3px;
   border-radius: 9999px;
-  background: #34d399;
+}
+
+.ai-diff-indicator-marker--add {
+  background: var(--color-ai-diff-add);
+}
+
+.ai-diff-indicator-marker--modify {
+  background: var(--color-ai-diff-modify);
 }
 
 .prose ul,
