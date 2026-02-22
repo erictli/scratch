@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, type RefObject } from "react";
 import { Input, IconButton } from "../ui";
 import { ArrowUpIcon, ArrowDownIcon, XIcon } from "../icons";
 import { shift } from "../../lib/platform";
@@ -11,6 +11,7 @@ interface SearchToolbarProps {
   onClose: () => void;
   currentMatch: number;
   totalMatches: number;
+  inputRef: RefObject<HTMLInputElement | null>;
 }
 
 export function SearchToolbar({
@@ -21,13 +22,13 @@ export function SearchToolbar({
   onClose,
   currentMatch,
   totalMatches,
+  inputRef,
 }: SearchToolbarProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
   // Auto-focus input on mount
   useEffect(() => {
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, []);
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [inputRef]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
