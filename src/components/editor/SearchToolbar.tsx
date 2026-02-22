@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import { Input, IconButton } from "../ui";
 import { ArrowUpIcon, ArrowDownIcon, XIcon } from "../icons";
 import { shift } from "../../lib/platform";
@@ -11,7 +11,7 @@ interface SearchToolbarProps {
   onClose: () => void;
   currentMatch: number;
   totalMatches: number;
-  inputRef?: RefObject<HTMLInputElement | null>;
+  inputRef: RefObject<HTMLInputElement | null>;
 }
 
 export function SearchToolbar({
@@ -24,13 +24,11 @@ export function SearchToolbar({
   totalMatches,
   inputRef,
 }: SearchToolbarProps) {
-  const internalInputRef = useRef<HTMLInputElement>(null);
-  const resolvedInputRef = inputRef ?? internalInputRef;
-
   // Auto-focus input on mount
   useEffect(() => {
-    requestAnimationFrame(() => resolvedInputRef.current?.focus());
-  }, []);
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [inputRef]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -54,7 +52,7 @@ export function SearchToolbar({
   return (
     <div className="flex items-center gap-1.5 bg-bg border border-border rounded-lg shadow-lg p-1">
       <Input
-        ref={resolvedInputRef}
+        ref={inputRef}
         type="text"
         value={query}
         onChange={(e) => onChange(e.target.value)}
