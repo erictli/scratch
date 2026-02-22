@@ -92,6 +92,7 @@ function formatDateTime(timestamp: number): string {
 
 // Search highlight extension - adds yellow backgrounds to search matches
 const searchHighlightPluginKey = new PluginKey("searchHighlight");
+const OPEN_EDITOR_SEARCH = "open-editor-search";
 
 interface SearchHighlightOptions {
   matches: Array<{ from: number; to: number }>;
@@ -1214,9 +1215,9 @@ export function Editor({
       });
     };
 
-    window.addEventListener("open-editor-search", handleOpenEditorSearch);
+    window.addEventListener(OPEN_EDITOR_SEARCH, handleOpenEditorSearch);
     return () =>
-      window.removeEventListener("open-editor-search", handleOpenEditorSearch);
+      window.removeEventListener(OPEN_EDITOR_SEARCH, handleOpenEditorSearch);
   }, []);
 
   // Cmd+F to open search (works when document/editor area is focused)
@@ -1247,7 +1248,7 @@ export function Editor({
 
         // Open search for the editor
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent("open-editor-search"));
+        window.dispatchEvent(new CustomEvent(OPEN_EDITOR_SEARCH));
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -1545,7 +1546,7 @@ export function Editor({
             <Tooltip content={`Find in note (${mod}${isMac ? "" : "+"}F)`}>
               <IconButton
                 onClick={() =>
-                  window.dispatchEvent(new CustomEvent("open-editor-search"))
+                  window.dispatchEvent(new CustomEvent(OPEN_EDITOR_SEARCH))
                 }
               >
                 <SearchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
