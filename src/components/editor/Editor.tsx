@@ -41,12 +41,14 @@ import { Frontmatter } from "./Frontmatter";
 import { LinkEditor } from "./LinkEditor";
 import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
+import { DiffIndicator, AiDiffIndicatorExtension } from "./DiffIndicator";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import type { Settings } from "../../types/note";
+import type { AiEditRawChange } from "../../lib/diff";
 import {
   BoldIcon,
   ItalicIcon,
@@ -357,6 +359,7 @@ interface EditorProps {
   onToggleSidebar?: () => void;
   sidebarVisible?: boolean;
   focusMode?: boolean;
+  aiEditChanges?: AiEditRawChange[];
   previewMode?: PreviewModeData;
   onEditorReady?: (editor: TiptapEditor | null) => void;
 }
@@ -365,6 +368,7 @@ export function Editor({
   onToggleSidebar,
   sidebarVisible,
   focusMode,
+  aiEditChanges,
   onEditorReady,
   previewMode,
 }: EditorProps) {
@@ -659,6 +663,7 @@ export function Editor({
         matches: [],
         currentIndex: 0,
       }),
+      AiDiffIndicatorExtension,
       SlashCommand,
     ],
     editorProps: {
@@ -1652,6 +1657,11 @@ export function Editor({
           </div>
         ) : (
           <>
+            <DiffIndicator
+              editor={editor}
+              changes={aiEditChanges}
+              scrollContainerRef={scrollContainerRef}
+            />
             {searchOpen && (
               <div className="sticky top-2 z-10 animate-in fade-in slide-in-from-top-4 duration-200 pointer-events-none pr-2 flex justify-end">
                 <div className="pointer-events-auto">

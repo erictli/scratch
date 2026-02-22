@@ -20,7 +20,7 @@ import {
 } from "@tauri-apps/plugin-updater";
 import * as aiService from "./services/ai";
 import type { AiProvider } from "./services/ai";
-import { listAiEditRawChanges } from "./lib/diff";
+import { listAiEditRawChanges, type AiEditRawChange } from "./lib/diff";
 import { useWaitForUpdatedEditorSnapshot } from "./hooks/useWaitForUpdatedEditorSnapshot";
 
 // Detect preview mode from URL search params
@@ -57,6 +57,7 @@ function AppContent() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
+  const [aiEditChanges, setAiEditChanges] = useState<AiEditRawChange[]>([]);
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
@@ -105,6 +106,7 @@ function AppContent() {
         return;
       }
 
+      setAiEditChanges([]);
       setAiEditing(true);
 
       // Capture snapshot of the original document
@@ -127,10 +129,10 @@ function AppContent() {
           before: beforeJson,
           after: afterJson,
         });
-        console.log(changes);
 
         // Show results
         if (result.success) {
+          setAiEditChanges(changes);
           // Close modal after success
           setAiModalOpen(false);
 
@@ -163,6 +165,10 @@ function AppContent() {
     },
     [aiProvider, currentNote, reloadCurrentNote, waitForUpdatedEditorSnapshot],
   );
+
+  useEffect(() => {
+    setAiEditChanges([]);
+  }, [selectedNoteId]);
 
   // Memoize display items to prevent unnecessary recalculations
   const displayItems = useMemo(() => {
@@ -370,6 +376,7 @@ function AppContent() {
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible && !focusMode}
               focusMode={focusMode}
+              aiEditChanges={aiEditChanges}
               onEditorReady={(editor) => {
                 editorRef.current = editor;
               }}

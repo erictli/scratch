@@ -238,6 +238,7 @@ html.dark {
 .ProseMirror {
   direction: var(--editor-direction, ltr);
   max-width: var(--editor-max-width, 48rem) !important;
+  --ai-diff-indicator-left: 0.5rem;
 }
 
 /* Editor font customization - simplified */
@@ -396,6 +397,22 @@ html.dark {
 .prose p {
   margin-top: 0;
   margin-bottom: var(--editor-paragraph-spacing);
+}
+
+.ai-diff-indicator-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ai-diff-indicator-marker {
+  position: absolute;
+  width: 3px;
+  border-radius: 9999px;
+  background: #34d399;
 }
 
 .prose ul,
@@ -927,5 +944,9 @@ table.not-prose th {
     max-width: 100% !important;
     page-break-inside: avoid;
     break-inside: avoid;
+  }
+
+  .ai-diff-indicator-overlay {
+    display: none !important;
   }
 }
