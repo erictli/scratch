@@ -18,7 +18,8 @@ type BlockRange = {
 type DiffIndicatorType = "add" | "modify";
 
 type TypedBlockRange = BlockRange & {
-  indicatorType: DiffIndicatorType;
+  indicatorType?: DiffIndicatorType;
+  hasDeletionAnchor?: boolean;
 };
 
 function getTopLevelBlockRanges(doc: ProseMirrorNode): BlockRange[] {
@@ -33,12 +34,6 @@ function getTopLevelBlockRanges(doc: ProseMirrorNode): BlockRange[] {
   });
 
   return ranges;
-}
-
-function getChangeLengths(change: AiEditRawChange) {
-  const insertedLength = Math.max(0, change.toB - change.fromB);
-  const deletedLength = Math.max(0, change.toA - change.fromA);
-  return { insertedLength, deletedLength };
 }
 
 function getMergedIndicatorType(
@@ -104,22 +99,46 @@ export function buildAiDiffBlockDecorations(
 
   const touchedBlocks = new Map<string, TypedBlockRange>();
 
+  const upsertTouchedBlock = (range: BlockRange): TypedBlockRange => {
+    const key = `${range.from}:${range.to}`;
+    const existing = touchedBlocks.get(key);
+    if (existing) return existing;
+
+    const next: TypedBlockRange = { ...range };
+    touchedBlocks.set(key, next);
+    return next;
+  };
+
   const markTouchedBlock = (
     range: BlockRange,
     indicatorType: DiffIndicatorType,
   ) => {
-    const key = `${range.from}:${range.to}`;
-    const existing = touchedBlocks.get(key);
-    touchedBlocks.set(key, {
-      ...range,
-      indicatorType: getMergedIndicatorType(existing?.indicatorType, indicatorType),
-    });
+    const block = upsertTouchedBlock(range);
+    block.indicatorType = getMergedIndicatorType(
+      block.indicatorType,
+      indicatorType,
+    );
+  };
+
+  const markDeletionAnchor = (range: BlockRange) => {
+    const block = upsertTouchedBlock(range);
+    block.hasDeletionAnchor = true;
   };
 
   for (const change of changes) {
-    const { insertedLength, deletedLength } = getChangeLengths(change);
     const changeFrom = Math.max(0, Math.min(change.fromB, doc.content.size));
     const changeTo = Math.max(0, Math.min(change.toB, doc.content.size));
+
+    if (change.kind === "delete-block" && changeTo === changeFrom) {
+      const nearestTopLevel = findNearestBlockForCollapsedPosition(
+        topLevelRanges,
+        changeFrom,
+      );
+      if (nearestTopLevel) {
+        markDeletionAnchor(nearestTopLevel);
+        continue;
+      }
+    }
 
     if (changeTo > changeFrom) {
       for (const range of findContainingRanges(
@@ -127,14 +146,15 @@ export function buildAiDiffBlockDecorations(
         changeFrom,
         changeTo,
       )) {
-        // Treat pure insertions as add, even when they occur inside existing blocks.
         const indicatorType: DiffIndicatorType =
-          insertedLength > 0 && deletedLength === 0 ? "add" : "modify";
+          change.kind === "add" ? "add" : "modify";
 
         markTouchedBlock(range, indicatorType);
       }
       continue;
     }
+
+    if (change.kind === "delete-block") continue;
 
     const nearestTopLevel = findNearestBlockForCollapsedPosition(
       topLevelRanges,
@@ -145,11 +165,26 @@ export function buildAiDiffBlockDecorations(
     }
   }
 
-  return Array.from(touchedBlocks.values()).map((range) =>
-    Decoration.node(range.from, range.to, {
-      class: `ai-diff-indicator-block ai-diff-indicator-block--${range.indicatorType}`,
-    }),
-  );
+  return Array.from(touchedBlocks.values())
+    .map((range) => {
+      const classes: string[] = [];
+      if (range.indicatorType) {
+        classes.push(
+          "ai-diff-indicator-block",
+          `ai-diff-indicator-block--${range.indicatorType}`,
+        );
+      }
+      if (range.hasDeletionAnchor) {
+        classes.push("ai-diff-deletion-anchor-block");
+      }
+
+      if (classes.length === 0) return null;
+
+      return Decoration.node(range.from, range.to, {
+        class: classes.join(" "),
+      });
+    })
+    .filter((decoration): decoration is Decoration => decoration !== null);
 }
 
 export function createAiDiffDecorationSet(
@@ -195,6 +230,12 @@ type MarkerLayout = {
   top: number;
   height: number;
   indicatorType: DiffIndicatorType;
+};
+
+type DeletionDividerLayout = {
+  top: number;
+  left: number;
+  width: number;
 };
 
 function parseCssLengthToPx(value: string, baseFontSizePx: number): number {
@@ -260,7 +301,10 @@ function collectMarkerLayouts(
 
     markersByKey.set(dedupeKey, {
       ...existing,
-      indicatorType: getMergedIndicatorType(existing.indicatorType, indicatorType),
+      indicatorType: getMergedIndicatorType(
+        existing.indicatorType,
+        indicatorType,
+      ),
     });
   }
 
@@ -269,18 +313,69 @@ function collectMarkerLayouts(
   return markers;
 }
 
+function computeDeletionDividerFrame(
+  editorDom: HTMLElement,
+  scrollContainer: HTMLDivElement,
+): { left: number; width: number } {
+  const editorRect = editorDom.getBoundingClientRect();
+  const scrollRect = scrollContainer.getBoundingClientRect();
+  const horizontalInset = 25;
+  const width = Math.max(140, editorRect.width - horizontalInset * 2);
+  const left = editorRect.left - scrollRect.left + horizontalInset;
+
+  return { left, width };
+}
+
+function collectDeletionDividerLayouts(
+  editorDom: HTMLElement,
+  scrollContainer: HTMLDivElement,
+): DeletionDividerLayout[] {
+  const targets = Array.from(
+    editorDom.querySelectorAll<HTMLElement>(".ai-diff-deletion-anchor-block"),
+  );
+  if (targets.length === 0) return [];
+
+  const scrollRect = scrollContainer.getBoundingClientRect();
+  const { left, width } = computeDeletionDividerFrame(
+    editorDom,
+    scrollContainer,
+  );
+  const markerTopsByKey = new Map<string, number>();
+
+  for (const target of targets) {
+    const rect = target.getBoundingClientRect();
+    if (rect.height <= 0) continue;
+    const marginTop =
+      Number.parseFloat(getComputedStyle(target).marginTop) || 0;
+    const top =
+      rect.top - scrollRect.top + scrollContainer.scrollTop - marginTop / 2;
+    const key = `${Math.round(top)}`;
+    if (!markerTopsByKey.has(key)) {
+      markerTopsByKey.set(key, top);
+    }
+  }
+
+  return Array.from(markerTopsByKey.values())
+    .sort((a, b) => a - b)
+    .map((top) => ({ top, left, width }));
+}
+
 export function DiffIndicator({
   editor,
   changes = [],
   scrollContainerRef,
 }: DiffIndicatorProps) {
   const [markers, setMarkers] = useState<MarkerLayout[]>([]);
+  const [deletionDividers, setDeletionDividers] = useState<
+    DeletionDividerLayout[]
+  >([]);
   const [leftPx, setLeftPx] = useState(0);
   const [overlayHeight, setOverlayHeight] = useState(0);
 
   const updateOverlay = useCallback(() => {
     if (!editor || !scrollContainerRef?.current) {
       setMarkers([]);
+      setDeletionDividers([]);
       setOverlayHeight(0);
       return;
     }
@@ -289,11 +384,16 @@ export function DiffIndicator({
     const scrollContainer = scrollContainerRef.current;
     const nextLeftPx = computeIndicatorLeftPx(editorDom, scrollContainer);
     const nextMarkers = collectMarkerLayouts(editorDom, scrollContainer);
+    const nextDeletionDividers = collectDeletionDividerLayouts(
+      editorDom,
+      scrollContainer,
+    );
 
     setLeftPx(nextLeftPx);
     setMarkers(nextMarkers);
+    setDeletionDividers(nextDeletionDividers);
     setOverlayHeight(scrollContainer.scrollHeight);
-  }, [editor, scrollContainerRef]);
+  }, [changes, editor, scrollContainerRef]);
 
   useEffect(() => {
     if (!editor) return;
@@ -334,7 +434,7 @@ export function DiffIndicator({
     };
   }, [editor, scrollContainerRef, updateOverlay]);
 
-  if (markers.length === 0) return null;
+  if (markers.length === 0 && deletionDividers.length === 0) return null;
 
   return (
     <div
@@ -342,6 +442,19 @@ export function DiffIndicator({
       aria-hidden="true"
       style={{ height: overlayHeight }}
     >
+      {deletionDividers.map((divider, index) => (
+        <div
+          key={`${divider.top}:${index}`}
+          className="ai-diff-deletion-divider"
+          style={{
+            top: divider.top,
+            left: divider.left,
+            width: divider.width,
+          }}
+        >
+          <span className="ai-diff-deletion-divider__label">Deleted</span>
+        </div>
+      ))}
       {markers.map((marker, index) => (
         <div
           key={`${marker.top}:${marker.height}:${index}`}

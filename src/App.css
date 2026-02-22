@@ -19,6 +19,7 @@
   --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
   --color-ai-diff-add: #34d399;
   --color-ai-diff-modify: #f59e0b;
+  --color-ai-diff-delete: #ef4444;
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
   --editor-font-family:
@@ -53,6 +54,7 @@
   --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
   --color-ai-diff-add: #6ee7b7;
   --color-ai-diff-modify: #fbbf24;
+  --color-ai-diff-delete: #f87171;
 }
 
 /* Register theme colors with Tailwind */
@@ -424,6 +426,36 @@ html.dark {
 
 .ai-diff-indicator-marker--modify {
   background: var(--color-ai-diff-modify);
+}
+
+.ai-diff-deletion-divider {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.35rem 0;
+  transform: translateY(-40%);
+}
+
+.ai-diff-deletion-divider::before,
+.ai-diff-deletion-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--color-ai-diff-delete);
+}
+
+.ai-diff-deletion-divider__label {
+  color: var(--color-ai-diff-delete);
+  font-size: 0.75rem;
+  line-height: 1;
+  font-weight: 600;
+  background: var(--color-bg);
+  padding: 0 0.375rem;
+}
+
+.ai-diff-deletion-anchor-block {
+  margin-top: 2.25rem !important;
 }
 
 .prose ul,
