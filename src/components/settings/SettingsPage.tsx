@@ -121,7 +121,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         {/* Content - centered with max width */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-auto settings-scroll-container"
+          className="flex-1 overflow-auto scrollbar-gutter-stable"
         >
           <div className="w-full max-w-3xl mx-auto px-6 pb-6">
             {activeTab === "general" && <GeneralSettingsSection />}

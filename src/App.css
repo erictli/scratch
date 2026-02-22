@@ -133,7 +133,7 @@ body {
 }
 
 /* Keep layout width stable when vertical scrollbar appears */
-.settings-scroll-container {
+.scrollbar-gutter-stable {
   scrollbar-gutter: stable;
 }
 
