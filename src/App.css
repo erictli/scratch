@@ -376,7 +376,7 @@ html.dark {
   color: var(--color-text);
   text-decoration: none;
   font-weight: 500;
-  border-bottom: 1px solid currentColor;
+  border-bottom: 1px solid currentcolor;
   transition: color 0.15s;
 }
 .prose
@@ -389,7 +389,7 @@ html.dark {
   color: var(--color-text);
   text-decoration: none;
   font-weight: 500;
-  border-bottom: 1px dashed currentColor;
+  border-bottom: 1px dashed currentcolor;
   cursor: pointer;
   transition: color 0.15s;
 }
@@ -905,6 +905,15 @@ table.not-prose th {
   /* Hide link tooltips when printing */
   a::after {
     display: none !important;
+  }
+
+  /* Render wikilinks as regular text when printing */
+  .prose span[data-wikilink],
+  .prose span[data-wikilink]:hover {
+    border-bottom: none !important;
+    cursor: default !important;
+    color: black !important;
+    text-decoration: none !important;
   }
 
   /* Make code blocks readable */
