@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { NotesProvider, useNotes } from "./context/NotesContext";
-import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
 import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -50,6 +50,7 @@ function AppContent() {
     reloadCurrentNote,
     currentNote,
   } = useNotes();
+  const { setInterfaceZoom } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -160,6 +161,27 @@ function AppContent() {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
         toggleSettings();
+        return;
+      }
+
+      // Cmd+= or Cmd++ - Zoom in (works everywhere, including settings)
+      if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        setInterfaceZoom((prev) => prev + 0.05);
+        return;
+      }
+
+      // Cmd+- - Zoom out (works everywhere, including settings)
+      if ((e.metaKey || e.ctrlKey) && (e.key === "-" || e.key === "_")) {
+        e.preventDefault();
+        setInterfaceZoom((prev) => prev - 0.05);
+        return;
+      }
+
+      // Cmd+0 - Reset zoom (works everywhere, including settings)
+      if ((e.metaKey || e.ctrlKey) && e.key === "0") {
+        e.preventDefault();
+        setInterfaceZoom(1.0);
         return;
       }
 
@@ -312,6 +334,7 @@ function AppContent() {
     toggleFocusMode,
     focusMode,
     view,
+    setInterfaceZoom,
   ]);
 
   const handleClosePalette = useCallback(() => {

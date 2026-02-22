@@ -58,6 +58,8 @@ interface ThemeContextType {
   setTextDirection: (dir: TextDirection) => void;
   editorWidth: EditorWidth;
   setEditorWidth: (width: EditorWidth) => void;
+  interfaceZoom: number;
+  setInterfaceZoom: (zoomOrUpdater: number | ((prev: number) => number)) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -114,6 +116,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   >(defaultEditorFontSettings);
   const [textDirection, setTextDirectionState] = useState<TextDirection>("ltr");
   const [editorWidth, setEditorWidthState] = useState<EditorWidth>("normal");
+  const [interfaceZoom, setInterfaceZoomState] = useState(1.0);
   const [isInitialized, setIsInitialized] = useState(false);
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
@@ -152,6 +155,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         settings.editorWidth === "full"
       ) {
         setEditorWidthState(settings.editorWidth);
+      }
+      if (
+        typeof settings.interfaceZoom === "number" &&
+        settings.interfaceZoom >= 0.7 &&
+        settings.interfaceZoom <= 1.5
+      ) {
+        setInterfaceZoomState(settings.interfaceZoom);
       }
     } catch {
       // If settings can't be loaded, use defaults
@@ -234,6 +244,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     applyLayoutCSSVariables(textDirection, editorWidth);
   }, [textDirection, editorWidth]);
 
+  // Apply interface zoom whenever it changes
+  useEffect(() => {
+    document.documentElement.style.zoom = String(interfaceZoom);
+  }, [interfaceZoom]);
+
   // Save font settings to backend
   const saveFontSettings = useCallback(
     async (newFontSettings: Required<EditorFontSettings>) => {
@@ -270,6 +285,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setEditorFontSettings(defaultEditorFontSettings);
     setTextDirectionState("ltr");
     setEditorWidthState("normal");
+    setInterfaceZoomState(1.0);
     try {
       const settings = await getSettings();
       await updateSettings({
@@ -277,6 +293,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         editorFont: defaultEditorFontSettings,
         textDirection: "ltr",
         editorWidth: "normal",
+        interfaceZoom: 1.0,
       });
     } catch (error) {
       console.error("Failed to reset editor settings:", error);
@@ -305,6 +322,29 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, []);
 
+  // Save and set interface zoom (accepts absolute value or updater function)
+  const setInterfaceZoom = useCallback(
+    (zoomOrUpdater: number | ((prev: number) => number)) => {
+      setInterfaceZoomState((prev) => {
+        const raw =
+          typeof zoomOrUpdater === "function"
+            ? zoomOrUpdater(prev)
+            : zoomOrUpdater;
+        const clamped = Math.min(Math.max(raw, 0.7), 1.5);
+        // Persist asynchronously
+        getSettings()
+          .then((settings) =>
+            updateSettings({ ...settings, interfaceZoom: clamped }),
+          )
+          .catch((error) =>
+            console.error("Failed to save interface zoom:", error),
+          );
+        return clamped;
+      });
+    },
+    [],
+  );
+
   // Don't render until initialized to prevent flash
   if (!isInitialized) {
     return null;
@@ -325,6 +365,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         setTextDirection,
         editorWidth,
         setEditorWidth,
+        interfaceZoom,
+        setInterfaceZoom,
       }}
     >
       {children}

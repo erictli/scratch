@@ -87,6 +87,21 @@ const shortcuts: Shortcut[] = [
     description: "Go to About settings",
     category: "Settings",
   },
+  {
+    keys: [mod, "="],
+    description: "Zoom in",
+    category: "Navigation",
+  },
+  {
+    keys: [mod, "−"],
+    description: "Zoom out",
+    category: "Navigation",
+  },
+  {
+    keys: [mod, "0"],
+    description: "Reset zoom",
+    category: "Navigation",
+  },
 ];
 
 // Group shortcuts by category
