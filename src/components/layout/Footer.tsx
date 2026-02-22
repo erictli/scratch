@@ -6,7 +6,6 @@ import {
   GitBranchIcon,
   GitBranchDeletedIcon,
   GitCommitIcon,
-  UploadIcon,
   RefreshCwIcon,
   SpinnerIcon,
   SettingsIcon,
@@ -22,12 +21,10 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
   const {
     status,
     isLoading,
-    isPushing,
-    isPulling,
+    isSyncing,
     isCommitting,
     gitAvailable,
-    push,
-    pull,
+    sync,
     initRepo,
     commit,
     lastError,
@@ -48,24 +45,15 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
     }
   }, [commit, isCommitting]);
 
-  const handlePush = useCallback(async () => {
-    const success = await push();
-    if (success) {
-      toast.success("Pushed to remote");
+  const handleSync = useCallback(async () => {
+    if (isSyncing) return;
+    const result = await sync();
+    if (result.ok) {
+      toast.success(result.message);
     } else {
-      toast.error("Failed to push");
+      toast.error(result.error);
     }
-  }, [push]);
-
-  const handlePull = useCallback(async () => {
-    if (isPulling) return;
-    const result = await pull();
-    if (result) {
-      toast.success(result);
-    } else {
-      toast.error("Failed to pull");
-    }
-  }, [pull, isPulling]);
+  }, [sync, isSyncing]);
 
   const handleEnableGit = useCallback(async () => {
     const success = await initRepo();
@@ -147,9 +135,20 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
   // Determine what buttons to show
   const hasChanges = (status?.changedCount ?? 0) > 0;
   const showCommitButton = gitAvailable && status?.isRepo && hasChanges;
-  const canPush = status?.hasRemote && (status?.aheadCount ?? 0) > 0;
-  const behindCount = status?.behindCount ?? 0;
+  const behindCount = Math.max(status?.behindCount ?? 0, 0);
+  const aheadCount = Math.max(status?.aheadCount ?? 0, 0);
+  const syncCount = behindCount + aheadCount;
   const showSyncButton = status?.hasRemote && status?.hasUpstream;
+
+  const syncTooltip = isSyncing
+    ? "Syncing..."
+    : behindCount > 0 && aheadCount > 0
+      ? `${behindCount} to pull, ${aheadCount} to push`
+      : behindCount > 0
+        ? `${behindCount} commit${behindCount === 1 ? "" : "s"} to pull`
+        : aheadCount > 0
+          ? `${aheadCount} commit${aheadCount === 1 ? "" : "s"} to push`
+          : "Synced with remote";
 
   return (
     <div className="shrink-0 border-t border-border">
@@ -157,55 +156,30 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
       <div className="pl-4 pr-3 pt-2 pb-2.5 flex items-center justify-between">
         {renderGitStatus()}
         <div className="flex items-center gap-px">
-          {/* Sync (pull) button — always visible when upstream is configured */}
+          {/* Sync button — pulls then pushes, always visible when upstream is configured */}
           {showSyncButton && (
-            <Tooltip
-              content={
-                isPulling
-                  ? "Syncing..."
-                  : behindCount > 0
-                    ? `${behindCount} commit${behindCount === 1 ? "" : "s"} to pull`
-                    : "Synced with remote"
-              }
-            >
+            <Tooltip content={syncTooltip}>
               <IconButton
-                onClick={handlePull}
-                disabled={isPulling}
+                onClick={handleSync}
+                disabled={isSyncing}
                 aria-label="Sync"
               >
-                {isPulling ? (
+                {isSyncing ? (
                   <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
                 ) : (
                   <span className="relative flex items-center">
                     <RefreshCwIcon
-                      className={cn("w-4.5 h-4.5 stroke-[1.5]", behindCount > 0 ? "text-text" : "opacity-50")}
+                      className={cn(
+                        "w-4.5 h-4.5 stroke-[1.5]",
+                        syncCount === 0 && "opacity-50",
+                      )}
                     />
-                    {behindCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-3.5 h-3.5 flex items-center justify-center rounded-full bg-accent text-text-inverse text-[9px] font-bold leading-none px-0.5">
-                        {behindCount}
+                    {syncCount > 0 && (
+                      <span className="absolute -top-1.25 -right-1.25 min-w-3.5 h-3.5 flex items-center justify-center rounded-full bg-accent text-text-inverse text-[9px] font-bold leading-none px-0.5">
+                        {syncCount}
                       </span>
                     )}
                   </span>
-                )}
-              </IconButton>
-            </Tooltip>
-          )}
-          {/* Push button */}
-          {canPush && (
-            <Tooltip
-              content={`${status?.aheadCount} commit${
-                status?.aheadCount === 1 ? " to push" : "s to push"
-              }`}
-            >
-              <IconButton
-                onClick={handlePush}
-                disabled={isPushing}
-                aria-label="Push"
-              >
-                {isPushing ? (
-                  <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
-                ) : (
-                  <UploadIcon className="w-4.5 h-4.5 stroke-[1.5]" />
                 )}
               </IconButton>
             </Tooltip>
@@ -223,7 +197,10 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
               )}
             </IconButton>
           )}
-          <IconButton onClick={onOpenSettings} title={`Settings (${mod}${isMac ? "" : "+"}, to toggle)`}>
+          <IconButton
+            onClick={onOpenSettings}
+            title={`Settings (${mod}${isMac ? "" : "+"}, to toggle)`}
+          >
             <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />
           </IconButton>
         </div>

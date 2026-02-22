@@ -61,6 +61,8 @@ pub fn get_status(path: &Path) -> GitStatus {
 
     let mut status = GitStatus {
         is_repo: true,
+        ahead_count: -1,
+        behind_count: -1,
         ..Default::default()
     };
 
@@ -219,7 +221,8 @@ pub fn commit_all(path: &Path, message: &str) -> GitResult {
 /// Push to remote
 pub fn push(path: &Path) -> GitResult {
     let output = Command::new("git")
-        .args(["push"])
+        .args(["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10", "push"])
+        .env("GIT_SSH_COMMAND", "ssh -o ConnectTimeout=10")
         .current_dir(path)
         .output();
 
@@ -282,7 +285,7 @@ pub fn fetch(path: &Path) -> GitResult {
 /// Pull from remote
 pub fn pull(path: &Path) -> GitResult {
     let output = Command::new("git")
-        .args(["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10", "pull"])
+        .args(["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10", "-c", "pull.rebase=false", "pull"])
         .env("GIT_SSH_COMMAND", "ssh -o ConnectTimeout=10")
         .current_dir(path)
         .output();
@@ -387,7 +390,8 @@ pub fn add_remote(path: &Path, url: &str) -> GitResult {
 /// Push to remote and set upstream tracking (git push -u origin <branch>)
 pub fn push_with_upstream(path: &Path, branch: &str) -> GitResult {
     let output = Command::new("git")
-        .args(["push", "-u", "origin", branch])
+        .args(["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10", "push", "-u", "origin", branch])
+        .env("GIT_SSH_COMMAND", "ssh -o ConnectTimeout=10")
         .current_dir(path)
         .output();
 
@@ -424,14 +428,25 @@ fn is_valid_remote_url(url: &str) -> bool {
     url.starts_with("git@") || url.starts_with("https://") || url.starts_with("http://")
 }
 
+/// Parse common remote errors (auth, network) shared by push/pull/fetch
+fn parse_remote_error(stderr: &str) -> Option<String> {
+    if stderr.contains("Permission denied") || stderr.contains("publickey") {
+        Some("Authentication failed. Check your SSH keys or credentials.".to_string())
+    } else if stderr.contains("Could not resolve host") {
+        Some("Could not connect to remote. Check your internet connection.".to_string())
+    } else {
+        None
+    }
+}
+
 /// Parse git pull errors into user-friendly messages
 fn parse_pull_error(stderr: &str) -> String {
-    if stderr.contains("CONFLICT") || stderr.contains("Merge conflict") {
+    if let Some(msg) = parse_remote_error(stderr) {
+        msg
+    } else if stderr.contains("local changes") || stderr.contains("unstaged changes") {
+        "Commit your changes before syncing with remote.".to_string()
+    } else if stderr.contains("CONFLICT") || stderr.contains("Merge conflict") {
         "Pull failed due to merge conflicts. Resolve conflicts manually.".to_string()
-    } else if stderr.contains("Permission denied") || stderr.contains("publickey") {
-        "Authentication failed. Check your SSH keys or credentials.".to_string()
-    } else if stderr.contains("Could not resolve host") {
-        "Could not connect to remote. Check your internet connection.".to_string()
     } else if stderr.contains("not possible to fast-forward") {
         "Pull failed: local and remote have diverged. Try pulling with rebase or merging manually.".to_string()
     } else if stderr.contains("unrelated histories") {
@@ -443,12 +458,10 @@ fn parse_pull_error(stderr: &str) -> String {
 
 /// Parse git push errors into user-friendly messages
 fn parse_push_error(stderr: &str) -> String {
-    if stderr.contains("Permission denied") || stderr.contains("publickey") {
-        "Authentication failed. Check your SSH keys or credentials.".to_string()
+    if let Some(msg) = parse_remote_error(stderr) {
+        msg
     } else if stderr.contains("Repository not found") || stderr.contains("does not exist") {
         "Remote repository not found. Check the URL.".to_string()
-    } else if stderr.contains("Could not resolve host") {
-        "Could not connect to remote. Check your internet connection.".to_string()
     } else {
         stderr.trim().to_string()
     }
