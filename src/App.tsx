@@ -20,6 +20,8 @@ import {
 } from "@tauri-apps/plugin-updater";
 import * as aiService from "./services/ai";
 import type { AiProvider } from "./services/ai";
+import { listAiEditRawChanges } from "./lib/diff";
+import { useWaitForUpdatedEditorSnapshot } from "./hooks/useWaitForUpdatedEditorSnapshot";
 
 // Detect preview mode from URL search params
 function getWindowMode(): {
@@ -58,6 +60,8 @@ function AppContent() {
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
+  const waitForUpdatedEditorSnapshot =
+    useWaitForUpdatedEditorSnapshot(editorRef);
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
@@ -96,8 +100,16 @@ function AppContent() {
         toast.error("No note selected");
         return;
       }
+      if (!editorRef.current) {
+        toast.error("Editor not ready");
+        return;
+      }
 
       setAiEditing(true);
+
+      // Capture snapshot of the original document
+      const beforeJson = editorRef.current.getJSON();
+      const beforeSerialized = JSON.stringify(beforeJson);
 
       try {
         const result =
@@ -107,6 +119,15 @@ function AppContent() {
 
         // Reload the current note from disk
         await reloadCurrentNote();
+
+        const afterJson = await waitForUpdatedEditorSnapshot(beforeSerialized);
+
+        const changes = listAiEditRawChanges({
+          schema: editorRef.current.state.schema,
+          before: beforeJson,
+          after: afterJson,
+        });
+        console.log(changes);
 
         // Show results
         if (result.success) {
@@ -140,7 +161,7 @@ function AppContent() {
         setAiEditing(false);
       }
     },
-    [aiProvider, currentNote, reloadCurrentNote],
+    [aiProvider, currentNote, reloadCurrentNote, waitForUpdatedEditorSnapshot],
   );
 
   // Memoize display items to prevent unnecessary recalculations
