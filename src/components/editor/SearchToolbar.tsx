@@ -11,6 +11,7 @@ interface SearchToolbarProps {
   onClose: () => void;
   currentMatch: number;
   totalMatches: number;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
 export function SearchToolbar({
@@ -21,12 +22,14 @@ export function SearchToolbar({
   onClose,
   currentMatch,
   totalMatches,
+  inputRef,
 }: SearchToolbarProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const internalInputRef = useRef<HTMLInputElement>(null);
+  const resolvedInputRef = inputRef ?? internalInputRef;
 
   // Auto-focus input on mount
   useEffect(() => {
-    requestAnimationFrame(() => inputRef.current?.focus());
+    requestAnimationFrame(() => resolvedInputRef.current?.focus());
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -51,7 +54,7 @@ export function SearchToolbar({
   return (
     <div className="flex items-center gap-1.5 bg-bg border border-border rounded-lg shadow-lg p-1">
       <Input
-        ref={inputRef}
+        ref={resolvedInputRef}
         type="text"
         value={query}
         onChange={(e) => onChange(e.target.value)}
