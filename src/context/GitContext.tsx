@@ -170,7 +170,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
         if (pushResult.error) {
           setLastError(pushResult.error);
           await refreshStatus();
-          if (didPull) return { ok: true, message: "Pulled changes, but push failed" };
+          if (didPull) return { ok: false, error: `Pulled changes, but push failed: ${pushResult.error}` };
           return { ok: false, error: pushResult.error };
         }
         didPush = true;
