@@ -92,7 +92,6 @@ function formatDateTime(timestamp: number): string {
 
 // Search highlight extension - adds yellow backgrounds to search matches
 const searchHighlightPluginKey = new PluginKey("searchHighlight");
-const OPEN_EDITOR_SEARCH = "open-editor-search";
 
 interface SearchHighlightOptions {
   matches: Array<{ from: number; to: number }>;
@@ -1207,17 +1206,11 @@ export function Editor({
   }, []);
 
   // Open and focus editor search (supports repeated Cmd/Ctrl+F)
-  useEffect(() => {
-    const handleOpenEditorSearch = () => {
-      setSearchOpen(true);
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-      });
-    };
-
-    window.addEventListener(OPEN_EDITOR_SEARCH, handleOpenEditorSearch);
-    return () =>
-      window.removeEventListener(OPEN_EDITOR_SEARCH, handleOpenEditorSearch);
+  const openEditorSearch = useCallback(() => {
+    setSearchOpen(true);
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
   }, []);
 
   // Cmd+F to open search (works when document/editor area is focused)
@@ -1248,12 +1241,12 @@ export function Editor({
 
         // Open search for the editor
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent(OPEN_EDITOR_SEARCH));
+        openEditorSearch();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [editor, currentNote]);
+  }, [editor, currentNote, openEditorSearch]);
 
   // Clear search on note switch
   useEffect(() => {
@@ -1544,11 +1537,7 @@ export function Editor({
           )}
           {currentNote && (
             <Tooltip content={`Find in note (${mod}${isMac ? "" : "+"}F)`}>
-              <IconButton
-                onClick={() =>
-                  window.dispatchEvent(new CustomEvent(OPEN_EDITOR_SEARCH))
-                }
-              >
+              <IconButton onClick={openEditorSearch}>
                 <SearchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>
