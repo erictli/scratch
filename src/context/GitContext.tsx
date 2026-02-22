@@ -19,6 +19,7 @@ interface GitContextValue {
   isLoading: boolean;
   isCommitting: boolean;
   isPushing: boolean;
+  isPulling: boolean;
   isAddingRemote: boolean;
   gitAvailable: boolean;
   lastError: string | null;
@@ -28,6 +29,7 @@ interface GitContextValue {
   initRepo: () => Promise<boolean>;
   commit: (message: string) => Promise<boolean>;
   push: () => Promise<boolean>;
+  pull: () => Promise<string | false>;
   addRemote: (url: string) => Promise<boolean>;
   pushWithUpstream: () => Promise<boolean>;
   clearError: () => void;
@@ -41,6 +43,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
   const [isAddingRemote, setIsAddingRemote] = useState(false);
   const [gitAvailable, setGitAvailable] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -126,6 +129,24 @@ export function GitProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshStatus]);
 
+  const pull = useCallback(async (): Promise<string | false> => {
+    setIsPulling(true);
+    try {
+      const result = await gitService.gitPull();
+      if (result.error) {
+        setLastError(result.error);
+        return false;
+      }
+      await refreshStatus();
+      return result.message || "Pulled latest changes";
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : "Failed to pull");
+      return false;
+    } finally {
+      setIsPulling(false);
+    }
+  }, [refreshStatus]);
+
   const addRemote = useCallback(async (url: string) => {
     setIsAddingRemote(true);
     try {
@@ -171,9 +192,11 @@ export function GitProvider({ children }: { children: ReactNode }) {
     gitService.isGitAvailable().then(setGitAvailable);
   }, []);
 
-  // Keep a stable ref so the file-change listener doesn't need to re-register
+  // Keep stable refs so listeners/timers don't need to re-register
   const refreshStatusRef = useRef(refreshStatus);
   refreshStatusRef.current = refreshStatus;
+  const isPullingRef = useRef(false);
+  isPullingRef.current = isPulling;
 
   // Refresh status when folder changes
   useEffect(() => {
@@ -181,6 +204,33 @@ export function GitProvider({ children }: { children: ReactNode }) {
       refreshStatus();
     }
   }, [notesFolder, gitAvailable, refreshStatus]);
+
+  // Poll remote for changes periodically (every 60s) when a remote is configured
+  // Fetch is separated from status to keep status checks fast and offline-friendly
+  // Uses recursive setTimeout to prevent overlapping runs on slow networks
+  useEffect(() => {
+    if (!notesFolder || !gitAvailable || !status?.hasRemote) return;
+
+    let cancelled = false;
+    let timer: number;
+
+    const poll = async () => {
+      if (!isPullingRef.current) {
+        await gitService.gitFetch().catch(() => {});
+        await refreshStatusRef.current();
+      }
+      if (!cancelled) {
+        timer = window.setTimeout(poll, 60_000);
+      }
+    };
+
+    timer = window.setTimeout(poll, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [notesFolder, gitAvailable, status?.hasRemote]);
 
   // Refresh status on file changes (debounced via existing file watcher)
   // Uses a ref so the listener is registered only once
@@ -212,6 +262,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isLoading,
       isCommitting,
       isPushing,
+      isPulling,
       isAddingRemote,
       gitAvailable,
       lastError,
@@ -219,6 +270,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       initRepo,
       commit,
       push,
+      pull,
       addRemote,
       pushWithUpstream,
       clearError,
@@ -228,6 +280,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isLoading,
       isCommitting,
       isPushing,
+      isPulling,
       isAddingRemote,
       gitAvailable,
       lastError,
@@ -235,6 +288,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       initRepo,
       commit,
       push,
+      pull,
       addRemote,
       pushWithUpstream,
       clearError,
