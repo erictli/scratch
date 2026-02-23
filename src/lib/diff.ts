@@ -36,6 +36,7 @@ export interface AiDiffBlock {
   id: string;
   from: number;
   to: number;
+  blockType: string;
   indicatorType?: AiDiffIndicatorType;
   hasDeletionAnchor: boolean;
   relatedChangeIndexes: number[];
@@ -401,6 +402,9 @@ export function createAiDiffSession<Data = string>({
         id: `ai-diff-block-${block.sourceIndex}-${idSuffix}`,
         from: block.from,
         to: block.to,
+        blockType:
+          afterTopLevelRanges.find((range) => range.index === block.sourceIndex)
+            ?.node.type.name ?? "unknown",
         indicatorType: block.indicatorType,
         hasDeletionAnchor: block.hasDeletionAnchor,
         relatedChangeIndexes,

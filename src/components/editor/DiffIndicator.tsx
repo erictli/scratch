@@ -115,9 +115,11 @@ function createAiDiffBlockDecorationSet(
   return DecorationSet.create(doc, buildAiDiffBlockDecorations(doc, aiDiffSession));
 }
 
-function buildDeletedWidget(text: string): HTMLElement {
+function buildDeletedWidget(text: string, isCodeLikeBlock: boolean): HTMLElement {
   const span = document.createElement("span");
-  span.className = "ai-diff-word-delete";
+  span.className = isCodeLikeBlock
+    ? "ai-diff-word-delete ai-diff-word-delete--code"
+    : "ai-diff-word-delete";
   span.textContent = text;
   return span;
 }
@@ -133,11 +135,16 @@ function buildAiWordDiffDecorations(
     (block) => block.id === activeBlockId && !!block.indicatorType,
   );
   if (!activeBlock) return [];
+  const isCodeLikeBlock =
+    activeBlock.blockType === "codeBlock" ||
+    activeBlock.blockType === "frontmatter";
 
   const docSize = doc.content.size;
   const blockFrom = clampPosition(activeBlock.from, docSize);
   const blockTo = clampPosition(activeBlock.to, docSize);
   if (blockTo <= blockFrom) return [];
+  const blockContentFrom = Math.min(blockTo, blockFrom + 1);
+  const blockContentTo = Math.max(blockContentFrom, blockTo - 1);
 
   const decorations: Decoration[] = [];
 
@@ -147,8 +154,8 @@ function buildAiWordDiffDecorations(
 
     const insertedFrom = clampPosition(change.fromB, docSize);
     const insertedTo = clampPosition(change.toB, docSize);
-    const from = Math.max(insertedFrom, blockFrom);
-    const to = Math.min(insertedTo, blockTo);
+    const from = Math.max(insertedFrom, blockContentFrom);
+    const to = Math.min(insertedTo, blockContentTo);
 
     if (to > from) {
       decorations.push(
@@ -158,16 +165,25 @@ function buildAiWordDiffDecorations(
       );
     }
 
-    if (change.deletedText.length > 0) {
+    const shouldRenderDeletedWidget =
+      change.deletedText.length > 0 &&
+      change.deletedText.length <= (isCodeLikeBlock ? 240 : 80) &&
+      (isCodeLikeBlock || !change.deletedText.includes("\n"));
+
+    if (shouldRenderDeletedWidget) {
       const anchor = Math.max(
-        blockFrom,
-        Math.min(clampPosition(change.fromB, docSize), blockTo),
+        blockContentFrom,
+        Math.min(clampPosition(change.fromB, docSize), blockContentTo),
       );
       decorations.push(
-        Decoration.widget(anchor, () => buildDeletedWidget(change.deletedText), {
-          side: -1,
-          ignoreSelection: true,
-        }),
+        Decoration.widget(
+          anchor,
+          () => buildDeletedWidget(change.deletedText, isCodeLikeBlock),
+          {
+            side: -1,
+            ignoreSelection: true,
+          },
+        ),
       );
     }
   }
