@@ -18,6 +18,7 @@ import {
   check as checkForUpdate,
   type Update,
 } from "@tauri-apps/plugin-updater";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as aiService from "./services/ai";
 import type { AiProvider } from "./services/ai";
 
@@ -158,6 +159,13 @@ function AppContent() {
       const isInEditor = target.closest(".ProseMirror");
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+
+      // Cmd+W - Close window
+      if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+        e.preventDefault();
+        getCurrentWindow().close();
+        return;
+      }
 
       // Cmd+, - Toggle settings (always works, even in settings)
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {

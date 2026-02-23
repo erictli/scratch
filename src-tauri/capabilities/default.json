@@ -5,6 +5,7 @@
   "windows": ["main", "preview-*"],
   "permissions": [
     "core:default",
+    "core:window:allow-close",
     "core:window:allow-start-dragging",
     "core:window:allow-set-focus",
     "core:webview:allow-print",

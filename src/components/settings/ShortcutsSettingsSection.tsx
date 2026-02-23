@@ -8,6 +8,11 @@ interface Shortcut {
 
 const shortcuts: Shortcut[] = [
   {
+    keys: [mod, "W"],
+    description: "Close window",
+    category: "Navigation",
+  },
+  {
     keys: [mod, "P"],
     description: "Open command palette",
     category: "Navigation",
