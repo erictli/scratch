@@ -1983,10 +1983,11 @@ fn get_expanded_path() -> String {
         return system_path;
     }
 
-    // Common locations for node-installed CLIs (nvm, volta, fnm, homebrew, global npm)
+    // Common locations for node-installed CLIs (nvm, volta, fnm, mise, homebrew, global npm)
     let candidate_dirs = vec![
         format!("{home}/.nvm/versions/node"),
         format!("{home}/.fnm/node-versions"),
+        format!("{home}/.local/share/mise/installs/node"),
     ];
     let static_dirs = vec![
         format!("{home}/.volta/bin"),
