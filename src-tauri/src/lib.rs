@@ -2435,8 +2435,9 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
         if is_markdown_extension(&path) && path.is_file() {
             opened_file = true;
             if !try_select_in_notes_folder(app, &path) {
-                let _ = create_preview_window(app, &path.to_string_lossy());
-                opened_preview = true;
+                if create_preview_window(app, &path.to_string_lossy()).is_ok() {
+                    opened_preview = true;
+                }
             }
         }
     }
@@ -2553,7 +2554,7 @@ pub fn run() {
                 if opened_preview && has_notes_folder {
                     // Existing user: notes folder is configured and a standalone preview
                     // was opened. Close the hidden main window so only the preview is visible.
-                    let _ = main_window.close();
+                    let _ = main_window.hide();
                 } else {
                     // Show the main window when:
                     // - No standalone preview was opened (normal launch), OR
