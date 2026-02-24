@@ -8,6 +8,7 @@ export function Toaster() {
     <Sonner
       theme={resolvedTheme as "light" | "dark"}
       position="bottom-right"
+      offset={20}
       toastOptions={{
         classNames: {
           toast:

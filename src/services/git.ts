@@ -7,6 +7,7 @@ export interface GitStatus {
   remoteUrl: string | null;
   changedCount: number;
   aheadCount: number;
+  behindCount: number;
   currentBranch: string | null;
   error: string | null;
 }
@@ -35,6 +36,14 @@ export async function gitCommit(message: string): Promise<GitResult> {
 
 export async function gitPush(): Promise<GitResult> {
   return invoke("git_push");
+}
+
+export async function gitFetch(): Promise<GitResult> {
+  return invoke("git_fetch");
+}
+
+export async function gitPull(): Promise<GitResult> {
+  return invoke("git_pull");
 }
 
 export async function addRemote(url: string): Promise<GitResult> {

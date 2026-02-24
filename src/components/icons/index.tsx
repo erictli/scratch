@@ -23,6 +23,23 @@ export function PilcrowIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   );
 }
 
+export function MinusIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M5 12l14 0" />
+    </svg>
+  );
+}
+
 export function PlusIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
@@ -1033,6 +1050,27 @@ export function PinIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       <path d="M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5 -1.5l1.5 -4l4 -4" />
       <path d="M9 15l-4.5 4.5" />
       <path d="M14.5 4l5.5 5.5" />
+    </svg>
+  );
+}
+
+export function BracketsIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M7 4h-4v16h4" />
+      <path d="M17 4h4v16h-4" />
+      <path d="M8 16h.01" />
+      <path d="M12 16h.01" />
+      <path d="M16 16h.01" />
     </svg>
   );
 }

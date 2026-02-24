@@ -19,6 +19,8 @@ interface GitContextValue {
   isLoading: boolean;
   isCommitting: boolean;
   isPushing: boolean;
+  isPulling: boolean;
+  isSyncing: boolean;
   isAddingRemote: boolean;
   gitAvailable: boolean;
   lastError: string | null;
@@ -28,6 +30,8 @@ interface GitContextValue {
   initRepo: () => Promise<boolean>;
   commit: (message: string) => Promise<boolean>;
   push: () => Promise<boolean>;
+  pull: () => Promise<string | false>;
+  sync: () => Promise<{ ok: true; message: string } | { ok: false; error: string }>;
   addRemote: (url: string) => Promise<boolean>;
   pushWithUpstream: () => Promise<boolean>;
   clearError: () => void;
@@ -41,6 +45,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isAddingRemote, setIsAddingRemote] = useState(false);
   const [gitAvailable, setGitAvailable] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -126,6 +132,65 @@ export function GitProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshStatus]);
 
+  const pull = useCallback(async (): Promise<string | false> => {
+    setIsPulling(true);
+    try {
+      const result = await gitService.gitPull();
+      if (result.error) {
+        setLastError(result.error);
+        return false;
+      }
+      await refreshStatus();
+      return result.message || "Pulled latest changes";
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : "Failed to pull");
+      return false;
+    } finally {
+      setIsPulling(false);
+    }
+  }, [refreshStatus]);
+
+  const sync = useCallback(async (): Promise<{ ok: true; message: string } | { ok: false; error: string }> => {
+    setIsSyncing(true);
+    try {
+      // Step 1: Pull from remote
+      const pullResult = await gitService.gitPull();
+      if (pullResult.error) {
+        setLastError(pullResult.error);
+        return { ok: false, error: pullResult.error };
+      }
+      const didPull = pullResult.message !== "Already up to date";
+
+      // Step 2: Check if we need to push
+      const freshStatus = await gitService.getGitStatus();
+      let didPush = false;
+
+      if (freshStatus.aheadCount > 0 && freshStatus.hasUpstream) {
+        const pushResult = await gitService.gitPush();
+        if (pushResult.error) {
+          setLastError(pushResult.error);
+          await refreshStatus();
+          if (didPull) return { ok: false, error: `Pulled changes, but push failed: ${pushResult.error}` };
+          return { ok: false, error: pushResult.error };
+        }
+        didPush = true;
+      }
+
+      await refreshStatus();
+
+      if (didPull && didPush) return { ok: true, message: "Synced — pulled and pushed" };
+      if (didPull) return { ok: true, message: "Pulled latest changes" };
+      if (didPush) return { ok: true, message: "Pushed to remote" };
+      return { ok: true, message: "Already up to date" };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : "Failed to sync";
+      setLastError(error);
+      return { ok: false, error };
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [refreshStatus]);
+
   const addRemote = useCallback(async (url: string) => {
     setIsAddingRemote(true);
     try {
@@ -171,9 +236,11 @@ export function GitProvider({ children }: { children: ReactNode }) {
     gitService.isGitAvailable().then(setGitAvailable);
   }, []);
 
-  // Keep a stable ref so the file-change listener doesn't need to re-register
+  // Keep stable refs so listeners/timers don't need to re-register
   const refreshStatusRef = useRef(refreshStatus);
   refreshStatusRef.current = refreshStatus;
+  const isSyncingRef = useRef(false);
+  isSyncingRef.current = isSyncing;
 
   // Refresh status when folder changes
   useEffect(() => {
@@ -181,6 +248,33 @@ export function GitProvider({ children }: { children: ReactNode }) {
       refreshStatus();
     }
   }, [notesFolder, gitAvailable, refreshStatus]);
+
+  // Poll remote for changes periodically (every 60s) when a remote is configured
+  // Fetch is separated from status to keep status checks fast and offline-friendly
+  // Uses recursive setTimeout to prevent overlapping runs on slow networks
+  useEffect(() => {
+    if (!notesFolder || !gitAvailable || !status?.hasRemote) return;
+
+    let cancelled = false;
+    let timer: number;
+
+    const poll = async () => {
+      if (!isSyncingRef.current) {
+        await gitService.gitFetch().catch(() => {});
+        await refreshStatusRef.current();
+      }
+      if (!cancelled) {
+        timer = window.setTimeout(poll, 60_000);
+      }
+    };
+
+    timer = window.setTimeout(poll, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [notesFolder, gitAvailable, status?.hasRemote]);
 
   // Refresh status on file changes (debounced via existing file watcher)
   // Uses a ref so the listener is registered only once
@@ -212,6 +306,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isLoading,
       isCommitting,
       isPushing,
+      isPulling,
+      isSyncing,
       isAddingRemote,
       gitAvailable,
       lastError,
@@ -219,6 +315,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
       initRepo,
       commit,
       push,
+      pull,
+      sync,
       addRemote,
       pushWithUpstream,
       clearError,
@@ -228,6 +326,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isLoading,
       isCommitting,
       isPushing,
+      isPulling,
+      isSyncing,
       isAddingRemote,
       gitAvailable,
       lastError,
@@ -235,6 +335,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
       initRepo,
       commit,
       push,
+      pull,
+      sync,
       addRemote,
       pushWithUpstream,
       clearError,

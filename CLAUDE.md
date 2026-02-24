@@ -285,6 +285,9 @@ Current capabilities include:
 - `Cmd+1/2/3/4` - Switch settings tabs (General/Appearance/Shortcuts/About)
 - `Cmd+\` - Toggle sidebar
 - `Cmd+B/I` - Bold/Italic
+- `Cmd+=` - Zoom in
+- `Cmd+-` - Zoom out
+- `Cmd+0` - Reset zoom
 - Arrow keys - Navigate note list (when focused)
 
 **Note:** On Windows and Linux, use `Ctrl` instead of `Cmd` for all shortcuts. Full reference available in Settings → Shortcuts tab.

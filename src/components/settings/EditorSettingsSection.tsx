@@ -1,7 +1,7 @@
 import { useTheme } from "../../context/ThemeContext";
-import { Button, Input, Select } from "../ui";
+import { Button, IconButton, Input, Select } from "../ui";
 import type { FontFamily, TextDirection, EditorWidth } from "../../types/note";
-import { EyeIcon } from "../icons";
+import { EyeIcon, MinusIcon, PlusIcon } from "../icons";
 
 // Text direction options
 const textDirectionOptions: { value: TextDirection; label: string }[] = [
@@ -44,6 +44,8 @@ export function AppearanceSettingsSection() {
     setTextDirection,
     editorWidth,
     setEditorWidth,
+    interfaceZoom,
+    setInterfaceZoom,
   } = useTheme();
 
   // Validated numeric change handler
@@ -66,7 +68,8 @@ export function AppearanceSettingsSection() {
     editorFontSettings.boldWeight !== 600 ||
     editorFontSettings.lineHeight !== 1.6 ||
     textDirection !== "ltr" ||
-    editorWidth !== "normal";
+    editorWidth !== "normal" ||
+    Math.round(interfaceZoom * 100) !== 100;
 
   // Filter weight options based on font family
   const isMonospace = editorFontSettings.baseFontFamily === "monospace";
@@ -228,6 +231,36 @@ export function AppearanceSettingsSection() {
                 </option>
               ))}
             </Select>
+          </div>
+
+          {/* Interface Zoom */}
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-text font-medium">
+              Interface Zoom
+            </label>
+            <div className="flex items-center gap-1 w-40">
+              <IconButton
+                variant="outline"
+                size="md"
+                onClick={() => setInterfaceZoom((prev) => prev - 0.05)}
+                disabled={interfaceZoom <= 0.7}
+                title="Zoom out"
+              >
+                <MinusIcon className="w-4 h-4" />
+              </IconButton>
+              <span className="text-sm font-medium tabular-nums flex-1 text-center">
+                {Math.round(interfaceZoom * 100)}%
+              </span>
+              <IconButton
+                variant="outline"
+                size="md"
+                onClick={() => setInterfaceZoom((prev) => prev + 0.05)}
+                disabled={interfaceZoom >= 1.5}
+                title="Zoom in"
+              >
+                <PlusIcon className="w-4 h-4" />
+              </IconButton>
+            </div>
           </div>
         </div>
 

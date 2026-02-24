@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { NotesProvider, useNotes } from "./context/NotesContext";
-import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
 import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -52,6 +52,9 @@ function AppContent() {
     reloadCurrentNote,
     currentNote,
   } = useNotes();
+  const { interfaceZoom, setInterfaceZoom } = useTheme();
+  const interfaceZoomRef = useRef(interfaceZoom);
+  interfaceZoomRef.current = interfaceZoom;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -189,6 +192,32 @@ function AppContent() {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
         toggleSettings();
+        return;
+      }
+
+      // Cmd+= or Cmd++ - Zoom in (works everywhere, including settings)
+      if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        setInterfaceZoom((prev) => prev + 0.05);
+        const newZoom = Math.round(Math.min(interfaceZoomRef.current + 0.05, 1.5) * 20) / 20;
+        toast(`Zoom ${Math.round(newZoom * 100)}%`, { id: "zoom", duration: 1500 });
+        return;
+      }
+
+      // Cmd+- - Zoom out (works everywhere, including settings)
+      if ((e.metaKey || e.ctrlKey) && (e.key === "-" || e.key === "_")) {
+        e.preventDefault();
+        setInterfaceZoom((prev) => prev - 0.05);
+        const newZoom = Math.round(Math.max(interfaceZoomRef.current - 0.05, 0.7) * 20) / 20;
+        toast(`Zoom ${Math.round(newZoom * 100)}%`, { id: "zoom", duration: 1500 });
+        return;
+      }
+
+      // Cmd+0 - Reset zoom (works everywhere, including settings)
+      if ((e.metaKey || e.ctrlKey) && e.key === "0") {
+        e.preventDefault();
+        setInterfaceZoom(1.0);
+        toast("Zoom 100%", { id: "zoom", duration: 1500 });
         return;
       }
 
@@ -341,6 +370,7 @@ function AppContent() {
     toggleFocusMode,
     focusMode,
     view,
+    setInterfaceZoom,
   ]);
 
   const handleClosePalette = useCallback(() => {

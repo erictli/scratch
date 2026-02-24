@@ -138,13 +138,18 @@ body {
   display: none; /* Chrome, Safari, Opera */
 }
 
+/* Keep layout width stable when vertical scrollbar appears */
+.scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+
 /* Link tooltip in editor */
 .prose a {
   position: relative;
 }
 
 .prose a::after {
-  content: "Ctrl+click to open";
+  content: "Ctrl + click to open";
   position: absolute;
   bottom: 100%;
   left: 50%;
@@ -165,7 +170,7 @@ body {
 
 /* Mac-specific tooltip */
 .platform-mac .prose a::after {
-  content: "⌘+click to open";
+  content: "⌘ + click to open";
 }
 
 .prose a:hover::after {
@@ -378,10 +383,30 @@ html.dark {
   overflow-x: auto;
 }
 
-/* Links - same color as text with underline */
+/* Links - solid bottom border, muted at rest */
 .prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
   color: var(--color-text);
-  text-decoration: underline;
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid currentcolor;
+  transition: color 0.15s;
+}
+.prose
+  :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):hover {
+  color: var(--color-text-muted);
+}
+
+/* Wikilinks - dashed bottom border to distinguish from external links */
+.prose span[data-wikilink] {
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px dashed currentcolor;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.prose span[data-wikilink]:hover {
+  color: var(--color-text-muted);
 }
 
 /* Blockquotes */
@@ -881,6 +906,13 @@ table.not-prose th {
   animation-name: tooltip-slide-in-from-right;
 }
 
+/* Suppress all transitions during interface zoom changes */
+.zoom-no-transition *,
+.zoom-no-transition *::before,
+.zoom-no-transition *::after {
+  transition: none !important;
+}
+
 /* Print styles for clean PDF export */
 @media print {
   /* Disable all transitions to prevent color flashing after print */
@@ -1019,6 +1051,15 @@ table.not-prose th {
   /* Hide link tooltips when printing */
   a::after {
     display: none !important;
+  }
+
+  /* Render wikilinks as regular text when printing */
+  .prose span[data-wikilink],
+  .prose span[data-wikilink]:hover {
+    border-bottom: none !important;
+    cursor: default !important;
+    color: black !important;
+    text-decoration: none !important;
   }
 
   /* Make code blocks readable */

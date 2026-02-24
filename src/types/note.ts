@@ -37,4 +37,5 @@ export interface Settings {
   textDirection?: TextDirection;
   editorWidth?: EditorWidth;
   defaultNoteName?: string;
+  interfaceZoom?: number;
 }

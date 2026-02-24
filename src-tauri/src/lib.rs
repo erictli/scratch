@@ -102,6 +102,8 @@ pub struct Settings {
     pub editor_width: Option<String>,
     #[serde(rename = "defaultNoteName")]
     pub default_note_name: Option<String>,
+    #[serde(rename = "interfaceZoom")]
+    pub interface_zoom: Option<f32>,
 }
 
 // Search result
@@ -773,6 +775,9 @@ fn set_notes_folder(app: AppHandle, path: String, state: State<AppState>) -> Res
         let app_config = state.app_config.read().expect("app_config read lock");
         save_app_config(&app, &app_config).map_err(|e| e.to_string())?;
     }
+
+    // Add notes folder to asset protocol scope so images can be served
+    let _ = app.asset_protocol_scope().allow_directory(&path_buf, true);
 
     // Initialize search index
     if let Ok(index_path) = get_search_index_path(&app) {
@@ -1869,6 +1874,52 @@ async fn git_push(state: State<'_, AppState>) -> Result<git::GitResult, String> 
 }
 
 #[tauri::command]
+async fn git_fetch(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::fetch(&PathBuf::from(path))
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitResult {
+            success: false,
+            message: None,
+            error: Some("Notes folder not set".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
+async fn git_pull(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::pull(&PathBuf::from(path))
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitResult {
+            success: false,
+            message: None,
+            error: Some("Notes folder not set".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
 async fn git_add_remote(url: String, state: State<'_, AppState>) -> Result<git::GitResult, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
@@ -1932,10 +1983,11 @@ fn get_expanded_path() -> String {
         return system_path;
     }
 
-    // Common locations for node-installed CLIs (nvm, volta, fnm, homebrew, global npm)
+    // Common locations for node-installed CLIs (nvm, volta, fnm, mise, homebrew, global npm)
     let candidate_dirs = vec![
         format!("{home}/.nvm/versions/node"),
         format!("{home}/.fnm/node-versions"),
+        format!("{home}/.local/share/mise/installs/node"),
     ];
     let static_dirs = vec![
         format!("{home}/.volta/bin"),
@@ -2462,6 +2514,11 @@ pub fn run() {
             };
             app.manage(state);
 
+            // Add notes folder to asset protocol scope so images can be served
+            if let Some(ref folder) = app.state::<AppState>().app_config.read().expect("app_config read lock").notes_folder.clone() {
+                let _ = app.asset_protocol_scope().allow_directory(folder, true);
+            }
+
             // Handle CLI args on first launch
             let args: Vec<String> = std::env::args().collect();
             if args.len() > 1 {
@@ -2514,6 +2571,8 @@ pub fn run() {
             git_init_repo,
             git_commit,
             git_push,
+            git_fetch,
+            git_pull,
             git_add_remote,
             git_push_with_upstream,
             ai_check_claude_cli,

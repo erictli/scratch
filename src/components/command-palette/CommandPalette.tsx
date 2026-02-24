@@ -36,7 +36,7 @@ import {
   SettingsIcon,
   SwatchIcon,
   GitCommitIcon,
-  UploadIcon,
+  RefreshCwIcon,
   AddNoteIcon,
   TrashIcon,
   PinIcon,
@@ -88,7 +88,7 @@ export function CommandPalette({
     notesFolder,
   } = useNotes();
   const { theme, setTheme } = useTheme();
-  const { status, gitAvailable, commit, push } = useGit();
+  const { status, gitAvailable, commit, sync, isSyncing } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -298,7 +298,7 @@ export function CommandPalette({
     // Add git commands if git is available and initialized
     if (gitAvailable && status?.isRepo) {
       const hasChanges = (status?.changedCount ?? 0) > 0;
-      const canPush = status?.hasRemote && (status?.aheadCount ?? 0) > 0;
+      const canSync = status?.hasRemote && status?.hasUpstream && !isSyncing;
 
       if (hasChanges) {
         baseCommands.push({
@@ -306,34 +306,30 @@ export function CommandPalette({
           label: "Git: Quick Commit",
           icon: <GitCommitIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
-            try {
-              await commit("Quick commit from Scratch");
+            const success = await commit("Quick commit from Scratch");
+            if (success) {
               toast.success("Changes committed");
-              onClose();
-            } catch (error) {
-              console.error("Failed to commit:", error);
+            } else {
               toast.error("Failed to commit");
             }
+            onClose();
           },
         });
       }
 
-      if (canPush) {
+      if (canSync) {
         baseCommands.push({
-          id: "git-push",
-          label: `Git: Push (${status?.aheadCount} commit${
-            status?.aheadCount === 1 ? "" : "s"
-          })`,
-          icon: <UploadIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          id: "git-sync",
+          label: "Git: Sync (Pull and Push)",
+          icon: <RefreshCwIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
-            try {
-              await push();
-              toast.success("Pushed to remote");
-              onClose();
-            } catch (error) {
-              console.error("Failed to push:", error);
-              toast.error("Failed to push");
+            const result = await sync();
+            if (result.ok) {
+              toast.success(result.message);
+            } else {
+              toast.error(result.error);
             }
+            onClose();
           },
         });
       }
@@ -435,7 +431,8 @@ export function CommandPalette({
     gitAvailable,
     status,
     commit,
-    push,
+    sync,
+    isSyncing,
     selectNote,
     refreshNotes,
     settings,
