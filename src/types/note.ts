@@ -38,4 +38,5 @@ export interface Settings {
   editorWidth?: EditorWidth;
   defaultNoteName?: string;
   interfaceZoom?: number;
+  dragDropBehavior?: "import" | "preview";
 }

@@ -63,23 +63,27 @@ export function GeneralSettingsSection() {
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
+  const [dragDropBehavior, setDragDropBehavior] = useState<"import" | "preview">(
+    "import"
+  );
 
-  // Load template from settings on mount
+  // Load settings on mount
   useEffect(() => {
-    const loadTemplate = async () => {
+    const loadSettings = async () => {
       try {
         const settings = await invoke<Settings>("get_settings");
         const template = settings.defaultNoteName || "Untitled";
         setNoteTemplate(template);
+        setDragDropBehavior(settings.dragDropBehavior || "import");
 
         // Update preview
         const preview = await invoke<string>("preview_note_name", { template });
         setPreviewNoteName(preview);
       } catch (error) {
-        console.error("Failed to load template:", error);
+        console.error("Failed to load settings:", error);
       }
     };
-    loadTemplate();
+    loadSettings();
   }, []);
 
   // Update preview when template changes (debounced)
@@ -112,6 +116,22 @@ export function GeneralSettingsSection() {
     } catch (error) {
       console.error("Failed to save default name:", error);
       toast.error("Failed to save default name");
+    }
+  };
+
+  const handleDragDropChange = async (value: "import" | "preview") => {
+    setDragDropBehavior(value);
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: {
+          ...settings,
+          dragDropBehavior: value,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to save drag & drop setting:", error);
+      toast.error("Failed to save setting");
     }
   };
 
@@ -223,6 +243,52 @@ export function GeneralSettingsSection() {
               Open Folder
             </Button>
           )}
+        </div>
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Drag & Drop Behavior */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">Drag & Drop</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Choose what happens when you drop markdown files onto Scratch
+        </p>
+        <div className="space-y-2">
+          <label className="flex items-center gap-3 p-2.5 rounded-[10px] border border-border cursor-pointer hover:bg-bg-muted transition-colors">
+            <input
+              type="radio"
+              name="dragDropBehavior"
+              value="import"
+              checked={dragDropBehavior !== "preview"}
+              onChange={() => handleDragDropChange("import")}
+              className="accent-accent"
+            />
+            <div>
+              <p className="text-sm font-medium">Import into notes folder</p>
+              <p className="text-xs text-text-muted">
+                Copy the file into your notes folder so it appears in the
+                sidebar
+              </p>
+            </div>
+          </label>
+          <label className="flex items-center gap-3 p-2.5 rounded-[10px] border border-border cursor-pointer hover:bg-bg-muted transition-colors">
+            <input
+              type="radio"
+              name="dragDropBehavior"
+              value="preview"
+              checked={dragDropBehavior === "preview"}
+              onChange={() => handleDragDropChange("preview")}
+              className="accent-accent"
+            />
+            <div>
+              <p className="text-sm font-medium">Open in preview window</p>
+              <p className="text-xs text-text-muted">
+                View the file in a separate window without copying it
+              </p>
+            </div>
+          </label>
         </div>
       </section>
 

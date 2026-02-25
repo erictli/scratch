@@ -104,6 +104,8 @@ pub struct Settings {
     pub default_note_name: Option<String>,
     #[serde(rename = "interfaceZoom")]
     pub interface_zoom: Option<f32>,
+    #[serde(rename = "dragDropBehavior")]
+    pub drag_drop_behavior: Option<String>, // "import" | "preview", default "import"
 }
 
 // Search result
@@ -2338,6 +2340,70 @@ fn try_select_in_notes_folder(app: &AppHandle, path: &Path) -> bool {
     true
 }
 
+/// Import an external markdown file into the notes folder.
+/// Copies the file content, handles filename conflicts, updates the search index,
+/// and emits a "select-note" event to auto-select the imported note.
+fn import_markdown_file(app: &AppHandle, source_path: &Path) -> Result<(), String> {
+    let state = app
+        .try_state::<AppState>()
+        .ok_or("AppState not available")?;
+
+    let notes_folder = {
+        let config = state.app_config.read().expect("app_config read lock");
+        config.notes_folder.clone().ok_or("Notes folder not set")?
+    };
+    let folder_path = PathBuf::from(&notes_folder);
+
+    // Read source file content
+    let content = std::fs::read_to_string(source_path)
+        .map_err(|e| format!("Failed to read source file: {}", e))?;
+
+    // Use the source filename stem as the base ID, sanitized for filesystem safety
+    let stem = source_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled");
+    let base_id = sanitize_filename(stem);
+
+    // Handle filename conflicts with numeric suffix (same pattern as create_note)
+    let mut final_id = base_id.clone();
+    let mut counter = 1;
+    while abs_path_from_id(&folder_path, &final_id)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+    {
+        final_id = format!("{}-{}", base_id, counter);
+        counter += 1;
+    }
+
+    let dest_path = abs_path_from_id(&folder_path, &final_id)?;
+
+    // Write the file
+    std::fs::write(&dest_path, &content)
+        .map_err(|e| format!("Failed to write imported file: {}", e))?;
+
+    // Update search index
+    let title = extract_title(&content);
+    let modified = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let _ = search_index.index_note(&final_id, &title, &content, modified);
+        }
+    }
+
+    // Emit select-note to auto-select in sidebar, then focus main window
+    let _ = app.emit_to("main", "select-note", &final_id);
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.set_focus();
+    }
+
+    Ok(())
+}
+
 /// Check if a file extension is a supported markdown extension.
 fn is_markdown_extension(path: &Path) -> bool {
     path.extension()
@@ -2540,7 +2606,27 @@ pub fn run() {
                         && path.is_file()
                         && !try_select_in_notes_folder(app, path)
                     {
-                        let _ = create_preview_window(app, &path.to_string_lossy());
+                        // Check setting for drag-drop behavior
+                        let behavior = app
+                            .try_state::<AppState>()
+                            .and_then(|state| {
+                                state
+                                    .settings
+                                    .read()
+                                    .ok()
+                                    .and_then(|s| s.drag_drop_behavior.clone())
+                            })
+                            .unwrap_or_else(|| "import".to_string());
+
+                        if behavior == "preview" {
+                            let _ = create_preview_window(app, &path.to_string_lossy());
+                        } else {
+                            // Default: import into notes folder, fall back to preview on error
+                            if let Err(e) = import_markdown_file(app, path) {
+                                eprintln!("Failed to import markdown file: {}", e);
+                                let _ = create_preview_window(app, &path.to_string_lossy());
+                            }
+                        }
                     }
                 }
             }
@@ -2597,7 +2683,27 @@ pub fn run() {
                         && path.is_file()
                         && !try_select_in_notes_folder(_app_handle, &path)
                     {
-                        let _ = create_preview_window(_app_handle, &path.to_string_lossy());
+                        let behavior = _app_handle
+                            .try_state::<AppState>()
+                            .and_then(|state| {
+                                state
+                                    .settings
+                                    .read()
+                                    .ok()
+                                    .and_then(|s| s.drag_drop_behavior.clone())
+                            })
+                            .unwrap_or_else(|| "import".to_string());
+
+                        if behavior == "preview" {
+                            let _ =
+                                create_preview_window(_app_handle, &path.to_string_lossy());
+                        } else if let Err(e) = import_markdown_file(_app_handle, &path) {
+                            eprintln!("Failed to import markdown file: {}", e);
+                            let _ = create_preview_window(
+                                _app_handle,
+                                &path.to_string_lossy(),
+                            );
+                        }
                     }
                 }
             }
