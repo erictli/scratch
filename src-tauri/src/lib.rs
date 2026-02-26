@@ -337,7 +337,9 @@ fn sanitize_filename(title: &str) -> String {
 
     // Prevent creating hidden note files like ".foo.md".
     // Titles can still start with "." in content; only filename stems are normalized.
-    let normalized = sanitized.trim().trim_start_matches('.').trim_start();
+    let normalized = sanitized
+        .trim()
+        .trim_start_matches(|c: char| c == '.' || c.is_whitespace());
 
     if normalized.is_empty() || is_effectively_empty(normalized) {
         "Untitled".to_string()
