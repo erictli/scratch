@@ -15,6 +15,7 @@ A minimalist, offline-first markdown note-taking app for macOS, Windows, and Lin
 - **WYSIWYG editing** - Rich text editing that saves as markdown
 - **Preview mode** - Open any `.md` file via drag-and-drop or "Open With" without a notes folder
 - **Markdown source mode** - Toggle to view and edit raw markdown (`Cmd+Shift+M`)
+- **LaTeX math** - Render inline `$...$` equations
 - **Wikilinks** - Type `[[` to link between notes with autocomplete
 - **Slash commands** - Type `/` to quickly insert headings, lists, code blocks, and more
 - **Focus mode** - Distraction-free writing with animated sidebar/toolbar fade (`Cmd+Shift+Enter`)

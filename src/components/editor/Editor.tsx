@@ -43,6 +43,7 @@ import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
+import { ScratchInlineMath } from "./MathExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -63,6 +64,7 @@ import {
   QuoteIcon,
   CodeIcon,
   InlineCodeIcon,
+  InlineMathIcon,
   SeparatorIcon,
   LinkIcon,
   BracketsIcon,
@@ -291,6 +293,13 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
         <CodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
+        onClick={() => editor.chain().focus().toggleInlineMath().run()}
+        isActive={editor.isActive("inlineMath")}
+        title="Inline Math"
+      >
+        <InlineMathIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+      </ToolbarButton>
+      <ToolbarButton
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
         isActive={false}
         title="Horizontal Rule"
@@ -391,7 +400,7 @@ export function Editor({
           modified: previewMode.modified,
         }
       : null
-    : notesCtx?.currentNote ?? null;
+    : (notesCtx?.currentNote ?? null);
 
   const saveNote = previewMode
     ? async (content: string, _noteId?: string) => {
@@ -471,6 +480,29 @@ export function Editor({
     },
     [],
   );
+
+  const handleMathClick = useCallback((latex: string, pos: number) => {
+    const editorInstance = editorRef.current;
+    if (!editorInstance) return;
+
+    editorInstance.chain().focus().setNodeSelection(pos).run();
+
+    const nextLatex = window.prompt(
+      "Edit inline formula (leave empty to delete):",
+      latex,
+    );
+
+    if (nextLatex === null) return;
+
+    const value = nextLatex.trim();
+    const chain = editorInstance.chain().focus();
+
+    if (value) {
+      chain.updateInlineMath({ latex: value, pos }).run();
+    } else {
+      chain.deleteInlineMath({ pos }).run();
+    }
+  }, []);
 
   // Load settings when note changes or notes are refreshed (e.g., after pin/unpin)
   useEffect(() => {
@@ -669,6 +701,15 @@ export function Editor({
           },
         },
       }),
+      ScratchInlineMath.configure({
+        katexOptions: {
+          throwOnError: false,
+          strict: "ignore",
+        },
+        onClick: (node, pos) => {
+          handleMathClick(node.attrs.latex ?? "", pos);
+        },
+      }),
       Frontmatter,
       Markdown.configure({}),
       SearchHighlight.configure({
@@ -750,7 +791,7 @@ export function Editor({
 
         // Check if text looks like markdown (has common markdown patterns)
         const markdownPatterns =
-          /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|```|^\s*\[.*\]\(.*\)|^\s*!\[|\*\*.*\*\*|__.*__|~~.*~~|^\s*[-*_]{3,}\s*$|^\|.+\|$/m;
+          /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|```|^\s*\[.*\]\(.*\)|^\s*!\[|\*\*.*\*\*|__.*__|~~.*~~|^\s*[-*_]{3,}\s*$|^\|.+\||\$[^$\n]+\$/m;
         if (!markdownPatterns.test(text)) {
           // Not markdown, let TipTap handle it normally
           return false;
