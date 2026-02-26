@@ -1,7 +1,6 @@
 import { InputRule, type CommandProps } from "@tiptap/core";
 import { InlineMath } from "@tiptap/extension-mathematics";
-import type { Node as PMNode } from "@tiptap/pm/model";
-import type { EditorState } from "@tiptap/pm/state";
+import { NodeSelection } from "@tiptap/pm/state";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -9,28 +8,6 @@ declare module "@tiptap/core" {
       toggleInlineMath: () => ReturnType;
     };
   }
-}
-
-function findInlineMathNode(
-  state: EditorState,
-  nodeTypeName: string,
-): { pos: number; node: PMNode } | null {
-  const { selection, doc } = state;
-  const candidates = [
-    selection.from,
-    selection.$from.pos,
-    selection.from - 1,
-    selection.$from.pos - 1,
-  ].filter((pos, index, all) => pos >= 0 && all.indexOf(pos) === index);
-
-  for (const pos of candidates) {
-    const node = doc.nodeAt(pos);
-    if (node?.type.name === nodeTypeName) {
-      return { pos, node };
-    }
-  }
-
-  return null;
 }
 
 function normalizeInlineLatex(value: string): string {
@@ -48,23 +25,36 @@ export const ScratchInlineMath = InlineMath.extend({
       toggleInlineMath:
         () =>
         ({ editor, commands }: CommandProps) => {
-          const existingMathNode = findInlineMathNode(editor.state, this.name);
-          if (existingMathNode) {
-            const latex = String(existingMathNode.node.attrs.latex ?? "");
+          const { selection, doc } = editor.state;
+          const { from, to, empty } = selection;
+          if (empty) return false;
+
+          if (
+            selection instanceof NodeSelection &&
+            selection.node.type.name === this.name
+          ) {
+            const latex = String(selection.node.attrs.latex ?? "");
             return commands.insertContentAt(
               {
-                from: existingMathNode.pos,
-                to: existingMathNode.pos + existingMathNode.node.nodeSize,
+                from,
+                to,
               },
               latex,
             );
           }
 
-          const { from, to, empty } = editor.state.selection;
-          if (empty) return false;
+          const selectedNode = doc.nodeAt(from);
+          if (
+            selectedNode?.type.name === this.name &&
+            from + selectedNode.nodeSize === to
+          ) {
+            const latex = String(selectedNode.attrs.latex ?? "");
+            return commands.insertContentAt({ from, to }, latex);
+          }
 
-          const selectedText = editor.state.doc.textBetween(from, to, " ");
-          const latex = normalizeInlineLatex(selectedText) || "x^2";
+          const selectedText = doc.textBetween(from, to, " ");
+          const latex = normalizeInlineLatex(selectedText);
+          if (!latex) return false;
 
           if (!commands.deleteSelection()) {
             return false;
