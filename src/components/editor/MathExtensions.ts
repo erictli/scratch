@@ -1,19 +1,69 @@
 import { InputRule, type CommandProps } from "@tiptap/core";
-import { InlineMath } from "@tiptap/extension-mathematics";
-import { NodeSelection } from "@tiptap/pm/state";
+import { BlockMath, InlineMath } from "@tiptap/extension-mathematics";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { NodeSelection, type EditorState } from "@tiptap/pm/state";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     scratchInlineMath: {
       toggleInlineMath: () => ReturnType;
     };
+    scratchBlockMath: {
+      toggleBlockMath: () => ReturnType;
+    };
   }
 }
 
-function normalizeInlineLatex(value: string): string {
+function normalizeInlineMath(value: string): string {
   const trimmed = value.trim();
   const match = trimmed.match(/^\$([^$\n]+)\$$/);
   return (match?.[1] ?? trimmed).trim();
+}
+
+export function normalizeBlockMath(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^\$\$([\s\S]*?)\$\$$/);
+  return (match?.[1] ?? trimmed).trim();
+}
+
+function findSelectedBlockMathNode(
+  state: EditorState,
+  nodeTypeName: string,
+): { from: number; to: number; node: PMNode } | null {
+  const { selection, doc } = state;
+  const { from, to, empty, $from } = selection;
+
+  if (
+    selection instanceof NodeSelection &&
+    selection.node.type.name === nodeTypeName
+  ) {
+    return { from, to, node: selection.node };
+  }
+
+  if (!empty) {
+    const selectedNode = doc.nodeAt(from);
+    if (
+      selectedNode?.type.name === nodeTypeName &&
+      from + selectedNode.nodeSize === to
+    ) {
+      return { from, to, node: selectedNode };
+    }
+    return null;
+  }
+
+  const nodeBefore = $from.nodeBefore;
+  if (nodeBefore?.type.name === nodeTypeName) {
+    const nodeFrom = from - nodeBefore.nodeSize;
+    return { from: nodeFrom, to: from, node: nodeBefore };
+  }
+
+  const nodeAfter = $from.nodeAfter;
+  if (nodeAfter?.type.name === nodeTypeName) {
+    const nodeTo = from + nodeAfter.nodeSize;
+    return { from, to: nodeTo, node: nodeAfter };
+  }
+
+  return null;
 }
 
 export const ScratchInlineMath = InlineMath.extend({
@@ -53,7 +103,7 @@ export const ScratchInlineMath = InlineMath.extend({
           }
 
           const selectedText = doc.textBetween(from, to, " ");
-          const latex = normalizeInlineLatex(selectedText);
+          const latex = normalizeInlineMath(selectedText);
           if (!latex) return false;
 
           if (!commands.deleteSelection()) {
@@ -82,6 +132,67 @@ export const ScratchInlineMath = InlineMath.extend({
           const start = range.from + prefix.length;
           const end = range.to;
           state.tr.replaceWith(start, end, this.type.create({ latex }));
+        },
+      }),
+    ];
+  },
+});
+
+export const ScratchBlockMath = BlockMath.extend({
+  addCommands() {
+    const parentCommands = this.parent?.();
+
+    return {
+      ...parentCommands,
+      toggleBlockMath:
+        () =>
+        ({ editor, commands }: CommandProps) => {
+          const existingMathNode = findSelectedBlockMathNode(
+            editor.state,
+            this.name,
+          );
+          if (existingMathNode) {
+            const latex = String(existingMathNode.node.attrs.latex ?? "");
+            return commands.insertContentAt(
+              {
+                from: existingMathNode.from,
+                to: existingMathNode.to,
+              },
+              latex,
+            );
+          }
+
+          const { from, to, empty } = editor.state.selection;
+          const selectedText = empty
+            ? ""
+            : editor.state.doc.textBetween(from, to, "\n");
+          const latex = normalizeBlockMath(selectedText);
+          if (!latex) return false;
+
+          return commands.insertContentAt(
+            { from, to },
+            {
+              type: this.name,
+              attrs: { latex },
+            },
+          );
+        },
+    };
+  },
+
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /^\$\$([^$]+)\$\$$/,
+        handler: ({ state, range, match }) => {
+          const latex = (match[1] ?? "").trim();
+          if (!latex) return;
+
+          state.tr.replaceWith(
+            range.from,
+            range.to,
+            this.type.create({ latex }),
+          );
         },
       }),
     ];

@@ -375,6 +375,13 @@ html.dark {
   border-radius: 0.25rem;
 }
 
+.prose .tiptap-mathematics-render[data-type="block-math"] {
+  display: block;
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+}
+
 .prose .tiptap-mathematics-render--editable {
   cursor: pointer;
 }
@@ -384,6 +391,11 @@ html.dark {
 }
 
 .prose .inline-math-error {
+  color: #dc2626;
+  font-family: var(--font-mono);
+}
+
+.prose .block-math-error {
   color: #dc2626;
   font-family: var(--font-mono);
 }
