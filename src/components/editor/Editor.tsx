@@ -481,29 +481,6 @@ export function Editor({
     [],
   );
 
-  const handleMathClick = useCallback((latex: string, pos: number) => {
-    const editorInstance = editorRef.current;
-    if (!editorInstance) return;
-
-    editorInstance.chain().focus().setNodeSelection(pos).run();
-
-    const nextLatex = window.prompt(
-      "Edit inline formula (leave empty to delete):",
-      latex,
-    );
-
-    if (nextLatex === null) return;
-
-    const value = nextLatex.trim();
-    const chain = editorInstance.chain().focus();
-
-    if (value) {
-      chain.updateInlineMath({ latex: value, pos }).run();
-    } else {
-      chain.deleteInlineMath({ pos }).run();
-    }
-  }, []);
-
   // Load settings when note changes or notes are refreshed (e.g., after pin/unpin)
   useEffect(() => {
     if (currentNote?.id && !previewMode) {
@@ -699,15 +676,6 @@ export function Editor({
           HTMLAttributes: {
             class: "not-prose",
           },
-        },
-      }),
-      ScratchInlineMath.configure({
-        katexOptions: {
-          throwOnError: false,
-          strict: "ignore",
-        },
-        onClick: (node, pos) => {
-          handleMathClick(node.attrs.latex ?? "", pos);
         },
       }),
       Frontmatter,

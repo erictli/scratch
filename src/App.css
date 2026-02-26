@@ -362,7 +362,7 @@ html.dark {
   font-weight: 400;
 }
 
-/* LaTeX math (KaTeX) */
+/* KaTeX math */
 .prose .tiptap-mathematics-render {
   color: var(--color-text);
 }
