@@ -687,6 +687,7 @@ export function Editor({
       SlashCommand,
       Wikilink,
       WikilinkSuggestion,
+      ScratchInlineMath,
     ],
     editorProps: {
       attributes: {
