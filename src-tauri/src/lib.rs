@@ -335,11 +335,14 @@ fn sanitize_filename(title: &str) -> String {
         })
         .collect();
 
-    let trimmed = sanitized.trim();
-    if trimmed.is_empty() || is_effectively_empty(trimmed) {
+    // Prevent creating hidden note files like ".foo.md".
+    // Titles can still start with "." in content; only filename stems are normalized.
+    let normalized = sanitized.trim().trim_start_matches('.').trim_start();
+
+    if normalized.is_empty() || is_effectively_empty(normalized) {
         "Untitled".to_string()
     } else {
-        trimmed.to_string()
+        normalized.to_string()
     }
 }
 
