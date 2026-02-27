@@ -1675,7 +1675,7 @@ export function Editor({
           </DropdownMenu.Root>
           {onSaveToFolder && (
             <Tooltip content="Save in Folder">
-              <IconButton onClick={onSaveToFolder}>
+              <IconButton onClick={onSaveToFolder} aria-label="Save in Folder">
                 <FolderPlusIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>

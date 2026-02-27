@@ -1333,25 +1333,38 @@ async fn import_file_to_folder(
         .await
         .map_err(|e| format!("Failed to read source file: {}", e))?;
 
-    // Derive the note ID from the source filename
-    let source_stem = source
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Untitled");
-    let base_id = sanitize_filename(source_stem);
+    // Derive the note ID from the title (H1 heading), falling back to filename
+    let extracted_title = extract_title(&content);
+    let base_name = if extracted_title.trim().is_empty() {
+        source
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Untitled")
+            .to_string()
+    } else {
+        extracted_title.trim().to_string()
+    };
+    let base_id = sanitize_filename(&base_name);
 
-    // Ensure filename uniqueness in the notes folder
+    // Atomically create the file, retrying with a counter suffix on conflict
     let mut final_id = base_id.clone();
     let mut counter = 1;
-    while abs_path_from_id(&folder_path, &final_id)
-        .map(|p| p.exists())
-        .unwrap_or(false)
-    {
-        final_id = format!("{}-{}", base_id, counter);
-        counter += 1;
-    }
-
-    let dest_path = abs_path_from_id(&folder_path, &final_id)?;
+    let dest_path = loop {
+        let candidate = abs_path_from_id(&folder_path, &final_id)?;
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+            .await
+        {
+            Ok(_) => break candidate,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                final_id = format!("{}-{}", base_id, counter);
+                counter += 1;
+            }
+            Err(e) => return Err(format!("Failed to create file: {}", e)),
+        }
+    };
     fs::write(&dest_path, &content)
         .await
         .map_err(|e| format!("Failed to write file: {}", e))?;
@@ -1361,13 +1374,11 @@ async fn import_file_to_folder(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    let title = extract_title(&content);
-
     // Update search index
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.index_note(&final_id, &title, &content, modified);
+            let _ = search_index.index_note(&final_id, &extracted_title, &content, modified);
         }
     }
 
@@ -1381,7 +1392,7 @@ async fn import_file_to_folder(
 
     Ok(NoteMetadata {
         id: final_id,
-        title,
+        title: extracted_title,
         preview,
         modified,
     })

@@ -141,8 +141,11 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   }, [focusMode, reload]);
 
   const [savedToFolder, setSavedToFolder] = useState(false);
+  const savingRef = useRef(false);
 
   const handleSaveToFolder = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     try {
       const result = await filesService.importFileToFolder(filePath);
       setSavedToFolder(true);
@@ -150,6 +153,8 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     } catch (error) {
       console.error("Failed to save to folder:", error);
       toast.error(`Failed to save to folder: ${error}`);
+    } finally {
+      savingRef.current = false;
     }
   }, [filePath]);
 
