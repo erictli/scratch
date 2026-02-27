@@ -43,6 +43,7 @@ import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
+import { HeadingLevel } from "./HeadingLevel";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -678,6 +679,7 @@ export function Editor({
       SlashCommand,
       Wikilink,
       WikilinkSuggestion,
+      HeadingLevel,
     ],
     editorProps: {
       attributes: {

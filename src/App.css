@@ -270,6 +270,15 @@ html.dark {
 }
 
 /* Headings - all use the same font family with computed sizes */
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  position: relative;
+}
+
 .prose h1 {
   font-family: var(--editor-font-family);
   font-size: var(--editor-h1-size);
@@ -314,6 +323,34 @@ html.dark {
   line-height: 1.3;
   margin-top: 0.5em;
   margin-bottom: 0.25em;
+}
+
+/* Heading level indicators */
+.heading-level-indicator {
+  position: absolute;
+  left: -3.5rem;
+  width: 3rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  user-select: none;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  opacity: 0.5;
+  transition: opacity 0.15s;
+  text-align: right;
+  padding-right: 0.5rem;
+}
+
+.prose h1:hover,
+.prose h2:hover,
+.prose h3:hover,
+.prose h4:hover,
+.prose h5:hover,
+.prose h6:hover {
+  & .heading-level-indicator {
+    opacity: 0.8;
+  }
 }
 
 /* Bold text uses the same weight as headings */
