@@ -1311,6 +1311,7 @@ async fn save_file_direct(path: String, content: String) -> Result<FileContent, 
 
 #[tauri::command]
 async fn import_file_to_folder(
+    app: AppHandle,
     path: String,
     state: State<'_, AppState>,
 ) -> Result<NoteMetadata, String> {
@@ -1389,6 +1390,12 @@ async fn import_file_to_folder(
         .take(3)
         .collect::<Vec<_>>()
         .join(" ");
+
+    // Tell the main window to select the imported note and focus it
+    let _ = app.emit_to("main", "select-note", &final_id);
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.set_focus();
+    }
 
     Ok(NoteMetadata {
         id: final_id,

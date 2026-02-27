@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { Editor, type PreviewModeData } from "../editor/Editor";
 import * as filesService from "../../services/files";
@@ -140,16 +141,15 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [focusMode, reload]);
 
-  const [savedToFolder, setSavedToFolder] = useState(false);
   const savingRef = useRef(false);
 
   const handleSaveToFolder = useCallback(async () => {
     if (savingRef.current) return;
     savingRef.current = true;
     try {
-      const result = await filesService.importFileToFolder(filePath);
-      setSavedToFolder(true);
-      toast.success(`Saved "${result.title}" to your notes folder`);
+      await filesService.importFileToFolder(filePath);
+      // Backend emits select-note + focuses main window; close this preview
+      await getCurrentWindow().close();
     } catch (error) {
       console.error("Failed to save to folder:", error);
       toast.error(`Failed to save to folder: ${error}`);
@@ -174,7 +174,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
       <Editor
         focusMode={focusMode}
         previewMode={previewData}
-        onSaveToFolder={savedToFolder ? undefined : handleSaveToFolder}
+        onSaveToFolder={handleSaveToFolder}
       />
     </div>
   );
