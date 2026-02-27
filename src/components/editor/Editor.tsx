@@ -1449,6 +1449,21 @@ export function Editor({
       );
     }
 
+    // A note is selected but not yet loaded — show loading spinner to avoid empty state flash
+    if (notesCtx?.selectedNoteId) {
+      return (
+        <div className="flex-1 flex flex-col bg-bg">
+          <div
+            className="h-10 shrink-0 flex items-end px-4 pb-1"
+            data-tauri-drag-region
+          ></div>
+          <div className="flex-1 flex items-center justify-center">
+            <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
+          </div>
+        </div>
+      );
+    }
+
     // Folder mode: show empty state with "New Note" button
     return (
       <div className="flex-1 flex flex-col bg-bg">
