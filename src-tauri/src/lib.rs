@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use tauri::webview::WebviewWindowBuilder;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
+use tokio::io::AsyncWriteExt;
 
 mod git;
 
@@ -1347,10 +1348,10 @@ async fn import_file_to_folder(
     };
     let base_id = sanitize_filename(&base_name);
 
-    // Atomically create the file, retrying with a counter suffix on conflict
+    // Atomically create the file and write content via the handle
     let mut final_id = base_id.clone();
     let mut counter = 1;
-    let dest_path = loop {
+    loop {
         let candidate = abs_path_from_id(&folder_path, &final_id)?;
         match fs::OpenOptions::new()
             .write(true)
@@ -1358,7 +1359,14 @@ async fn import_file_to_folder(
             .open(&candidate)
             .await
         {
-            Ok(_) => break candidate,
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(content.as_bytes()).await {
+                    // Clean up the empty file on write failure
+                    let _ = fs::remove_file(&candidate).await;
+                    return Err(format!("Failed to write file: {}", e));
+                }
+                break;
+            }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 final_id = format!("{}-{}", base_id, counter);
                 counter += 1;
@@ -1366,9 +1374,6 @@ async fn import_file_to_folder(
             Err(e) => return Err(format!("Failed to create file: {}", e)),
         }
     };
-    fs::write(&dest_path, &content)
-        .await
-        .map_err(|e| format!("Failed to write file: {}", e))?;
 
     let modified = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1391,18 +1396,26 @@ async fn import_file_to_folder(
         .collect::<Vec<_>>()
         .join(" ");
 
-    // Tell the main window to select the imported note and focus it
-    let _ = app.emit_to("main", "select-note", &final_id);
-    if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.set_focus();
-    }
-
-    Ok(NoteMetadata {
+    let metadata = NoteMetadata {
         id: final_id,
         title: extracted_title,
         preview,
         modified,
-    })
+    };
+
+    // Update notes cache so fallback search sees the imported note immediately
+    {
+        let mut cache = state.notes_cache.write().expect("cache write lock");
+        cache.insert(metadata.id.clone(), metadata.clone());
+    }
+
+    // Tell the main window to select the imported note and focus it
+    let _ = app.emit_to("main", "select-note", &metadata.id);
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.set_focus();
+    }
+
+    Ok(metadata)
 }
 
 #[tauri::command]
