@@ -140,6 +140,19 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [focusMode, reload]);
 
+  const [savedToFolder, setSavedToFolder] = useState(false);
+
+  const handleSaveToFolder = useCallback(async () => {
+    try {
+      const result = await filesService.importFileToFolder(filePath);
+      setSavedToFolder(true);
+      toast.success(`Saved "${result.title}" to your notes folder`);
+    } catch (error) {
+      console.error("Failed to save to folder:", error);
+      toast.error(`Failed to save to folder: ${error}`);
+    }
+  }, [filePath]);
+
   const previewData: PreviewModeData = {
     content,
     title,
@@ -153,7 +166,11 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
 
   return (
     <div className="h-screen flex flex-col bg-bg text-text">
-      <Editor focusMode={focusMode} previewMode={previewData} />
+      <Editor
+        focusMode={focusMode}
+        previewMode={previewData}
+        onSaveToFolder={savedToFolder ? undefined : handleSaveToFolder}
+      />
     </div>
   );
 }

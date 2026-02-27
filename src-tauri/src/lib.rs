@@ -1310,6 +1310,84 @@ async fn save_file_direct(path: String, content: String) -> Result<FileContent, 
 }
 
 #[tauri::command]
+async fn import_file_to_folder(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<NoteMetadata, String> {
+    let source = validate_preview_path(&path)?;
+    if !source.is_file() {
+        return Err(format!("Not a file: {}", path));
+    }
+
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+    let folder_path = PathBuf::from(&folder);
+
+    // Read the source file content
+    let content = fs::read_to_string(&source)
+        .await
+        .map_err(|e| format!("Failed to read source file: {}", e))?;
+
+    // Derive the note ID from the source filename
+    let source_stem = source
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled");
+    let base_id = sanitize_filename(source_stem);
+
+    // Ensure filename uniqueness in the notes folder
+    let mut final_id = base_id.clone();
+    let mut counter = 1;
+    while abs_path_from_id(&folder_path, &final_id)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+    {
+        final_id = format!("{}-{}", base_id, counter);
+        counter += 1;
+    }
+
+    let dest_path = abs_path_from_id(&folder_path, &final_id)?;
+    fs::write(&dest_path, &content)
+        .await
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    let modified = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    let title = extract_title(&content);
+
+    // Update search index
+    {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let _ = search_index.index_note(&final_id, &title, &content, modified);
+        }
+    }
+
+    let preview = content
+        .lines()
+        .skip(1)
+        .filter(|l| !l.trim().is_empty())
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    Ok(NoteMetadata {
+        id: final_id,
+        title,
+        preview,
+        modified,
+    })
+}
+
+#[tauri::command]
 async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
     let trimmed_query = query.trim().to_string();
     if trimmed_query.is_empty() {
@@ -2585,6 +2663,7 @@ pub fn run() {
             ai_execute_codex,
             read_file_direct,
             save_file_direct,
+            import_file_to_folder,
             open_file_preview,
         ])
         .build(tauri::generate_context!())

@@ -79,6 +79,7 @@ import {
   SearchIcon,
   MarkdownIcon,
   MarkdownOffIcon,
+  FolderPlusIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -369,6 +370,7 @@ interface EditorProps {
   focusMode?: boolean;
   previewMode?: PreviewModeData;
   onEditorReady?: (editor: TiptapEditor | null) => void;
+  onSaveToFolder?: () => void;
 }
 
 export function Editor({
@@ -377,6 +379,7 @@ export function Editor({
   focusMode,
   onEditorReady,
   previewMode,
+  onSaveToFolder,
 }: EditorProps) {
   // Always call the hook (rules of hooks), but it returns null outside NotesProvider
   const notesCtx = useOptionalNotes();
@@ -1670,6 +1673,13 @@ export function Editor({
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+          {onSaveToFolder && (
+            <Tooltip content="Save in Folder">
+              <IconButton onClick={onSaveToFolder}>
+                <FolderPlusIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+              </IconButton>
+            </Tooltip>
+          )}
         </div>
       </div>
 
