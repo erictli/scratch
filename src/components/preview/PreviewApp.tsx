@@ -141,11 +141,13 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [focusMode, reload]);
 
+  const [isSaving, setIsSaving] = useState(false);
   const savingRef = useRef(false);
 
   const handleSaveToFolder = useCallback(async () => {
     if (savingRef.current) return;
     savingRef.current = true;
+    setIsSaving(true);
     try {
       await filesService.importFileToFolder(filePath);
       // Backend emits select-note + focuses main window; close this preview
@@ -155,6 +157,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
       toast.error(`Failed to save to folder: ${error}`);
     } finally {
       savingRef.current = false;
+      setIsSaving(false);
     }
   }, [filePath]);
 
@@ -175,6 +178,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
         focusMode={focusMode}
         previewMode={previewData}
         onSaveToFolder={handleSaveToFolder}
+        saveToFolderDisabled={isSaving}
       />
     </div>
   );

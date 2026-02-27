@@ -371,6 +371,7 @@ interface EditorProps {
   previewMode?: PreviewModeData;
   onEditorReady?: (editor: TiptapEditor | null) => void;
   onSaveToFolder?: () => void;
+  saveToFolderDisabled?: boolean;
 }
 
 export function Editor({
@@ -380,6 +381,7 @@ export function Editor({
   onEditorReady,
   previewMode,
   onSaveToFolder,
+  saveToFolderDisabled,
 }: EditorProps) {
   // Always call the hook (rules of hooks), but it returns null outside NotesProvider
   const notesCtx = useOptionalNotes();
@@ -1690,8 +1692,16 @@ export function Editor({
           </DropdownMenu.Root>
           {onSaveToFolder && (
             <Tooltip content="Save in Folder">
-              <IconButton onClick={onSaveToFolder} aria-label="Save in Folder">
-                <FolderPlusIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+              <IconButton
+                onClick={onSaveToFolder}
+                aria-label="Save in Folder"
+                disabled={saveToFolderDisabled}
+              >
+                {saveToFolderDisabled ? (
+                  <SpinnerIcon className="w-4.25 h-4.25 animate-spin" />
+                ) : (
+                  <FolderPlusIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                )}
               </IconButton>
             </Tooltip>
           )}
