@@ -68,6 +68,16 @@ export function useDiffIndicatorState({
     }
   }, [aiDiffSession, activeBlockId]);
 
+  useEffect(() => {
+    if (!activeBlockId) return;
+    const activeMarkerStillVisible = markers.some(
+      (marker) => marker.blockId === activeBlockId,
+    );
+    if (!activeMarkerStillVisible) {
+      setActiveBlockId(null);
+    }
+  }, [activeBlockId, markers]);
+
   const updateOverlay = useCallback(() => {
     if (!editor || !scrollContainerRef?.current) {
       setMarkers([]);
