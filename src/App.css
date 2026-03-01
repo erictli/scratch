@@ -533,6 +533,26 @@ html.dark {
   border: 1px solid color-mix(in oklab, var(--color-ai-diff-delete) 35%, transparent 65%);
 }
 
+.ai-diff-table-delete-cell {
+  background: color-mix(
+    in oklab,
+    var(--color-ai-diff-delete) 12%,
+    var(--color-bg) 88%
+  ) !important;
+}
+
+.ai-diff-table-delete-cell--header {
+  background: color-mix(
+    in oklab,
+    var(--color-ai-diff-delete) 16%,
+    var(--color-bg-muted) 84%
+  ) !important;
+}
+
+.ai-diff-table-delete-cell > .ai-diff-word-delete {
+  margin-right: 0;
+}
+
 .ai-diff-menu {
   position: absolute;
   pointer-events: auto;
