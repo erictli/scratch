@@ -616,6 +616,13 @@ export function createAiDiffSession<Data = string>({
   const beforeRangesByIndex = new Map(
     beforeTopLevelRanges.map((range) => [range.index, range] as const),
   );
+  const isAfterRangeUnchanged = (range: IndexedTopLevelBlockRange): boolean => {
+    const beforeIndex = alignment.afterToBeforeIndex.get(range.index);
+    if (typeof beforeIndex !== "number") return false;
+    const beforeRange = beforeRangesByIndex.get(beforeIndex);
+    if (!beforeRange) return false;
+    return beforeRange.node.eq(range.node);
+  };
 
   if (afterTopLevelRanges.length === 0) {
     return {
@@ -739,6 +746,10 @@ export function createAiDiffSession<Data = string>({
         changeFrom,
         changeTo,
       )) {
+        if (isAfterRangeUnchanged(range)) {
+          continue;
+        }
+
         const indicatorType: AiDiffIndicatorType = alignment.newAfterIndexes.has(
           range.index,
         )
