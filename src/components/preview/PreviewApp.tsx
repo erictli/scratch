@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { Editor, type PreviewModeData } from "../editor/Editor";
 import * as filesService from "../../services/files";
@@ -140,6 +141,26 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [focusMode, reload]);
 
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
+
+  const handleSaveToFolder = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      await filesService.importFileToFolder(filePath);
+      // Backend emits select-note + focuses main window; close this preview
+      await getCurrentWindow().close();
+    } catch (error) {
+      console.error("Failed to save to folder:", error);
+      toast.error(`Failed to save to folder: ${error}`);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  }, [filePath]);
+
   const previewData: PreviewModeData = {
     content,
     title,
@@ -153,7 +174,12 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
 
   return (
     <div className="h-screen flex flex-col bg-bg text-text">
-      <Editor focusMode={focusMode} previewMode={previewData} />
+      <Editor
+        focusMode={focusMode}
+        previewMode={previewData}
+        onSaveToFolder={handleSaveToFolder}
+        saveToFolderDisabled={isSaving}
+      />
     </div>
   );
 }

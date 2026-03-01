@@ -437,15 +437,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshNotes]);
 
-  // Listen for "select-note" events from the backend (CLI, drag-drop, Open With for notes-folder files)
+  // Listen for "select-note" events from the backend (CLI, drag-drop, Open With, import from preview)
   useEffect(() => {
     const unlisten = listen<string>("select-note", (event) => {
+      // Refresh the notes list so the sidebar shows the new note immediately
+      refreshNotes();
       selectNote(event.payload);
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [selectNote]);
+  }, [selectNote, refreshNotes]);
 
   // Refresh notes when folder changes
   useEffect(() => {

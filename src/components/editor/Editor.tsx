@@ -84,6 +84,7 @@ import {
   SearchIcon,
   MarkdownIcon,
   MarkdownOffIcon,
+  FolderPlusIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -376,6 +377,8 @@ interface EditorProps {
   onAiDiffSessionChange?: (next: AiDiffSession | null) => void;
   previewMode?: PreviewModeData;
   onEditorReady?: (editor: TiptapEditor | null) => void;
+  onSaveToFolder?: () => void;
+  saveToFolderDisabled?: boolean;
 }
 
 export function Editor({
@@ -386,6 +389,8 @@ export function Editor({
   onAiDiffSessionChange,
   onEditorReady,
   previewMode,
+  onSaveToFolder,
+  saveToFolderDisabled,
 }: EditorProps) {
   // Always call the hook (rules of hooks), but it returns null outside NotesProvider
   const notesCtx = useOptionalNotes();
@@ -1515,6 +1520,21 @@ export function Editor({
       );
     }
 
+    // A note is selected but not yet loaded — show loading spinner to avoid empty state flash
+    if (notesCtx?.selectedNoteId) {
+      return (
+        <div className="flex-1 flex flex-col bg-bg">
+          <div
+            className="h-10 shrink-0 flex items-end px-4 pb-1"
+            data-tauri-drag-region
+          ></div>
+          <div className="flex-1 flex items-center justify-center">
+            <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
+          </div>
+        </div>
+      );
+    }
+
     // Folder mode: show empty state with "New Note" button
     return (
       <div className="flex-1 flex flex-col bg-bg">
@@ -1739,6 +1759,21 @@ export function Editor({
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+          {onSaveToFolder && (
+            <Tooltip content="Save in Folder">
+              <IconButton
+                onClick={onSaveToFolder}
+                aria-label="Save in Folder"
+                disabled={saveToFolderDisabled}
+              >
+                {saveToFolderDisabled ? (
+                  <SpinnerIcon className="w-4.25 h-4.25 animate-spin" />
+                ) : (
+                  <FolderPlusIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                )}
+              </IconButton>
+            </Tooltip>
+          )}
         </div>
       </div>
 
