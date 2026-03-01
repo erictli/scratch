@@ -21,6 +21,8 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as aiService from "./services/ai";
 import type { AiProvider } from "./services/ai";
+import { createAiDiffSession, type AiDiffSession } from "./lib/diff";
+import { useWaitForUpdatedEditorSnapshot } from "./hooks/useWaitForUpdatedEditorSnapshot";
 
 // Detect preview mode from URL search params
 function getWindowMode(): {
@@ -59,9 +61,14 @@ function AppContent() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
+  const [aiDiffSession, setAiDiffSession] = useState<AiDiffSession | null>(
+    null,
+  );
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
+  const waitForUpdatedEditorSnapshot =
+    useWaitForUpdatedEditorSnapshot(editorRef);
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
@@ -100,8 +107,17 @@ function AppContent() {
         toast.error("No note selected");
         return;
       }
+      if (!editorRef.current) {
+        toast.error("Editor not ready");
+        return;
+      }
 
+      setAiDiffSession(null);
       setAiEditing(true);
+
+      // Capture snapshot of the original document
+      const beforeJson = editorRef.current.getJSON();
+      const beforeSerialized = JSON.stringify(beforeJson);
 
       try {
         const result =
@@ -112,8 +128,17 @@ function AppContent() {
         // Reload the current note from disk
         await reloadCurrentNote();
 
+        const afterJson = await waitForUpdatedEditorSnapshot(beforeSerialized);
+
+        const nextAiDiffSession = createAiDiffSession({
+          schema: editorRef.current.state.schema,
+          before: beforeJson,
+          after: afterJson,
+        });
+
         // Show results
         if (result.success) {
+          setAiDiffSession(nextAiDiffSession);
           // Close modal after success
           setAiModalOpen(false);
 
@@ -144,8 +169,12 @@ function AppContent() {
         setAiEditing(false);
       }
     },
-    [aiProvider, currentNote, reloadCurrentNote],
+    [aiProvider, currentNote, reloadCurrentNote, waitForUpdatedEditorSnapshot],
   );
+
+  useEffect(() => {
+    setAiDiffSession(null);
+  }, [selectedNoteId]);
 
   // Memoize display items to prevent unnecessary recalculations
   const displayItems = useMemo(() => {
@@ -380,6 +409,8 @@ function AppContent() {
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible && !focusMode}
               focusMode={focusMode}
+              aiDiffSession={aiDiffSession}
+              onAiDiffSessionChange={setAiDiffSession}
               onEditorReady={(editor) => {
                 editorRef.current = editor;
               }}
