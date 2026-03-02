@@ -15,6 +15,7 @@ const editorWidthOptions: { value: EditorWidth; label: string }[] = [
   { value: "normal", label: "Normal" },
   { value: "wide", label: "Wide" },
   { value: "full", label: "Full" },
+  { value: "custom", label: "Custom" },
 ];
 
 // Font family options
@@ -46,6 +47,7 @@ export function AppearanceSettingsSection() {
     setEditorWidth,
     interfaceZoom,
     setInterfaceZoom,
+    customEditorWidthPx,
   } = useTheme();
 
   // Validated numeric change handler
@@ -219,7 +221,14 @@ export function AppearanceSettingsSection() {
 
           {/* Page Width */}
           <div className="flex items-center justify-between">
-            <label className="text-sm text-text font-medium">Page Width</label>
+            <label className="text-sm text-text font-medium">
+              Page Width
+              {editorWidth === "custom" && (
+                <span className="text-text-muted font-normal ml-1">
+                  ({customEditorWidthPx}px)
+                </span>
+              )}
+            </label>
             <Select
               value={editorWidth}
               onChange={(e) => setEditorWidth(e.target.value as EditorWidth)}

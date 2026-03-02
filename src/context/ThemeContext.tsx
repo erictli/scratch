@@ -26,13 +26,16 @@ const fontFamilyMap: Record<FontFamily, string> = {
     "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
 };
 
-// Editor width CSS values
-const editorWidthMap: Record<EditorWidth, string> = {
+// Editor width CSS values for presets
+const editorWidthMap: Record<Exclude<EditorWidth, "custom">, string> = {
   narrow: "36rem",
   normal: "48rem",
   wide: "64rem",
   full: "100%",
 };
+
+// Default custom width in px
+const DEFAULT_CUSTOM_WIDTH_PX = 768;
 
 // Default editor font settings (simplified)
 const defaultEditorFontSettings: Required<EditorFontSettings> = {
@@ -60,6 +63,9 @@ interface ThemeContextType {
   setEditorWidth: (width: EditorWidth) => void;
   interfaceZoom: number;
   setInterfaceZoom: (zoomOrUpdater: number | ((prev: number) => number)) => void;
+  customEditorWidthPx: number;
+  setCustomEditorWidthPx: (px: number) => void;
+  setEditorMaxWidthLive: (value: string) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -103,10 +109,18 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
 }
 
 // Apply editor layout CSS variables
-function applyLayoutCSSVariables(direction: TextDirection, width: EditorWidth) {
+function applyLayoutCSSVariables(
+  direction: TextDirection,
+  width: EditorWidth,
+  customWidthPx?: number
+) {
   const root = document.documentElement;
   root.style.setProperty("--editor-direction", direction);
-  root.style.setProperty("--editor-max-width", editorWidthMap[width]);
+  if (width === "custom" && customWidthPx) {
+    root.style.setProperty("--editor-max-width", `${customWidthPx}px`);
+  } else if (width !== "custom") {
+    root.style.setProperty("--editor-max-width", editorWidthMap[width]);
+  }
 }
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
@@ -117,6 +131,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [textDirection, setTextDirectionState] = useState<TextDirection>("ltr");
   const [editorWidth, setEditorWidthState] = useState<EditorWidth>("normal");
   const [interfaceZoom, setInterfaceZoomState] = useState(1.0);
+  const [customEditorWidthPx, setCustomEditorWidthPxState] = useState<number>(
+    DEFAULT_CUSTOM_WIDTH_PX
+  );
   const [isInitialized, setIsInitialized] = useState(false);
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
@@ -152,7 +169,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         settings.editorWidth === "narrow" ||
         settings.editorWidth === "normal" ||
         settings.editorWidth === "wide" ||
-        settings.editorWidth === "full"
+        settings.editorWidth === "full" ||
+        settings.editorWidth === "custom"
       ) {
         setEditorWidthState(settings.editorWidth);
       }
@@ -162,6 +180,12 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         settings.interfaceZoom <= 1.5
       ) {
         setInterfaceZoomState(settings.interfaceZoom);
+      }
+      if (
+        typeof settings.customEditorWidthPx === "number" &&
+        settings.customEditorWidthPx >= 480
+      ) {
+        setCustomEditorWidthPxState(settings.customEditorWidthPx);
       }
     } catch {
       // If settings can't be loaded, use defaults
@@ -241,8 +265,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
   // Apply layout CSS variables whenever direction or width change
   useEffect(() => {
-    applyLayoutCSSVariables(textDirection, editorWidth);
-  }, [textDirection, editorWidth]);
+    applyLayoutCSSVariables(textDirection, editorWidth, customEditorWidthPx);
+  }, [textDirection, editorWidth, customEditorWidthPx]);
 
   // Apply interface zoom whenever it changes (suppress transitions during zoom)
   useEffect(() => {
@@ -292,6 +316,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setTextDirectionState("ltr");
     setEditorWidthState("normal");
     setInterfaceZoomState(1.0);
+    setCustomEditorWidthPxState(DEFAULT_CUSTOM_WIDTH_PX);
     try {
       const settings = await getSettings();
       await updateSettings({
@@ -300,6 +325,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         textDirection: "ltr",
         editorWidth: "normal",
         interfaceZoom: 1.0,
+        customEditorWidthPx: undefined,
       });
     } catch (error) {
       console.error("Failed to reset editor settings:", error);
@@ -354,6 +380,27 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       );
   }, [interfaceZoom, isInitialized]);
 
+  // Set custom width in px (persists to settings)
+  const setCustomEditorWidthPx = useCallback(async (px: number) => {
+    setEditorWidthState("custom");
+    setCustomEditorWidthPxState(px);
+    try {
+      const settings = await getSettings();
+      await updateSettings({
+        ...settings,
+        editorWidth: "custom",
+        customEditorWidthPx: px,
+      });
+    } catch (error) {
+      console.error("Failed to save custom editor width:", error);
+    }
+  }, []);
+
+  // Live CSS variable update during drag (no persistence)
+  const setEditorMaxWidthLive = useCallback((value: string) => {
+    document.documentElement.style.setProperty("--editor-max-width", value);
+  }, []);
+
   // Don't render until initialized to prevent flash
   if (!isInitialized) {
     return null;
@@ -376,6 +423,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         setEditorWidth,
         interfaceZoom,
         setInterfaceZoom,
+        customEditorWidthPx,
+        setCustomEditorWidthPx,
+        setEditorMaxWidthLive,
       }}
     >
       {children}

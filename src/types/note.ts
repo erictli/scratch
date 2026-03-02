@@ -3,6 +3,7 @@ export interface NoteMetadata {
   title: string;
   preview: string;
   modified: number;
+  isExternal?: boolean;
 }
 
 export interface Note {
@@ -11,6 +12,7 @@ export interface Note {
   content: string;
   path: string;
   modified: number;
+  isExternal?: boolean;
 }
 
 export interface ThemeSettings {
@@ -19,7 +21,7 @@ export interface ThemeSettings {
 
 export type FontFamily = "system-sans" | "serif" | "monospace";
 export type TextDirection = "ltr" | "rtl";
-export type EditorWidth = "narrow" | "normal" | "wide" | "full";
+export type EditorWidth = "narrow" | "normal" | "wide" | "full" | "custom";
 
 export interface EditorFontSettings {
   baseFontFamily?: FontFamily;
@@ -36,6 +38,7 @@ export interface Settings {
   pinnedNoteIds?: string[];
   textDirection?: TextDirection;
   editorWidth?: EditorWidth;
+  customEditorWidthPx?: number;
   defaultNoteName?: string;
   interfaceZoom?: number;
 }

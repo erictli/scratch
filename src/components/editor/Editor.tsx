@@ -43,6 +43,7 @@ import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
+import { EditorWidthHandles } from "./EditorWidthHandle";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -1719,10 +1720,14 @@ export function Editor({
         />
       </div>
 
-      {/* Editor content area */}
+      {/* Editor content area with resize handles overlay */}
+      <div className="flex-1 relative overflow-hidden">
+      {!focusMode && !sourceMode && (
+        <EditorWidthHandles containerRef={scrollContainerRef} />
+      )}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden relative"
+        className="absolute inset-0 overflow-y-auto overflow-x-hidden"
         dir={textDirection}
       >
         {sourceMode ? (
@@ -1945,6 +1950,7 @@ export function Editor({
             </div>
           </>
         )}
+      </div>
       </div>
     </div>
   );

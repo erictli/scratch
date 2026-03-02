@@ -243,6 +243,8 @@ html.dark {
 .ProseMirror {
   direction: var(--editor-direction, ltr);
   max-width: var(--editor-max-width, 48rem) !important;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Editor font customization - simplified */
