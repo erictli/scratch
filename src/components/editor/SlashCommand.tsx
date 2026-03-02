@@ -16,6 +16,7 @@ import {
   CheckSquareIcon,
   QuoteIcon,
   CodeIcon,
+  MathIcon,
   SeparatorIcon,
   ImageIcon,
   TableIcon,
@@ -123,6 +124,31 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
     },
   },
   {
+    title: "Inline Math",
+    description: "Inline math equation (LaTeX)",
+    icon: <MathIcon className="w-5 h-5" />,
+    aliases: ["inline math", "math", "equation", "latex", "$"],
+    command: (editor) => {
+      editor.chain().focus().run();
+      (
+        editor.commands as unknown as { setInlineMath: () => boolean }
+      ).setInlineMath();
+    },
+  },
+  {
+    title: "Math Block",
+    description: "Block math equation (LaTeX)",
+    icon: <MathIcon className="w-5 h-5" />,
+    aliases: ["math block", "block math", "$$"],
+    command: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "blockMath", attrs: { latex: "" } })
+        .run();
+    },
+  },
+  {
     title: "Horizontal Rule",
     description: "Visual divider",
     icon: <SeparatorIcon />,
@@ -181,7 +207,10 @@ export const SlashCommand = Extension.create({
 
         allow: ({ editor }) => {
           return (
-            !editor.isActive("codeBlock") && !editor.isActive("frontmatter")
+            !editor.isActive("codeBlock") &&
+            !editor.isActive("frontmatter") &&
+            !editor.isActive("inlineMath") &&
+            !editor.isActive("blockMath")
           );
         },
 

@@ -28,7 +28,9 @@ export const WikilinkSuggestion = Extension.create({
           return (
             !editor.isActive("codeBlock") &&
             !editor.isActive("frontmatter") &&
-            !editor.isActive("code")
+            !editor.isActive("code") &&
+            !editor.isActive("inlineMath") &&
+            !editor.isActive("blockMath")
           );
         },
 
@@ -57,8 +59,7 @@ export const WikilinkSuggestion = Extension.create({
         },
 
         render: () => {
-          let component: ReactRenderer<WikilinkSuggestionListRef> | null =
-            null;
+          let component: ReactRenderer<WikilinkSuggestionListRef> | null = null;
           let popup: TippyInstance | null = null;
 
           return {

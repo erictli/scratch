@@ -16,6 +16,7 @@ import { Markdown } from "@tiptap/markdown";
 import { Extension } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { MathEditing } from "./MathExtension";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -62,6 +63,7 @@ import {
   CheckSquareIcon,
   QuoteIcon,
   CodeIcon,
+  MathIcon,
   InlineCodeIcon,
   SeparatorIcon,
   LinkIcon,
@@ -285,11 +287,36 @@ function FormatBar({ editor, onAddLink, onAddImage }: FormatBarProps) {
         <InlineCodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
+        onClick={() => {
+          editor.chain().focus().run();
+          (
+            editor.commands as unknown as { setInlineMath: () => boolean }
+          ).setInlineMath();
+        }}
+        isActive={editor.isActive("inlineMath")}
+        title={`Inline Math (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}M)`}
+      >
+        <MathIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+      </ToolbarButton>
+      <ToolbarButton
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
         isActive={editor.isActive("codeBlock")}
         title={`Code Block (${mod}${isMac ? "" : "+"}${alt}${isMac ? "" : "+"}C)`}
       >
         <CodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+      </ToolbarButton>
+      <ToolbarButton
+        onClick={() =>
+          editor
+            .chain()
+            .focus()
+            .insertContent({ type: "blockMath", attrs: { latex: "" } })
+            .run()
+        }
+        isActive={editor.isActive("blockMath")}
+        title="Math Block"
+      >
+        <MathIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
@@ -396,7 +423,7 @@ export function Editor({
           modified: previewMode.modified,
         }
       : null
-    : notesCtx?.currentNote ?? null;
+    : (notesCtx?.currentNote ?? null);
 
   const saveNote = previewMode
     ? async (content: string, _noteId?: string) => {
@@ -683,6 +710,7 @@ export function Editor({
       SlashCommand,
       Wikilink,
       WikilinkSuggestion,
+      MathEditing,
     ],
     editorProps: {
       attributes: {

@@ -339,6 +339,25 @@ export function CodeIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   );
 }
 
+export function MathIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M5 7l4 5l-4 5" />
+      <path d="M19 7l-4 5l4 5" />
+      <path d="M11 4l2 16" />
+    </svg>
+  );
+}
+
 export function LinkIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg

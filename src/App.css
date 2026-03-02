@@ -245,6 +245,82 @@ html.dark {
   max-width: var(--editor-max-width, 48rem) !important;
 }
 
+/* Math block - base */
+.math-block {
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 8px 0;
+  transition: background-color 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+}
+
+/* Math block - cursor/selection enters (NodeSelection) */
+.math-block--selected {
+  background-color: var(--color-bg-secondary);
+  box-shadow: 0 0 0 2px var(--color-border);
+}
+
+/* Math block - editing mode */
+.math-block--editing {
+  background-color: var(--color-bg-secondary);
+  box-shadow: 0 0 0 2px var(--color-border);
+}
+
+.math-block__textarea {
+  width: 100%;
+  min-height: 1.5em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  color: var(--color-text);
+}
+
+.math-block__render {
+  min-height: 1.5em;
+}
+
+/* Inline math – align with inline code (same bg, padding, radius) */
+.inline-math {
+  padding: 0.2em 0.4em;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  display: inline;
+}
+
+.inline-math--editing {
+  background-color: var(--color-bg-muted);
+}
+
+.inline-math--selected {
+  box-shadow: 0 0 0 1px var(--color-border);
+}
+
+.inline-math__input {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.875em;
+  min-width: 4ch;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text);
+  padding: 0;
+}
+
+.inline-math__render {
+  display: inline;
+}
+
+.math-block__placeholder,
+.inline-math__placeholder {
+  color: var(--color-text-muted, #999);
+  font-style: italic;
+  font-size: 0.9em;
+}
+
 /* Editor font customization - simplified */
 .prose {
   font-family: var(--editor-font-family);
