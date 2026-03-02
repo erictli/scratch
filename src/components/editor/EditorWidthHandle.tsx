@@ -6,6 +6,7 @@ import {
   type RefObject,
 } from "react";
 import { useTheme } from "../../context/ThemeContext";
+import { cn } from "../../lib/utils";
 import type { EditorWidth } from "../../types/note";
 
 // Preset widths in px (rem * 16) for snap detection
@@ -169,13 +170,11 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
 
   const handlePointerCancel = useCallback(() => {
     if (!dragState.current) return;
-    // Restore the width to what it was before the drag
-    const { initialWidth, containerWidth } = dragState.current;
-    setEditorMaxWidthLive(`${initialWidth}px`);
-    setHandleOffset((containerWidth - initialWidth) / 2);
     dragState.current = null;
     setIsDragging(false);
-  }, [setEditorMaxWidthLive]);
+    // Re-apply the persisted width from theme state (not the clamped px value)
+    setEditorWidth(editorWidth);
+  }, [editorWidth, setEditorWidth]);
 
   const handleDoubleClick = useCallback(() => {
     setEditorWidth("normal");
@@ -199,7 +198,7 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
       const delta = expand ? KEYBOARD_STEP : -KEYBOARD_STEP;
       const newWidth = Math.max(
         MIN_WIDTH,
-        Math.min(currentWidth + delta * 2, containerWidth)
+        Math.min(currentWidth + delta, containerWidth)
       );
 
       // Snap check
@@ -245,7 +244,10 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
         aria-label="Resize editor width (left)"
         aria-valuenow={isDragging ? Math.round(dragWidth) : undefined}
         tabIndex={0}
-        className={`absolute top-0 h-full w-3 cursor-col-resize pointer-events-auto group ${isDragging ? "z-20" : ""}`}
+        className={cn(
+          "absolute top-0 h-full w-3 cursor-col-resize pointer-events-auto group",
+          isDragging && "z-20"
+        )}
         style={{ left: `${handleOffset - 6}px` }}
         onPointerDown={(e) => handlePointerDown("left", e)}
         onPointerMove={handlePointerMove}
@@ -255,11 +257,12 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
         onKeyDown={(e) => handleKeyDown("left", e)}
       >
         <div
-          className={`absolute left-1/2 -translate-x-1/2 top-0 h-full w-[3px] rounded-full bg-border transition-opacity duration-150 ${
+          className={cn(
+            "absolute left-1/2 -translate-x-1/2 top-0 h-full w-[3px] rounded-full bg-border transition-opacity duration-150",
             isDragging
               ? "opacity-100"
               : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
-          }`}
+          )}
         />
       </div>
 
@@ -270,7 +273,10 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
         aria-label="Resize editor width (right)"
         aria-valuenow={isDragging ? Math.round(dragWidth) : undefined}
         tabIndex={0}
-        className={`absolute top-0 h-full w-3 cursor-col-resize pointer-events-auto group ${isDragging ? "z-20" : ""}`}
+        className={cn(
+          "absolute top-0 h-full w-3 cursor-col-resize pointer-events-auto group",
+          isDragging && "z-20"
+        )}
         style={{ right: `${handleOffset - 6}px` }}
         onPointerDown={(e) => handlePointerDown("right", e)}
         onPointerMove={handlePointerMove}
@@ -280,11 +286,12 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
         onKeyDown={(e) => handleKeyDown("right", e)}
       >
         <div
-          className={`absolute left-1/2 -translate-x-1/2 top-0 h-full w-[3px] rounded-full bg-border transition-opacity duration-150 ${
+          className={cn(
+            "absolute left-1/2 -translate-x-1/2 top-0 h-full w-[3px] rounded-full bg-border transition-opacity duration-150",
             isDragging
               ? "opacity-100"
               : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
-          }`}
+          )}
         />
       </div>
     </div>
