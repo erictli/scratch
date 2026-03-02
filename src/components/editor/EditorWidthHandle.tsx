@@ -167,9 +167,60 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
     [snappedPreset, dragWidth, setEditorWidth, setCustomEditorWidthPx]
   );
 
+  const handlePointerCancel = useCallback(() => {
+    if (!dragState.current) return;
+    // Restore the width to what it was before the drag
+    const { initialWidth, containerWidth } = dragState.current;
+    setEditorMaxWidthLive(`${initialWidth}px`);
+    setHandleOffset((containerWidth - initialWidth) / 2);
+    dragState.current = null;
+    setIsDragging(false);
+  }, [setEditorMaxWidthLive]);
+
   const handleDoubleClick = useCallback(() => {
     setEditorWidth("normal");
   }, [setEditorWidth]);
+
+  // Keyboard resize: arrow keys adjust width by STEP px
+  const KEYBOARD_STEP = 20;
+  const handleKeyDown = useCallback(
+    (side: "left" | "right", e: React.KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+
+      const containerWidth = containerRef.current?.clientWidth ?? 1200;
+      const currentWidth = Math.min(getCurrentEditorWidth(), containerWidth);
+
+      // ArrowRight on right handle = wider, ArrowLeft on right handle = narrower
+      // ArrowLeft on left handle = wider, ArrowRight on left handle = narrower
+      const expand =
+        (side === "right" && e.key === "ArrowRight") ||
+        (side === "left" && e.key === "ArrowLeft");
+      const delta = expand ? KEYBOARD_STEP : -KEYBOARD_STEP;
+      const newWidth = Math.max(
+        MIN_WIDTH,
+        Math.min(currentWidth + delta * 2, containerWidth)
+      );
+
+      // Snap check
+      for (const preset of PRESET_PX) {
+        if (
+          Math.abs(newWidth - preset.px) < SNAP_THRESHOLD &&
+          preset.px <= containerWidth
+        ) {
+          setEditorWidth(preset.width);
+          return;
+        }
+      }
+      setCustomEditorWidthPx(Math.round(newWidth));
+    },
+    [
+      containerRef,
+      getCurrentEditorWidth,
+      setEditorWidth,
+      setCustomEditorWidthPx,
+    ]
+  );
 
   // Don't render handles if full width (nothing to resize)
   if (editorWidth === "full" && !isDragging) return null;
@@ -189,36 +240,50 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
 
       {/* Left handle */}
       <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize editor width (left)"
+        aria-valuenow={isDragging ? Math.round(dragWidth) : undefined}
+        tabIndex={0}
         className={`absolute top-0 h-full w-3 cursor-col-resize pointer-events-auto group ${isDragging ? "z-20" : ""}`}
         style={{ left: `${handleOffset - 6}px` }}
         onPointerDown={(e) => handlePointerDown("left", e)}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onDoubleClick={handleDoubleClick}
+        onKeyDown={(e) => handleKeyDown("left", e)}
       >
         <div
           className={`absolute left-1/2 -translate-x-1/2 top-0 h-full w-[3px] rounded-full bg-border transition-opacity duration-150 ${
             isDragging
               ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100"
+              : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
           }`}
         />
       </div>
 
       {/* Right handle */}
       <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize editor width (right)"
+        aria-valuenow={isDragging ? Math.round(dragWidth) : undefined}
+        tabIndex={0}
         className={`absolute top-0 h-full w-3 cursor-col-resize pointer-events-auto group ${isDragging ? "z-20" : ""}`}
         style={{ right: `${handleOffset - 6}px` }}
         onPointerDown={(e) => handlePointerDown("right", e)}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onDoubleClick={handleDoubleClick}
+        onKeyDown={(e) => handleKeyDown("right", e)}
       >
         <div
           className={`absolute left-1/2 -translate-x-1/2 top-0 h-full w-[3px] rounded-full bg-border transition-opacity duration-150 ${
             isDragging
               ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100"
+              : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
           }`}
         />
       </div>
