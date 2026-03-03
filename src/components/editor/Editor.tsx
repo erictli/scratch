@@ -43,8 +43,10 @@ import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
+import { CodeBlockShiki, codeBlockShikiPluginKey } from "./CodeBlockShiki";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
+import { initHighlighter } from "../../lib/shiki";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
@@ -417,7 +419,7 @@ export function Editor({
   const pinNote = notesCtx?.pinNote;
   const unpinNote = notesCtx?.unpinNote;
   const notes = notesCtx?.notes;
-  const { textDirection } = useTheme();
+  const { textDirection, resolvedTheme } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
@@ -456,6 +458,9 @@ export function Editor({
   notesRef.current = notes;
   const notesCtxRef = useRef(notesCtx);
   notesCtxRef.current = notesCtx;
+  // Stable ref for resolvedTheme so the Shiki init effect reads the current value
+  const resolvedThemeRef = useRef(resolvedTheme);
+  resolvedThemeRef.current = resolvedTheme;
 
   // Keep ref in sync with current note ID
   currentNoteIdRef.current = currentNote?.id ?? null;
@@ -683,6 +688,7 @@ export function Editor({
       SlashCommand,
       Wikilink,
       WikilinkSuggestion,
+      CodeBlockShiki,
     ],
     editorProps: {
       attributes: {
@@ -819,6 +825,27 @@ export function Editor({
       | undefined;
     if (storage) storage.notes = notes;
   }, [editor, notes]);
+
+  // Initialize Shiki and apply initial syntax highlighting when ready
+  useEffect(() => {
+    if (!editor) return;
+    initHighlighter();
+    editor.view.dispatch(
+      editor.state.tr.setMeta(codeBlockShikiPluginKey, {
+        isDark: resolvedThemeRef.current === "dark",
+      }),
+    );
+  }, [editor]);
+
+  // Re-highlight when theme switches
+  useEffect(() => {
+    if (!editor) return;
+    editor.view.dispatch(
+      editor.state.tr.setMeta(codeBlockShikiPluginKey, {
+        isDark: resolvedTheme === "dark",
+      }),
+    );
+  }, [resolvedTheme, editor]);
 
   // Search navigation functions (defined after editor is created)
   const goToNextMatch = useCallback(() => {
