@@ -2434,10 +2434,10 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
 
         if is_markdown_extension(&path) && path.is_file() {
             opened_file = true;
-            if !try_select_in_notes_folder(app, &path) {
-                if create_preview_window(app, &path.to_string_lossy()).is_ok() {
-                    opened_preview = true;
-                }
+            if !try_select_in_notes_folder(app, &path)
+                && create_preview_window(app, &path.to_string_lossy()).is_ok()
+            {
+                opened_preview = true;
             }
         }
     }
