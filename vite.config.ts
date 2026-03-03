@@ -45,6 +45,8 @@ export default defineConfig(async () => ({
       output: {
         // Manual chunk splitting for better caching
         manualChunks: {
+          // Syntax highlighting
+          "shiki": ["shiki"],
           // TipTap and related editor libraries
           "tiptap": [
             "@tiptap/react",
