@@ -723,10 +723,15 @@ export function Editor({
         props: {
           initialLatex: String(node.attrs.latex ?? ""),
           onSubmit: (latex: string) => {
+            const trimmed = latex.trim();
+            if (!trimmed) {
+              toast.error("Please enter a formula.");
+              return;
+            }
             currentEditor
               .chain()
               .focus()
-              .updateBlockMath({ pos, latex: latex.trim() })
+              .updateBlockMath({ pos, latex: trimmed })
               .run();
             closeBlockMathPopup();
           },
@@ -1358,6 +1363,9 @@ export function Editor({
   const handleAddLink = useCallback(() => {
     if (!editor) return;
 
+    // Close block math popup if open (popups are mutually exclusive)
+    closeBlockMathPopup();
+
     // Destroy existing popup if any
     if (linkPopupRef.current) {
       linkPopupRef.current.destroy();
@@ -1475,7 +1483,7 @@ export function Editor({
         component.destroy();
       },
     });
-  }, [editor]);
+  }, [editor, closeBlockMathPopup]);
 
   // Image handler
   const handleAddImage = useCallback(async () => {

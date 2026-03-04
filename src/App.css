@@ -372,6 +372,8 @@ html.dark {
   margin: 0.75rem 0;
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .prose .tiptap-mathematics-render--editable {
