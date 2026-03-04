@@ -251,7 +251,8 @@ html.dark {
 }
 
 @keyframes bounce-gentle {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateY(0);
   }
   50% {
@@ -554,6 +555,13 @@ html.dark {
   border-radius: 0.5rem;
   overflow-x: auto;
   max-width: 100%;
+}
+
+.prose
+  .tiptap-mathematics-render[data-type="block-math"].ProseMirror-selectednode {
+  outline: 2px solid var(--color-bg-emphasis);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
 }
 
 .prose .tiptap-mathematics-render--editable {

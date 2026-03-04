@@ -29,13 +29,19 @@ export function MermaidRenderer({ code }: MermaidRendererProps) {
 
   if (error) {
     return (
-      <div className="text-xs text-[var(--color-text-muted)] italic px-2 py-1">
+      <div className="text-xs text-text-muted italic px-2 pt-6 pb-3 text-center">
         Mermaid syntax error
       </div>
     );
   }
 
-  if (!svg) return null;
+  if (!svg) {
+    return (
+      <div className="text-xs text-text-muted italic px-2 pt-6 pb-3 text-center">
+        Empty mermaid diagram
+      </div>
+    );
+  }
 
   return (
     <div

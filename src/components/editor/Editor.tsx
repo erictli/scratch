@@ -742,11 +742,18 @@ export function Editor({
               .chain()
               .focus()
               .updateBlockMath({ pos, latex: trimmed })
+              .setTextSelection(pos + node.nodeSize)
               .run();
             closeBlockMathPopup();
           },
           onCancel: () => {
-            currentEditor.commands.focus();
+            // Move cursor after the node instead of restoring the NodeSelection,
+            // which would re-trigger native DOM selection highlight bleed
+            currentEditor
+              .chain()
+              .focus()
+              .setTextSelection(pos + node.nodeSize)
+              .run();
             closeBlockMathPopup();
           },
         },

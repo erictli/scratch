@@ -8,7 +8,7 @@ import { ChevronDownIcon, PencilIcon, EyeIcon } from "../icons";
 export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
   const language: string = node.attrs.language || "";
   const isMermaid = language === "mermaid";
-  const [showSource, setShowSource] = useState(false);
+  const [showSource, setShowSource] = useState(!node.textContent.trim());
   const codeContent = node.textContent;
 
   const handleLanguageChange = useCallback(
@@ -23,20 +23,20 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
       <button
         contentEditable={false}
         onClick={() => setShowSource(false)}
-        className="code-block-mermaid-btn inline-flex items-center gap-1 text-sm px-1.5 py-0.5 text-text-muted rounded cursor-pointer transition-colors hover:text-text hover:bg-bg-emphasis"
+        className="code-block-mermaid-btn inline-flex items-center gap-1 text-xs px-1.5 py-0.5 text-text-muted rounded cursor-pointer transition-colors hover:text-text hover:bg-bg-emphasis"
         type="button"
       >
-        <EyeIcon className="w-3.75 h-3.75 stroke-[1.7]" />
+        <EyeIcon className="w-3.5 h-3.5 stroke-[1.7]" />
         Preview
       </button>
     ) : (
       <button
         contentEditable={false}
         onClick={() => setShowSource(true)}
-        className="code-block-mermaid-btn inline-flex items-center gap-1 text-sm px-1.5 py-0.5 text-text-muted rounded cursor-pointer transition-colors hover:text-text hover:bg-bg-emphasis"
+        className="code-block-mermaid-btn inline-flex items-center gap-1 text-xs px-1.5 py-0.5 text-text-muted rounded cursor-pointer transition-colors hover:text-text hover:bg-bg-emphasis"
         type="button"
       >
-        <PencilIcon className="w-3.75 h-3.75 stroke-[1.7]" />
+        <PencilIcon className="w-3.5 h-3.5 stroke-[1.7]" />
         Edit
       </button>
     )
@@ -49,7 +49,7 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
         <select
           value={language}
           onChange={handleLanguageChange}
-          className="appearance-none bg-transparent text-text-muted text-sm cursor-pointer outline-none pr-4 pl-1.5 py-0.5 rounded hover:bg-bg-emphasis transition-colors"
+          className="appearance-none bg-transparent text-text-muted text-xs cursor-pointer outline-none pr-4 pl-1.5 py-0.5 rounded hover:bg-bg-emphasis transition-colors"
         >
           {SUPPORTED_LANGUAGES.map((lang) => (
             <option key={lang.value} value={lang.value}>
@@ -57,7 +57,7 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
             </option>
           ))}
         </select>
-        <ChevronDownIcon className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted" />
+        <ChevronDownIcon className="w-3.5 h-3.5 stroke-[1.7] absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted" />
       </div>
     </div>
   );

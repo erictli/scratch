@@ -92,7 +92,8 @@ export function AboutSettingsSection() {
           >
             Eric Li
           </button>{" "}
-          with moral support from his cat, Mochi.
+          with moral support from his cat, Mochi, and actual support from many
+          contributors on GitHub.
         </p>
         <div className="flex items-center gap-1">
           <Button

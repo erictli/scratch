@@ -2347,17 +2347,22 @@ async fn execute_ai_cli(
             .map(|s| s.success())
             .unwrap_or(false);
 
+        // Strip ANSI escape sequences from output (e.g. Ollama progress spinners)
+        let ansi_re = regex::Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?\x07").unwrap();
+        let stdout_clean = ansi_re.replace_all(&stdout_str, "").trim().to_string();
+        let stderr_clean = ansi_re.replace_all(&stderr_str, "").trim().to_string();
+
         if success {
             AiExecutionResult {
                 success: true,
-                output: stdout_str,
+                output: stdout_clean,
                 error: None,
             }
         } else {
             AiExecutionResult {
                 success: false,
-                output: stdout_str,
-                error: Some(stderr_str),
+                output: stdout_clean,
+                error: Some(stderr_clean),
             }
         }
     });
@@ -2559,7 +2564,7 @@ async fn ai_execute_ollama(
     let result = execute_ai_cli(
         "Ollama",
         "ollama".to_string(),
-        vec!["run".to_string(), model_name],
+        vec!["run".to_string(), model_name.clone()],
         stdin_input,
         "Ollama CLI not found. Please install it from https://ollama.com".to_string(),
     )
@@ -2568,6 +2573,20 @@ async fn ai_execute_ollama(
     // Improve error messages for common Ollama failures
     if !result.success {
         if let Some(ref err) = result.error {
+            let err_lower = err.to_lowercase();
+            if err_lower.contains("file does not exist")
+                || err_lower.contains("pull model manifest")
+                || err_lower.contains("not found")
+            {
+                return Ok(AiExecutionResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!(
+                        "Model '{}' not found. Run `ollama pull {}` in your terminal to download it.",
+                        model_name, model_name
+                    )),
+                });
+            }
             if err.contains("401") || err.contains("Unauthorized") {
                 return Ok(AiExecutionResult {
                     success: false,
