@@ -2517,12 +2517,42 @@ async fn ai_execute_ollama(
          User instructions:\n{prompt}"
     );
 
-    // Use the model provided (frontend reads from settings, defaults to "qwen3")
+    // Use the model provided (frontend reads from settings, defaults to "qwen3-coder:480b-cloud")
     let model_name = if model.is_empty() {
-        "qwen3".to_string()
+        "qwen3-coder:480b-cloud".to_string()
     } else {
         model
     };
+
+    // Check if the model is available locally before running (skip for cloud models)
+    if !model_name.contains("cloud") {
+        let mn = model_name.clone();
+        let available = tauri::async_runtime::spawn_blocking(move || {
+            let path = get_expanded_path();
+            let mut cmd = no_window_cmd("ollama");
+            cmd.env("PATH", &path);
+            cmd.args(["show", &mn]);
+            cmd.stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            match cmd.status() {
+                Ok(status) => status.success(),
+                Err(_) => false,
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        if !available {
+            return Ok(AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Model '{}' is not installed. Run: ollama pull {}",
+                    model_name, model_name
+                )),
+            });
+        }
+    }
 
     let canonical_str = canonical.to_string_lossy().to_string();
 
@@ -2534,6 +2564,21 @@ async fn ai_execute_ollama(
         "Ollama CLI not found. Please install it from https://ollama.com".to_string(),
     )
     .await?;
+
+    // Improve error messages for common Ollama failures
+    if !result.success {
+        if let Some(ref err) = result.error {
+            if err.contains("401") || err.contains("Unauthorized") {
+                return Ok(AiExecutionResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!(
+                        "Authentication required. Run `ollama login` in your terminal to sign in."
+                    )),
+                });
+            }
+        }
+    }
 
     // If successful, write the output back to the file
     if result.success && !result.output.is_empty() {

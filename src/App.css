@@ -222,6 +222,19 @@ html.dark {
   animation: spin-slow 2s linear infinite;
 }
 
+@keyframes bounce-gentle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-bounce-gentle {
+  animation: bounce-gentle 1s ease-in-out infinite;
+}
+
 /* Staggered fade-in-up animation for welcome screen */
 @keyframes fade-in-up {
   from {

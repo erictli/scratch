@@ -26,7 +26,6 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as aiService from "./services/ai";
 import type { AiProvider } from "./services/ai";
-import { getSettings } from "./services/notes";
 
 // Detect preview mode from URL search params
 function getWindowMode(): {
@@ -101,7 +100,7 @@ function AppContent() {
 
   // AI Edit handler
   const handleAiEdit = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, ollamaModel?: string) => {
       if (!currentNote) {
         toast.error("No note selected");
         return;
@@ -114,12 +113,10 @@ function AppContent() {
         if (aiProvider === "codex") {
           result = await aiService.executeCodexEdit(currentNote.path, prompt);
         } else if (aiProvider === "ollama") {
-          const settings = await getSettings();
-          const model = settings?.ollamaModel || "qwen3";
           result = await aiService.executeOllamaEdit(
             currentNote.path,
             prompt,
-            model,
+            ollamaModel || "qwen3-coder:480b-cloud",
           );
         } else {
           result = await aiService.executeClaudeEdit(currentNote.path, prompt);
@@ -433,7 +430,6 @@ function AppContent() {
         onBack={handleBackToPalette}
         onExecute={handleAiEdit}
         isExecuting={aiEditing}
-        onOpenSettings={toggleSettings}
       />
 
       {/* AI Editing Overlay */}
@@ -443,7 +439,7 @@ function AppContent() {
             {aiProvider === "codex" ? (
               <CodexIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
             ) : aiProvider === "ollama" ? (
-              <OllamaIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
+              <OllamaIcon className="w-4.5 h-4.5 fill-text-muted animate-bounce-gentle" />
             ) : (
               <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
             )}
