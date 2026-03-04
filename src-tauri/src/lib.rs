@@ -2154,16 +2154,30 @@ fn get_expanded_path() -> String {
     expanded.join(":")
 }
 
-fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
-    use std::process::Command;
+/// Create a `Command` that hides the console window on Windows.
+fn no_window_cmd(program: &str) -> std::process::Command {
+    let cmd = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = cmd;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        cmd
+    }
+}
 
+fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
     let which_cmd = if cfg!(target_os = "windows") {
         "where"
     } else {
         "which"
     };
 
-    let check_output = Command::new(which_cmd)
+    let check_output = no_window_cmd(which_cmd)
         .arg(command_name)
         .env("PATH", path)
         .output()
@@ -2202,7 +2216,7 @@ async fn execute_ai_cli(
     not_found_msg: String,
 ) -> Result<AiExecutionResult, String> {
     use std::io::Write;
-    use std::process::{Child, Command, Stdio};
+    use std::process::{Child, Stdio};
 
     let cli_name = cli_name.to_string();
     let timeout_duration = std::time::Duration::from_secs(300);
@@ -2231,7 +2245,7 @@ async fn execute_ai_cli(
             Ok(true) => {}
         }
 
-        let mut cmd = Command::new(&command);
+        let mut cmd = no_window_cmd(&command);
         cmd.env("PATH", &path);
         for arg in &args {
             cmd.arg(arg);
