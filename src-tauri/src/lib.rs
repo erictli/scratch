@@ -2518,11 +2518,12 @@ async fn ai_execute_ollama(
          User instructions:\n{prompt}"
     );
 
-    // Use the model provided (frontend reads from settings, defaults to "qwen3-coder:480b-cloud")
-    let model_name = if model.is_empty() {
-        "qwen3-coder:480b-cloud".to_string()
+    // Use the model provided (frontend reads from settings, defaults to "qwen3:8b")
+    let trimmed = model.trim();
+    let model_name = if trimmed.is_empty() {
+        "qwen3:8b".to_string()
     } else {
-        model
+        trimmed.to_string()
     };
 
     // Check if the model is available locally before running (skip for cloud models)

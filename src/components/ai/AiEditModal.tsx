@@ -23,7 +23,7 @@ export function AiEditModal({
   const [prompt, setPrompt] = useState("");
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null);
   const [ollamaModel, setOllamaModel] = useState<string>(
-    "qwen3-coder:480b-cloud",
+    "qwen3:8b",
   );
   const inputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
@@ -88,7 +88,7 @@ export function AiEditModal({
     if (!open || provider !== "ollama") return;
     invoke<Settings>("get_settings")
       .then((settings) =>
-        setOllamaModel(settings.ollamaModel || "qwen3-coder:480b-cloud"),
+        setOllamaModel(settings.ollamaModel || "qwen3:8b"),
       )
       .catch(() => {});
   }, [open, provider]);
@@ -232,7 +232,7 @@ export function AiEditModal({
                       value={ollamaModel}
                       onChange={(e) => setOllamaModel(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="qwen3-coder:480b-cloud"
+                      placeholder="qwen3:8b"
                       autoComplete="off"
                       autoCorrect="off"
                       autoCapitalize="off"

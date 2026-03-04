@@ -116,7 +116,7 @@ function AppContent() {
           result = await aiService.executeOllamaEdit(
             currentNote.path,
             prompt,
-            ollamaModel || "qwen3-coder:480b-cloud",
+            ollamaModel || "qwen3:8b",
           );
         } else {
           result = await aiService.executeClaudeEdit(currentNote.path, prompt);
