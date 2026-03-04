@@ -74,6 +74,7 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
         </div>
         {/* Hidden but present for TipTap content tracking */}
         <div
+          aria-hidden="true"
           style={{
             position: "absolute",
             overflow: "hidden",

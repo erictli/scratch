@@ -97,6 +97,9 @@ scratch/
 │   │   ├── editor/                 # TipTap editor + extensions
 │   │   │   ├── Editor.tsx          # Main editor with auto-save, copy-as, format bar, source mode
 │   │   │   ├── LinkEditor.tsx      # Inline link add/edit/remove popup
+│   │   │   ├── CodeBlockView.tsx    # Code block NodeView with language selector & mermaid toggle
+│   │   │   ├── MermaidRenderer.tsx  # Mermaid diagram SVG rendering (beautiful-mermaid)
+│   │   │   ├── lowlight.ts         # Lowlight instance with 20 registered languages
 │   │   │   ├── SlashCommand.tsx    # Slash command extension for TipTap
 │   │   │   └── SlashCommandList.tsx # Slash command popup menu UI
 │   │   ├── layout/                 # Sidebar, main layout
@@ -183,13 +186,18 @@ TipTap editor with extensions and features:
 - StarterKit (basic formatting)
 - Markdown (bidirectional conversion)
 - Link, Image, TaskList, TaskItem, Table
+- CodeBlockLowlight (syntax highlighting via highlight.js/lowlight, 20 languages)
+- Mermaid diagram rendering (via beautiful-mermaid, sync SVG with CSS variable theming)
 
 **Key Features:**
 - Auto-save with 300ms debounce
 - Copy & Export menu (Markdown/Plain Text/HTML/PDF) via `Cmd+Shift+C`
 - Inline link editor popup (`Cmd+K`) for add/edit/remove
 - Format bar with 13 tools (bold, italic, headings, lists, code, etc.)
-- Slash commands (`/`) for quick block insertion (headings, lists, code, etc.)
+- Slash commands (`/`) for quick block insertion (headings, lists, code, mermaid, etc.)
+- Syntax highlighting for code blocks (20 languages, GitHub color scheme via CSS variables)
+- Mermaid diagram rendering with Edit/Preview toggle (beautiful-mermaid, sync SVG)
+- Code block language selector dropdown
 - Markdown source mode (`Cmd+Shift+M`) to view/edit raw markdown
 - Focus mode (`Cmd+Shift+Enter`) for distraction-free writing with animated transitions
 - RTL text direction support (configurable in settings)

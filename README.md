@@ -15,9 +15,11 @@ A minimalist, offline-first markdown note-taking app for macOS, Windows, and Lin
 - **WYSIWYG editing** - Rich text editing that saves as markdown
 - **Preview mode** - Open any `.md` file via drag-and-drop or "Open With" without a notes folder
 - **Markdown source mode** - Toggle to view and edit raw markdown (`Cmd+Shift+M`)
+- **Syntax highlighting** - 20 languages with GitHub-inspired color scheme
+- **Mermaid diagrams** - Render flowcharts, sequence diagrams, and more in fenced code blocks
 - **KaTeX math** - Render block `$$...$$` math equations
 - **Wikilinks** - Type `[[` to link between notes with autocomplete
-- **Slash commands** - Type `/` to quickly insert headings, lists, code blocks, and more
+- **Slash commands** - Type `/` to quickly insert headings, lists, code blocks, diagrams, and more
 - **Focus mode** - Distraction-free writing with animated sidebar/toolbar fade (`Cmd+Shift+Enter`)
 - **Edit with Claude Code or OpenAI Codex** - Use your local Claude Code CLI or Codex CLI to edit notes
 - **Works with other AI agents** - Detects external file changes

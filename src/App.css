@@ -1110,14 +1110,13 @@ table.not-prose th {
 
   /* Hide language selector in print */
   .code-block-language-selector,
-  .code-block-preview-btn {
+  .code-block-mermaid-btn {
     display: none !important;
   }
 
   /* Mermaid diagrams: avoid page breaks */
   .mermaid-diagram svg {
     max-width: 100% !important;
-    page-break-inside: avoid;
     break-inside: avoid;
   }
 
