@@ -3,7 +3,6 @@ export interface NoteMetadata {
   title: string;
   preview: string;
   modified: number;
-  isExternal?: boolean;
 }
 
 export interface Note {
@@ -12,7 +11,6 @@ export interface Note {
   content: string;
   path: string;
   modified: number;
-  isExternal?: boolean;
 }
 
 export interface ThemeSettings {

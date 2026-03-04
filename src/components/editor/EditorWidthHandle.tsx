@@ -83,8 +83,7 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
       }
     }
     if (editorWidth === "custom") return customEditorWidthPx;
-    if (editorWidth === "full")
-      return containerRef.current.clientWidth;
+    if (editorWidth === "full") return containerRef.current.clientWidth;
     const preset = PRESET_PX.find((p) => p.width === editorWidth);
     return preset?.px ?? 768;
   }, [containerRef, editorWidth, customEditorWidthPx]);
@@ -96,10 +95,7 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
       const containerWidth = containerRef.current?.clientWidth ?? 1200;
-      const initialWidth = Math.min(
-        getCurrentEditorWidth(),
-        containerWidth
-      );
+      const initialWidth = Math.min(getCurrentEditorWidth(), containerWidth);
 
       dragState.current = {
         startX: e.clientX,
@@ -111,7 +107,7 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
       setDragWidth(initialWidth);
       setSnappedPreset(null);
     },
-    [containerRef, getCurrentEditorWidth]
+    [containerRef, getCurrentEditorWidth],
   );
 
   const handlePointerMove = useCallback(
@@ -121,9 +117,7 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
 
       const delta = e.clientX - startX;
       const newWidth =
-        side === "right"
-          ? initialWidth + delta * 2
-          : initialWidth - delta * 2;
+        side === "right" ? initialWidth + delta * 2 : initialWidth - delta * 2;
 
       const clamped = Math.max(MIN_WIDTH, Math.min(newWidth, containerWidth));
 
@@ -148,7 +142,7 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
       // Update handle offset live during drag
       setHandleOffset((containerWidth - finalWidth) / 2);
     },
-    [setEditorMaxWidthLive]
+    [setEditorMaxWidthLive],
   );
 
   const handlePointerUp = useCallback(
@@ -165,7 +159,7 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
       dragState.current = null;
       setIsDragging(false);
     },
-    [snappedPreset, dragWidth, setEditorWidth, setCustomEditorWidthPx]
+    [snappedPreset, dragWidth, setEditorWidth, setCustomEditorWidthPx],
   );
 
   const handlePointerCancel = useCallback(() => {
@@ -180,49 +174,9 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
     setEditorWidth("normal");
   }, [setEditorWidth]);
 
-  // Keyboard resize: arrow keys adjust width by STEP px
-  const KEYBOARD_STEP = 20;
-  const handleKeyDown = useCallback(
-    (side: "left" | "right", e: React.KeyboardEvent) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      e.preventDefault();
-
-      const containerWidth = containerRef.current?.clientWidth ?? 1200;
-      const currentWidth = Math.min(getCurrentEditorWidth(), containerWidth);
-
-      // ArrowRight on right handle = wider, ArrowLeft on right handle = narrower
-      // ArrowLeft on left handle = wider, ArrowRight on left handle = narrower
-      const expand =
-        (side === "right" && e.key === "ArrowRight") ||
-        (side === "left" && e.key === "ArrowLeft");
-      const delta = expand ? KEYBOARD_STEP : -KEYBOARD_STEP;
-      const newWidth = Math.max(
-        MIN_WIDTH,
-        Math.min(currentWidth + delta, containerWidth)
-      );
-
-      // Snap check
-      for (const preset of PRESET_PX) {
-        if (
-          Math.abs(newWidth - preset.px) < SNAP_THRESHOLD &&
-          preset.px <= containerWidth
-        ) {
-          setEditorWidth(preset.width);
-          return;
-        }
-      }
-      setCustomEditorWidthPx(Math.round(newWidth));
-    },
-    [
-      containerRef,
-      getCurrentEditorWidth,
-      setEditorWidth,
-      setCustomEditorWidthPx,
-    ]
-  );
-
-  // Don't render handles if full width (nothing to resize)
-  if (editorWidth === "full" && !isDragging) return null;
+  // Don't render handles if full width or container is too narrow
+  if ((editorWidth === "full" || handleOffset === 0) && !isDragging)
+    return null;
 
   return (
     <div className="absolute inset-0 pointer-events-none z-10">
@@ -242,11 +196,9 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize editor width (left)"
-        aria-valuenow={isDragging ? Math.round(dragWidth) : undefined}
-        tabIndex={0}
         className={cn(
           "absolute top-0 h-full w-3 cursor-col-resize pointer-events-auto group",
-          isDragging && "z-20"
+          isDragging && "z-20",
         )}
         style={{ left: `${handleOffset - 6}px` }}
         onPointerDown={(e) => handlePointerDown("left", e)}
@@ -254,14 +206,11 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onDoubleClick={handleDoubleClick}
-        onKeyDown={(e) => handleKeyDown("left", e)}
       >
         <div
           className={cn(
-            "absolute left-1/2 -translate-x-1/2 top-0 h-full w-[3px] rounded-full bg-border transition-opacity duration-150",
-            isDragging
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+            "absolute left-1/2 -translate-x-1/2 top-0 h-full w-0.75 rounded-full bg-border transition-opacity duration-150",
+            isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100",
           )}
         />
       </div>
@@ -271,11 +220,9 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize editor width (right)"
-        aria-valuenow={isDragging ? Math.round(dragWidth) : undefined}
-        tabIndex={0}
         className={cn(
           "absolute top-0 h-full w-3 cursor-col-resize pointer-events-auto group",
-          isDragging && "z-20"
+          isDragging && "z-20",
         )}
         style={{ right: `${handleOffset - 6}px` }}
         onPointerDown={(e) => handlePointerDown("right", e)}
@@ -283,14 +230,11 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onDoubleClick={handleDoubleClick}
-        onKeyDown={(e) => handleKeyDown("right", e)}
       >
         <div
           className={cn(
-            "absolute left-1/2 -translate-x-1/2 top-0 h-full w-[3px] rounded-full bg-border transition-opacity duration-150",
-            isDragging
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+            "absolute left-1/2 -translate-x-1/2 top-0 h-full w-0.75 rounded-full bg-border transition-opacity duration-150",
+            isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100",
           )}
         />
       </div>
