@@ -44,6 +44,7 @@ import {
   ZenIcon,
   MarkdownIcon,
   CodexIcon,
+  OllamaIcon,
   FolderIcon,
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
@@ -161,6 +162,15 @@ export function CommandPalette({
           icon: <CodexIcon className="w-4.5 h-4.5 fill-text-muted" />,
           action: () => {
             onOpenAiModal?.("codex");
+            onClose();
+          },
+        },
+        {
+          id: "ai-edit-ollama",
+          label: "Edit with Ollama",
+          icon: <OllamaIcon className="w-4.5 h-4.5 fill-text-muted" />,
+          action: () => {
+            onOpenAiModal?.("ollama");
             onClose();
           },
         },

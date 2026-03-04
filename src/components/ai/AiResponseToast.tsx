@@ -1,4 +1,4 @@
-import { ClaudeIcon, CodexIcon } from "../icons";
+import { ClaudeIcon, CodexIcon, OllamaIcon } from "../icons";
 import { mod } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
 
@@ -208,7 +208,12 @@ function parseInlineMarkdown(text: string): React.ReactNode {
 }
 
 export function AiResponseToast({ output, provider }: AiResponseToastProps) {
-  const Icon = provider === "codex" ? CodexIcon : ClaudeIcon;
+  const Icon =
+    provider === "codex"
+      ? CodexIcon
+      : provider === "ollama"
+        ? OllamaIcon
+        : ClaudeIcon;
 
   return (
     <div className="flex gap-3 items-start">

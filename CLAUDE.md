@@ -237,7 +237,7 @@ TipTap editor with extensions and features:
 
 **Git:** `git_is_available`, `git_get_status`, `git_init_repo`, `git_commit`, `git_push`, `git_add_remote`, `git_push_with_upstream`
 
-**AI/Claude Code:** `ai_check_claude_cli`, `ai_execute_claude` (shell execution with Claude Code CLI)
+**AI:** `ai_check_claude_cli`, `ai_execute_claude`, `ai_check_codex_cli`, `ai_execute_codex`, `ai_check_ollama_cli`, `ai_execute_ollama` (shell execution with Claude Code, Codex, or Ollama CLI)
 
 **Utilities:** `copy_to_clipboard`, `copy_image_to_assets`, `save_clipboard_image`
 

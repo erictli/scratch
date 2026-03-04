@@ -63,6 +63,7 @@ export function GeneralSettingsSection() {
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
+  const [ollamaModel, setOllamaModel] = useState<string>("llama3.2");
 
   // Load template from settings on mount
   useEffect(() => {
@@ -71,6 +72,7 @@ export function GeneralSettingsSection() {
         const settings = await invoke<Settings>("get_settings");
         const template = settings.defaultNoteName || "Untitled";
         setNoteTemplate(template);
+        setOllamaModel(settings.ollamaModel || "llama3.2");
 
         // Update preview
         const preview = await invoke<string>("preview_note_name", { template });
@@ -112,6 +114,22 @@ export function GeneralSettingsSection() {
     } catch (error) {
       console.error("Failed to save default name:", error);
       toast.error("Failed to save default name");
+    }
+  };
+
+  const handleSaveOllamaModel = async () => {
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: {
+          ...settings,
+          ollamaModel: ollamaModel || undefined,
+        },
+      });
+      toast.success("Ollama model saved");
+    } catch (error) {
+      console.error("Failed to save Ollama model:", error);
+      toast.error("Failed to save Ollama model");
     }
   };
 
@@ -544,6 +562,33 @@ export function GeneralSettingsSection() {
               </p>
             </div>
           </details>
+        </div>
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Ollama Model */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">Ollama Model</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Choose which Ollama model to use for AI editing
+        </p>
+
+        <div className="space-y-2">
+          <Input
+            type="text"
+            value={ollamaModel}
+            onChange={(e) => setOllamaModel(e.target.value)}
+            onBlur={handleSaveOllamaModel}
+            placeholder="llama3.2"
+          />
+          <p className="text-xs text-text-muted">
+            Make sure this model is installed locally via{" "}
+            <code className="bg-bg-muted px-1 py-0.5 rounded text-2xs">
+              ollama pull {ollamaModel || "llama3.2"}
+            </code>
+          </p>
         </div>
       </section>
     </div>

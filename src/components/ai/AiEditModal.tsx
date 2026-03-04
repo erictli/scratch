@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from "react";
-import { SpinnerIcon, ClaudeIcon, CodexIcon } from "../icons";
+import { SpinnerIcon, ClaudeIcon, CodexIcon, OllamaIcon } from "../icons";
 import * as aiService from "../../services/ai";
 import type { AiProvider } from "../../services/ai";
 
@@ -21,13 +21,26 @@ export function AiEditModal({
   const [prompt, setPrompt] = useState("");
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const isCodex = provider === "codex";
-  const ProviderIcon = isCodex ? CodexIcon : ClaudeIcon;
-  const providerName = isCodex ? "Codex" : "Claude";
-  const cliName = isCodex ? "OpenAI Codex CLI" : "Claude Code CLI";
-  const installUrl = isCodex
-    ? "https://github.com/openai/codex"
-    : "https://code.claude.com/docs/en/quickstart";
+  const ProviderIcon =
+    provider === "codex"
+      ? CodexIcon
+      : provider === "ollama"
+        ? OllamaIcon
+        : ClaudeIcon;
+  const providerName =
+    provider === "codex" ? "Codex" : provider === "ollama" ? "Ollama" : "Claude";
+  const cliName =
+    provider === "codex"
+      ? "OpenAI Codex CLI"
+      : provider === "ollama"
+        ? "Ollama CLI"
+        : "Claude Code CLI";
+  const installUrl =
+    provider === "codex"
+      ? "https://github.com/openai/codex"
+      : provider === "ollama"
+        ? "https://ollama.com"
+        : "https://code.claude.com/docs/en/quickstart";
 
   // Focus input when opened
   useEffect(() => {
@@ -40,9 +53,12 @@ export function AiEditModal({
   useEffect(() => {
     if (!open) return;
     let active = true;
-    const checkCli = isCodex
-      ? aiService.checkCodexCli
-      : aiService.checkClaudeCli;
+    const checkCli =
+      provider === "codex"
+        ? aiService.checkCodexCli
+        : provider === "ollama"
+          ? aiService.checkOllamaCli
+          : aiService.checkClaudeCli;
 
     checkCli()
       .then((result) => {
@@ -55,7 +71,7 @@ export function AiEditModal({
     return () => {
       active = false;
     };
-  }, [open, isCodex, cliName]);
+  }, [open, provider, cliName]);
 
   // Clear prompt when modal closes
   useEffect(() => {
