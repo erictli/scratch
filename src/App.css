@@ -364,6 +364,33 @@ html.dark {
   font-weight: 400;
 }
 
+/* KaTeX math */
+.prose .tiptap-mathematics-render {
+  color: var(--color-text);
+}
+
+.prose .tiptap-mathematics-render[data-type="block-math"] {
+  display: block;
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.prose .tiptap-mathematics-render--editable {
+  cursor: pointer;
+}
+
+.prose .katex-display {
+  margin: 0;
+}
+
+.prose .block-math-error {
+  color: #dc2626;
+  font-family: var(--font-mono);
+}
+
 /* Frontmatter block (YAML metadata) — must follow generic pre rules */
 .prose
   :where(pre.frontmatter):not(

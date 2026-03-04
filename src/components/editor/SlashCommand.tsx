@@ -16,6 +16,7 @@ import {
   CheckSquareIcon,
   QuoteIcon,
   CodeIcon,
+  BlockMathIcon,
   SeparatorIcon,
   ImageIcon,
   TableIcon,
@@ -120,6 +121,16 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
     aliases: ["code", "fenced", "pre"],
     command: (editor) => {
       editor.chain().focus().toggleCodeBlock().run();
+    },
+  },
+  {
+    title: "Block Math",
+    description: "Display math block",
+    icon: <BlockMathIcon />,
+    aliases: ["math", "equation"],
+    command: (editor) => {
+      editor.chain().focus().run();
+      window.dispatchEvent(new CustomEvent("slash-command-block-math"));
     },
   },
   {
