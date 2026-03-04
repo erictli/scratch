@@ -49,11 +49,7 @@ import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
-import {
-  ScratchBlockMath,
-  ScratchInlineMath,
-  normalizeBlockMath,
-} from "./MathExtensions";
+import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -74,7 +70,6 @@ import {
   QuoteIcon,
   CodeIcon,
   InlineCodeIcon,
-  InlineMathIcon,
   BlockMathIcon,
   SeparatorIcon,
   LinkIcon,
@@ -105,6 +100,15 @@ function formatDateTime(timestamp: number): string {
     minute: "2-digit",
   });
 }
+
+// Standard number-field shortcuts for KaTeX (shared between inline and block math)
+const katexMacros: Record<string, string> = {
+  "\\R": "\\mathbb{R}",
+  "\\N": "\\mathbb{N}",
+  "\\Z": "\\mathbb{Z}",
+  "\\Q": "\\mathbb{Q}",
+  "\\C": "\\mathbb{C}",
+};
 
 // Search highlight extension - adds yellow backgrounds to search matches
 const searchHighlightPluginKey = new PluginKey("searchHighlight");
@@ -308,13 +312,6 @@ function FormatBar({
         title={`Code Block (${mod}${isMac ? "" : "+"}${alt}${isMac ? "" : "+"}C)`}
       >
         <CodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-      </ToolbarButton>
-      <ToolbarButton
-        onClick={() => editor.chain().focus().toggleInlineMath().run()}
-        isActive={editor.isActive("inlineMath")}
-        title="Inline Math"
-      >
-        <InlineMathIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
         onClick={onAddBlockMath}
@@ -964,23 +961,11 @@ export function Editor({
       SlashCommand,
       Wikilink,
       WikilinkSuggestion,
-      ScratchInlineMath.configure({
-        katexOptions: {
-          throwOnError: false,
-          macros: {
-            "\\R": "\\mathbb{R}",
-            "\\N": "\\mathbb{N}",
-          },
-        },
-      }),
       ScratchBlockMath.configure({
         katexOptions: {
           throwOnError: false,
           displayMode: true,
-          macros: {
-            "\\R": "\\mathbb{R}",
-            "\\N": "\\mathbb{N}",
-          },
+          macros: katexMacros,
         },
         onClick: (_node, pos) => {
           handleEditBlockMath(pos);
@@ -1058,7 +1043,7 @@ export function Editor({
 
         // Check if text looks like markdown (has common markdown patterns)
         const markdownPatterns =
-          /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|```|^\s*\[.*\]\(.*\)|^\s*!\[|\*\*.*\*\*|__.*__|~~.*~~|^\s*[-*_]{3,}\s*$|^\|.+\||\$[^$\n]+\$/m;
+          /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|```|^\s*\[.*\]\(.*\)|^\s*!\[|\*\*.*\*\*|__.*__|~~.*~~|^\s*[-*_]{3,}\s*$|^\|.+\||\$\$[\s\S]+?\$\$/m;
         if (!markdownPatterns.test(text)) {
           // Not markdown, let TipTap handle it normally
           return false;

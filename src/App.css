@@ -367,14 +367,6 @@ html.dark {
   color: var(--color-text);
 }
 
-.prose .tiptap-mathematics-render[data-type="inline-math"] {
-  display: inline-flex;
-  align-items: center;
-  vertical-align: middle;
-  padding: 0 0.15em;
-  border-radius: 0.25rem;
-}
-
 .prose .tiptap-mathematics-render[data-type="block-math"] {
   display: block;
   margin: 0.75rem 0;
@@ -388,11 +380,6 @@ html.dark {
 
 .prose .katex-display {
   margin: 0;
-}
-
-.prose .inline-math-error {
-  color: #dc2626;
-  font-family: var(--font-mono);
 }
 
 .prose .block-math-error {

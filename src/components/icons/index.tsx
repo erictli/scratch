@@ -417,18 +417,6 @@ export function InlineCodeIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   );
 }
 
-export function InlineMathIcon({ className = "w-4.5 h-4.5" }: IconProps) {
-  return (
-    <svg
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 32 32"
-      fill="currentColor"
-    >
-      <path d="M26 18h-2l-2 3.897L20 18h-2l2.905 5L18 28h2l2-3.799L24 28h2l-2.902-5zM19 6V4h-5.087a1.99 1.99 0 0 0-1.992 1.819L11.27 13H7v2h4.087l-1 11H5v2h5.087a1.99 1.99 0 0 0 1.992-1.819L13.095 15H18v-2h-4.723l.636-7Z" />
-    </svg>
-  );
-}
 
 export function BlockMathIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
