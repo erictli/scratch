@@ -24,6 +24,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
     isSyncing,
     isCommitting,
     gitAvailable,
+    gitEnabled,
     sync,
     initRepo,
     commit,
@@ -66,7 +67,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
 
   // Git status section
   const renderGitStatus = () => {
-    if (!gitAvailable) {
+    if (!gitEnabled || !gitAvailable) {
       return null;
     }
 
@@ -134,11 +135,12 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
 
   // Determine what buttons to show
   const hasChanges = (status?.changedCount ?? 0) > 0;
-  const showCommitButton = gitAvailable && status?.isRepo && hasChanges;
+  const showCommitButton = gitEnabled && gitAvailable && status?.isRepo && hasChanges;
   const behindCount = Math.max(status?.behindCount ?? 0, 0);
   const aheadCount = Math.max(status?.aheadCount ?? 0, 0);
   const syncCount = behindCount + aheadCount;
-  const showSyncButton = status?.hasRemote && status?.hasUpstream;
+  const showSyncButton =
+    gitEnabled && gitAvailable && status?.hasRemote && status?.hasUpstream;
 
   const syncTooltip = isSyncing
     ? "Syncing..."
