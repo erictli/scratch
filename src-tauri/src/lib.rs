@@ -2768,6 +2768,18 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
             {
                 opened_preview = true;
             }
+        } else if path.is_dir() {
+            let path_str = path
+                .canonicalize()
+                .unwrap_or(path.clone())
+                .to_string_lossy()
+                .into_owned();
+            let _ = app.emit("set-notes-folder", path_str);
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.show();
+                let _ = main_window.set_focus();
+            }
+            opened_file = true;
         }
     }
 
