@@ -69,7 +69,13 @@ export function GeneralSettingsSection() {
   const [cliLoading, setCliLoading] = useState(false);
 
   useEffect(() => {
-    cliService.getCliStatus().then(setCliStatus).catch(console.error);
+    cliService
+      .getCliStatus()
+      .then(setCliStatus)
+      .catch((err) => {
+        console.error("Failed to get CLI status:", err);
+        setCliStatus({ installed: false, path: null });
+      });
   }, []);
 
   // Load template from settings on mount

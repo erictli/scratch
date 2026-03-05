@@ -2201,11 +2201,11 @@ fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
 fn cli_target_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
-        let primary_dir = PathBuf::from("/usr/local/bin");
-        if primary_dir.exists() {
-            return PathBuf::from("/usr/local/bin/scratch");
+        // Apple Silicon Macs use /opt/homebrew, Intel Macs use /usr/local
+        if PathBuf::from("/opt/homebrew").exists() {
+            return PathBuf::from("/opt/homebrew/bin/scratch");
         }
-        PathBuf::from("/opt/homebrew/bin/scratch")
+        PathBuf::from("/usr/local/bin/scratch")
     }
     #[cfg(target_os = "linux")]
     {
@@ -2229,8 +2229,20 @@ fn get_cli_status() -> Result<CliStatus, String> {
             .output()
             .map_err(|e| e.to_string())?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
-        let installed = stdout.contains(&exe_dir);
+        let installed = if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let path_value = stdout.lines()
+                .find(|l| l.trim_start().starts_with("Path"))
+                .and_then(|l| l.split("REG_").nth(1))
+                .and_then(|l| l.split_once('\t').map(|(_, v)| v.trim().to_string()))
+                .unwrap_or_default();
+            path_value
+                .split(';')
+                .any(|segment| segment.trim().to_lowercase() == exe_dir)
+        } else {
+            false
+        };
+
         return Ok(CliStatus {
             installed,
             path: if installed { Some(exe_dir) } else { None },
@@ -2357,10 +2369,14 @@ fn uninstall_cli() -> Result<(), String> {
             .collect::<Vec<_>>()
             .join(";");
 
-        std::process::Command::new("reg")
+        let status = std::process::Command::new("reg")
             .args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_path, "/f"])
             .status()
             .map_err(|e| format!("Failed to write registry: {}", e))?;
+
+        if !status.success() {
+            return Err("Failed to update PATH in registry".to_string());
+        }
 
         Ok(())
     }
