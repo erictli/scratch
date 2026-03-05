@@ -281,6 +281,8 @@ html.dark {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-spin-slow,
+  .animate-bounce-gentle,
   .animate-pulse-gentle {
     animation: none;
   }
