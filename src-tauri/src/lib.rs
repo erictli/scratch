@@ -2549,7 +2549,7 @@ async fn ai_execute_opencode(
         Some(vec![
             (
                 "OPENCODE_PERMISSION".to_string(),
-                "{\"*\":\"allow\",\"external_directory\":\"allow\",\"doom_loop\":\"allow\"}".to_string(),
+                "{\"*\":\"deny\",\"read\":\"allow\",\"edit\":\"allow\"}".to_string(),
             ),
         ]),
     )

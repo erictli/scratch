@@ -280,6 +280,12 @@ html.dark {
   animation: pulse-gentle 1.3s ease-in-out infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-gentle {
+    animation: none;
+  }
+}
+
 /* Staggered fade-in-up animation for welcome screen */
 @keyframes fade-in-up {
   from {
