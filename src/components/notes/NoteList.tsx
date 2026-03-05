@@ -154,6 +154,11 @@ export function NoteList() {
     }
   }, [noteToDelete, deleteNote]);
 
+  const openDeleteDialogForNote = useCallback((noteId: string) => {
+    setNoteToDelete(noteId);
+    setDeleteDialogOpen(true);
+  }, []);
+
   const handleContextMenu = useCallback(
     async (e: React.MouseEvent, noteId: string) => {
       e.preventDefault();
@@ -195,17 +200,14 @@ export function NoteList() {
           await PredefinedMenuItem.new({ item: "Separator" }),
           await MenuItem.new({
             text: "Delete",
-            action: () => {
-              setNoteToDelete(noteId);
-              setDeleteDialogOpen(true);
-            },
+            action: () => openDeleteDialogForNote(noteId),
           }),
         ],
       });
 
       await menu.popup();
     },
-    [pinnedIds, pinNote, unpinNote, duplicateNote]
+    [pinnedIds, pinNote, unpinNote, duplicateNote, openDeleteDialogForNote]
   );
 
   // Memoize display items to prevent recalculation on every render
@@ -231,6 +233,18 @@ export function NoteList() {
     return () =>
       window.removeEventListener("focus-note-list", handleFocusNoteList);
   }, []);
+
+  useEffect(() => {
+    const handleRequestDelete = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      if (!customEvent.detail) return;
+      openDeleteDialogForNote(customEvent.detail);
+    };
+
+    window.addEventListener("request-delete-note", handleRequestDelete);
+    return () =>
+      window.removeEventListener("request-delete-note", handleRequestDelete);
+  }, [openDeleteDialogForNote]);
 
   if (isLoading && notes.length === 0) {
     return (

@@ -48,6 +48,7 @@ function AppContent() {
     notesFolder,
     isLoading,
     createNote,
+    duplicateNote,
     notes,
     selectedNoteId,
     selectNote,
@@ -59,6 +60,8 @@ function AppContent() {
   const { interfaceZoom, setInterfaceZoom } = useTheme();
   const interfaceZoomRef = useRef(interfaceZoom);
   interfaceZoomRef.current = interfaceZoom;
+  const currentNoteRef = useRef(currentNote);
+  currentNoteRef.current = currentNote;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -169,9 +172,11 @@ function AppContent() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      const isInEditor = target.closest(".ProseMirror");
+      const isInEditor = !!target.closest(".ProseMirror");
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+      const isEditorEmpty =
+        isInEditor && currentNoteRef.current?.content.trim() === "";
 
       // Cmd+, - Toggle settings (always works, even in settings)
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
@@ -276,6 +281,34 @@ function AppContent() {
         return;
       }
 
+      // Delete current note (note list focused, or editor on empty note)
+      if (
+        selectedNoteId &&
+        !isInInput &&
+        (e.key === "Delete" ||
+          (e.key === "Backspace" && (e.metaKey || e.ctrlKey))) &&
+        (!isInEditor || isEditorEmpty)
+      ) {
+        e.preventDefault();
+        window.dispatchEvent(
+          new CustomEvent("request-delete-note", { detail: selectedNoteId }),
+        );
+        return;
+      }
+
+      // Cmd+D - Duplicate current note
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.key.toLowerCase() === "d" &&
+        !isInEditor &&
+        !isInInput &&
+        selectedNoteId
+      ) {
+        e.preventDefault();
+        duplicateNote(selectedNoteId);
+        return;
+      }
+
       // Cmd+R - Reload current note (pull external changes)
       if ((e.metaKey || e.ctrlKey) && e.key === "r") {
         e.preventDefault();
@@ -283,36 +316,39 @@ function AppContent() {
         return;
       }
 
-      // Arrow keys for note navigation (when not in editor or input)
-      if (!isInEditor && !isInInput && displayItems.length > 0) {
-        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-          e.preventDefault();
-          const currentIndex = displayItems.findIndex(
-            (n) => n.id === selectedNoteId,
-          );
-          let newIndex: number;
+      // Arrow keys for note navigation
+      if (
+        displayItems.length > 0 &&
+        (e.key === "ArrowDown" || e.key === "ArrowUp") &&
+        ((!isInEditor && !isInInput) || isEditorEmpty)
+      ) {
+        e.preventDefault();
+        const currentIndex = displayItems.findIndex(
+          (n) => n.id === selectedNoteId,
+        );
+        let newIndex: number;
 
-          if (e.key === "ArrowDown") {
-            newIndex =
-              currentIndex < displayItems.length - 1 ? currentIndex + 1 : 0;
-          } else {
-            newIndex =
-              currentIndex > 0 ? currentIndex - 1 : displayItems.length - 1;
-          }
-
-          selectNote(displayItems[newIndex].id);
-          return;
+        if (e.key === "ArrowDown") {
+          newIndex =
+            currentIndex < displayItems.length - 1 ? currentIndex + 1 : 0;
+        } else {
+          newIndex =
+            currentIndex > 0 ? currentIndex - 1 : displayItems.length - 1;
         }
 
-        // Enter to focus editor
-        if (e.key === "Enter" && selectedNoteId) {
-          e.preventDefault();
-          const editor = document.querySelector(".ProseMirror") as HTMLElement;
-          if (editor) {
-            editor.focus();
-          }
-          return;
+        selectNote(displayItems[newIndex].id);
+        window.dispatchEvent(new CustomEvent("focus-note-list"));
+        return;
+      }
+
+      // Enter to focus editor
+      if (e.key === "Enter" && selectedNoteId && !isInEditor && !isInInput) {
+        e.preventDefault();
+        const editor = document.querySelector(".ProseMirror") as HTMLElement;
+        if (editor) {
+          editor.focus();
         }
+        return;
       }
 
       // Escape to blur editor and go back to note list
@@ -346,6 +382,7 @@ function AppContent() {
     };
   }, [
     createNote,
+    duplicateNote,
     displayItems,
     reloadCurrentNote,
     selectedNoteId,
