@@ -2043,7 +2043,7 @@ export function Editor({
 
       {/* Format Bar – transition only after initial mount to avoid height animation on note load */}
       <div
-        className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? "transition-all duration-1000 delay-500" : ""}`}
+        className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? "transition-all duration-150" : ""}`}
       >
         <FormatBar
           editor={editor}
