@@ -126,8 +126,9 @@ export function CommandPalette({
           setAvailableAiProviders(providers);
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (active) {
+          console.error("Failed to discover AI providers:", error);
           setAvailableAiProviders([]);
         }
       });
