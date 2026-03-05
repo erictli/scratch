@@ -78,6 +78,9 @@ Scratch is designed to be usable without a mouse. Here are the essentials to get
 | Shortcut          | Action                 |
 | ----------------- | ---------------------- |
 | `Cmd+N`           | New note               |
+| `Cmd+D`           | Duplicate note         |
+| `Delete`          | Delete note            |
+| `Cmd+Backspace`   | Delete note            |
 | `Cmd+P`           | Command palette        |
 | `Cmd+K`           | Add/edit link          |
 | `Cmd+F`           | Find in note           |
