@@ -27,6 +27,12 @@ pub struct NoteMetadata {
     pub modified: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliStatus {
+    pub installed: bool,
+    pub path: Option<String>,
+}
+
 // Full note content
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
@@ -2188,6 +2194,188 @@ fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
     Ok(check_output.status.success())
 }
 
+/// Returns the path where the CLI symlink should be installed.
+/// macOS: /usr/local/bin/scratch (fallback: /opt/homebrew/bin/scratch)
+/// Linux: ~/.local/bin/scratch
+#[cfg(not(target_os = "windows"))]
+fn cli_target_path() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        let primary_dir = PathBuf::from("/usr/local/bin");
+        if primary_dir.exists() {
+            return PathBuf::from("/usr/local/bin/scratch");
+        }
+        PathBuf::from("/opt/homebrew/bin/scratch")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        PathBuf::from(format!("{home}/.local/bin/scratch"))
+    }
+}
+
+#[tauri::command]
+fn get_cli_status() -> Result<CliStatus, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let exe_dir = std::env::current_exe()
+            .map_err(|e| e.to_string())?
+            .parent()
+            .map(|p| p.to_string_lossy().to_lowercase().into_owned())
+            .unwrap_or_default();
+
+        let output = std::process::Command::new("reg")
+            .args(["query", "HKCU\\Environment", "/v", "Path"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+        let installed = stdout.contains(&exe_dir);
+        return Ok(CliStatus {
+            installed,
+            path: if installed { Some(exe_dir) } else { None },
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let target = cli_target_path();
+        if !target.exists() && target.symlink_metadata().is_err() {
+            return Ok(CliStatus { installed: false, path: None });
+        }
+        Ok(CliStatus {
+            installed: true,
+            path: Some(target.to_string_lossy().into_owned()),
+        })
+    }
+}
+
+#[tauri::command]
+fn install_cli() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let exe_dir = std::env::current_exe()
+            .map_err(|e| format!("Cannot find exe path: {}", e))?
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .ok_or_else(|| "Cannot determine exe directory".to_string())?;
+
+        let output = std::process::Command::new("reg")
+            .args(["query", "HKCU\\Environment", "/v", "Path"])
+            .output()
+            .map_err(|e| format!("Failed to read registry: {}", e))?;
+
+        let current_path = if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.lines()
+                .find(|l| l.trim_start().starts_with("Path"))
+                .and_then(|l| l.split("REG_").nth(1))
+                .and_then(|l| l.split_once('\t').map(|(_, v)| v.trim().to_string()))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        if current_path.to_lowercase().contains(&exe_dir.to_lowercase()) {
+            return Ok(exe_dir);
+        }
+
+        let new_path = if current_path.is_empty() {
+            exe_dir.clone()
+        } else {
+            format!("{};{}", current_path, exe_dir)
+        };
+
+        let status = std::process::Command::new("reg")
+            .args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_path, "/f"])
+            .status()
+            .map_err(|e| format!("Failed to write registry: {}", e))?;
+
+        if !status.success() {
+            return Err("Failed to update PATH in registry".to_string());
+        }
+
+        Ok(exe_dir)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::os::unix::fs::symlink;
+
+        let target = cli_target_path();
+
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
+        }
+
+        if target.exists() || target.symlink_metadata().is_ok() {
+            std::fs::remove_file(&target)
+                .map_err(|e| format!("Failed to remove existing file: {}", e))?;
+        }
+
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Cannot find exe path: {}", e))?;
+
+        symlink(&exe_path, &target)
+            .map_err(|e| format!("Failed to create symlink: {}", e))?;
+
+        Ok(target.to_string_lossy().into_owned())
+    }
+}
+
+#[tauri::command]
+fn uninstall_cli() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let exe_dir = std::env::current_exe()
+            .map_err(|e| format!("Cannot find exe path: {}", e))?
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .ok_or_else(|| "Cannot determine exe directory".to_string())?;
+
+        let output = std::process::Command::new("reg")
+            .args(["query", "HKCU\\Environment", "/v", "Path"])
+            .output()
+            .map_err(|e| format!("Failed to read registry: {}", e))?;
+
+        if !output.status.success() {
+            return Ok(());
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let current_path = stdout.lines()
+            .find(|l| l.trim_start().starts_with("Path"))
+            .and_then(|l| l.split("REG_").nth(1))
+            .and_then(|l| l.split_once('\t').map(|(_, v)| v.trim().to_string()))
+            .unwrap_or_default();
+
+        let exe_dir_lower = exe_dir.to_lowercase();
+        let new_path: String = current_path
+            .split(';')
+            .filter(|segment| !segment.trim().to_lowercase().eq(&exe_dir_lower))
+            .collect::<Vec<_>>()
+            .join(";");
+
+        std::process::Command::new("reg")
+            .args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_path, "/f"])
+            .status()
+            .map_err(|e| format!("Failed to write registry: {}", e))?;
+
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let target = cli_target_path();
+        if target.exists() || target.symlink_metadata().is_ok() {
+            std::fs::remove_file(&target)
+                .map_err(|e| format!("Failed to remove symlink: {}", e))?;
+        }
+        Ok(())
+    }
+}
+
 #[tauri::command]
 async fn ai_check_claude_cli() -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -2961,6 +3149,9 @@ pub fn run() {
             save_file_direct,
             import_file_to_folder,
             open_file_preview,
+            install_cli,
+            uninstall_cli,
+            get_cli_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
