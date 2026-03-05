@@ -1200,6 +1200,34 @@ fn update_settings(
 }
 
 #[tauri::command]
+fn update_git_enabled(
+    enabled: Option<bool>,
+    expected_folder: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        let folder = app_config.notes_folder.clone().ok_or("Notes folder not set")?;
+
+        if folder != expected_folder {
+            return Err("Notes folder changed".to_string());
+        }
+
+        folder
+    };
+
+    {
+        let mut settings = state.settings.write().expect("settings write lock");
+        settings.git_enabled = enabled;
+    }
+
+    let settings = state.settings.read().expect("settings read lock");
+    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn write_file(path: String, contents: Vec<u8>) -> Result<(), String> {
     fs::write(&path, contents)
         .await
@@ -2919,6 +2947,7 @@ pub fn run() {
             create_note,
             get_settings,
             update_settings,
+            update_git_enabled,
             preview_note_name,
             write_file,
             search_notes,

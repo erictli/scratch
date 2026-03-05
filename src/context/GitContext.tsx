@@ -10,6 +10,7 @@ import {
 } from "react";
 import { listen } from "@tauri-apps/api/event";
 import * as gitService from "../services/git";
+import * as notesService from "../services/notes";
 import type { GitStatus } from "../services/git";
 import { useNotesData } from "./NotesContext";
 
@@ -23,9 +24,12 @@ interface GitContextValue {
   isSyncing: boolean;
   isAddingRemote: boolean;
   gitAvailable: boolean;
+  gitEnabled: boolean;
+  isUpdatingGitEnabled: boolean;
   lastError: string | null;
 
   // Actions
+  setGitEnabled: (enabled: boolean) => Promise<boolean>;
   refreshStatus: () => Promise<void>;
   initRepo: () => Promise<boolean>;
   commit: (message: string) => Promise<boolean>;
@@ -49,18 +53,33 @@ export function GitProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isAddingRemote, setIsAddingRemote] = useState(false);
   const [gitAvailable, setGitAvailable] = useState(false);
+  const [gitEnabled, setGitEnabledState] = useState(true);
+  const [isUpdatingGitEnabled, setIsUpdatingGitEnabled] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
   // Use refs to avoid dependency cycles
   const hasLoadedRef = useRef(false);
   const refreshInFlightRef = useRef(false);
+  const refreshRequestIdRef = useRef(0);
+  const settingsReadRequestIdRef = useRef(0);
+  const gitToggleRequestIdRef = useRef(0);
+  const notesFolderRef = useRef(notesFolder);
+  notesFolderRef.current = notesFolder;
+  const gitEnabledRef = useRef(gitEnabled);
+  gitEnabledRef.current = gitEnabled;
 
   const refreshStatus = useCallback(async () => {
-    if (!notesFolder) return;
+    if (!notesFolder || !gitEnabled) return;
 
     // Prevent concurrent refreshes from piling up
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
+    const requestId = ++refreshRequestIdRef.current;
+    const folderAtStart = notesFolder;
+    const isStale = () =>
+      requestId !== refreshRequestIdRef.current ||
+      !gitEnabledRef.current ||
+      notesFolderRef.current !== folderAtStart;
 
     // Only show loading spinner on the very first load
     const isInitialLoad = !hasLoadedRef.current;
@@ -70,12 +89,17 @@ export function GitProvider({ children }: { children: ReactNode }) {
 
     try {
       const newStatus = await gitService.getGitStatus();
+
+      if (isStale()) return;
+
       hasLoadedRef.current = true;
       setStatus(newStatus);
       if (newStatus.error) {
         setLastError(newStatus.error);
       }
     } catch (err) {
+      if (isStale()) return;
+
       setLastError(err instanceof Error ? err.message : "Failed to get git status");
     } finally {
       refreshInFlightRef.current = false;
@@ -83,7 +107,47 @@ export function GitProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     }
-  }, [notesFolder]);
+  }, [notesFolder, gitEnabled]);
+
+  const setGitEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!notesFolder) return false;
+      if (enabled === gitEnabled) return true;
+
+      const requestId = ++gitToggleRequestIdRef.current;
+      settingsReadRequestIdRef.current += 1;
+      const folderAtStart = notesFolder;
+      const isStale = () =>
+        requestId !== gitToggleRequestIdRef.current ||
+        notesFolderRef.current !== folderAtStart;
+      const previous = gitEnabled;
+      setGitEnabledState(enabled);
+      setIsUpdatingGitEnabled(true);
+
+      try {
+        if (isStale()) return true;
+
+        await notesService.updateGitEnabled(enabled, folderAtStart);
+
+        if (isStale()) return true;
+
+        return true;
+      } catch (err) {
+        if (isStale()) return true;
+
+        setGitEnabledState(previous);
+        setLastError(
+          err instanceof Error ? err.message : "Failed to update git setting",
+        );
+        return false;
+      } finally {
+        if (requestId === gitToggleRequestIdRef.current) {
+          setIsUpdatingGitEnabled(false);
+        }
+      }
+    },
+    [notesFolder, gitEnabled],
+  );
 
   const initRepo = useCallback(async () => {
     try {
@@ -236,6 +300,46 @@ export function GitProvider({ children }: { children: ReactNode }) {
     gitService.isGitAvailable().then(setGitAvailable);
   }, []);
 
+  // Load per-folder git visibility setting (defaults to enabled)
+  useEffect(() => {
+    if (!notesFolder) {
+      settingsReadRequestIdRef.current += 1;
+      setGitEnabledState(true);
+      setIsUpdatingGitEnabled(false);
+      return;
+    }
+
+    let cancelled = false;
+    const requestId = ++settingsReadRequestIdRef.current;
+
+    notesService
+      .getSettings()
+      .then((settings) => {
+        if (cancelled || requestId !== settingsReadRequestIdRef.current) return;
+        setGitEnabledState(settings.gitEnabled !== false);
+      })
+      .catch(() => {
+        if (cancelled || requestId !== settingsReadRequestIdRef.current) return;
+        setGitEnabledState(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [notesFolder]);
+
+  // Clear git-specific UI state when disabled
+  useEffect(() => {
+    if (gitEnabled) return;
+
+    refreshRequestIdRef.current += 1;
+    hasLoadedRef.current = false;
+    refreshInFlightRef.current = false;
+    setStatus(null);
+    setIsLoading(false);
+    setLastError(null);
+  }, [gitEnabled]);
+
   // Keep stable refs so listeners/timers don't need to re-register
   const refreshStatusRef = useRef(refreshStatus);
   refreshStatusRef.current = refreshStatus;
@@ -244,16 +348,18 @@ export function GitProvider({ children }: { children: ReactNode }) {
 
   // Refresh status when folder changes
   useEffect(() => {
-    if (notesFolder && gitAvailable) {
+    if (notesFolder && gitAvailable && gitEnabled) {
       refreshStatus();
     }
-  }, [notesFolder, gitAvailable, refreshStatus]);
+  }, [notesFolder, gitAvailable, gitEnabled, refreshStatus]);
 
   // Poll remote for changes periodically (every 60s) when a remote is configured
   // Fetch is separated from status to keep status checks fast and offline-friendly
   // Uses recursive setTimeout to prevent overlapping runs on slow networks
   useEffect(() => {
-    if (!notesFolder || !gitAvailable || !status?.hasRemote) return;
+    if (!notesFolder || !gitAvailable || !gitEnabled || !status?.hasRemote) {
+      return;
+    }
 
     let cancelled = false;
     let timer: number;
@@ -274,7 +380,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [notesFolder, gitAvailable, status?.hasRemote]);
+  }, [notesFolder, gitAvailable, gitEnabled, status?.hasRemote]);
 
   // Refresh status on file changes (debounced via existing file watcher)
   // Uses a ref so the listener is registered only once
@@ -283,6 +389,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
     let debounceTimer: number | undefined;
 
     listen("file-change", () => {
+      if (!gitEnabledRef.current) return;
+
       // Debounce git status refresh to avoid excessive calls
       if (debounceTimer) {
         clearTimeout(debounceTimer);
@@ -310,7 +418,10 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isSyncing,
       isAddingRemote,
       gitAvailable,
+      gitEnabled,
+      isUpdatingGitEnabled,
       lastError,
+      setGitEnabled,
       refreshStatus,
       initRepo,
       commit,
@@ -330,7 +441,10 @@ export function GitProvider({ children }: { children: ReactNode }) {
       isSyncing,
       isAddingRemote,
       gitAvailable,
+      gitEnabled,
+      isUpdatingGitEnabled,
       lastError,
+      setGitEnabled,
       refreshStatus,
       initRepo,
       commit,

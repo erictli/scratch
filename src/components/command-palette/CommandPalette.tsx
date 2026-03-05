@@ -89,7 +89,7 @@ export function CommandPalette({
     notesFolder,
   } = useNotes();
   const { theme, setTheme } = useTheme();
-  const { status, gitAvailable, commit, sync, isSyncing } = useGit();
+  const { status, gitAvailable, gitEnabled, commit, sync, isSyncing } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -305,8 +305,8 @@ export function CommandPalette({
       );
     }
 
-    // Add git commands if git is available and initialized
-    if (gitAvailable && status?.isRepo) {
+    // Add git commands when git integration is visible and initialized
+    if (gitEnabled && gitAvailable && status?.isRepo) {
       const hasChanges = (status?.changedCount ?? 0) > 0;
       const canSync = status?.hasRemote && status?.hasUpstream && !isSyncing;
 
@@ -438,6 +438,7 @@ export function CommandPalette({
     onOpenAiModal,
     setTheme,
     theme,
+    gitEnabled,
     gitAvailable,
     status,
     commit,
