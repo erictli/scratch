@@ -176,7 +176,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, [refreshNotes]);
 
   const consumePendingTitleFocus = useCallback((id: string) => {
-    if (!pendingTitleFocusRef.current || pendingTitleFocusRef.current.id !== id) {
+    if (!pendingTitleFocusRef.current) {
+      return null;
+    }
+
+    if (pendingTitleFocusRef.current.id !== id) {
+      pendingTitleFocusRef.current = null;
       return null;
     }
 

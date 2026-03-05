@@ -65,6 +65,7 @@ export function GeneralSettingsSection() {
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
   const [autoFocusNewNoteTitle, setAutoFocusNewNoteTitle] =
     useState<boolean>(false);
+  const [isUpdatingAutoFocus, setIsUpdatingAutoFocus] = useState(false);
 
   // Load template from settings on mount
   useEffect(() => {
@@ -119,10 +120,11 @@ export function GeneralSettingsSection() {
   };
 
   const handleToggleAutoFocusNewNoteTitle = async (enabled: boolean) => {
-    if (enabled === autoFocusNewNoteTitle) return;
+    if (isUpdatingAutoFocus || enabled === autoFocusNewNoteTitle) return;
 
     const previous = autoFocusNewNoteTitle;
     setAutoFocusNewNoteTitle(enabled);
+    setIsUpdatingAutoFocus(true);
 
     try {
       const settings = await invoke<Settings>("get_settings");
@@ -136,6 +138,8 @@ export function GeneralSettingsSection() {
       console.error("Failed to update title focus setting:", error);
       setAutoFocusNewNoteTitle(previous);
       toast.error("Failed to update setting");
+    } finally {
+      setIsUpdatingAutoFocus(false);
     }
   };
 
@@ -578,6 +582,7 @@ export function GeneralSettingsSection() {
                 onClick={() => handleToggleAutoFocusNewNoteTitle(false)}
                 variant={!autoFocusNewNoteTitle ? "primary" : "ghost"}
                 size="sm"
+                disabled={isUpdatingAutoFocus}
               >
                 Off
               </Button>
@@ -585,6 +590,7 @@ export function GeneralSettingsSection() {
                 onClick={() => handleToggleAutoFocusNewNoteTitle(true)}
                 variant={autoFocusNewNoteTitle ? "primary" : "ghost"}
                 size="sm"
+                disabled={isUpdatingAutoFocus}
               >
                 On
               </Button>
