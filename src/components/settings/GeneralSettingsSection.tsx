@@ -45,6 +45,16 @@ function getRemoteWebUrl(url: string | null): string | null {
   return null;
 }
 
+function CliUsageHint() {
+  return (
+    <p className="text-sm text-text-muted font-mono">
+      scratch file.md # open note<br />
+      scratch . # open folder<br />
+      scratch # launch app
+    </p>
+  );
+}
+
 export function GeneralSettingsSection() {
   const { notesFolder, setNotesFolder } = useNotes();
   const { reloadSettings } = useTheme();
@@ -627,11 +637,7 @@ export function GeneralSettingsSection() {
                 </div>
               )}
               <div className="pt-3 border-t border-border border-dashed">
-                <p className="text-sm text-text-muted font-mono">
-                  scratch file.md &nbsp;# open note<br />
-                  scratch . &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# open folder<br />
-                  scratch &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# launch app
-                </p>
+                <CliUsageHint />
               </div>
             </div>
             <Button
@@ -653,11 +659,7 @@ export function GeneralSettingsSection() {
         ) : (
           <>
             <div className="flex items-center gap-2.5 p-2.5 rounded-[10px] border border-border mb-2.5">
-              <p className="text-sm text-text-muted font-mono">
-                scratch file.md &nbsp;# open note<br />
-                scratch . &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# open folder<br />
-                scratch &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# launch app
-              </p>
+              <CliUsageHint />
             </div>
             <Button
               onClick={handleInstallCli}

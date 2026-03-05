@@ -311,14 +311,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   // Listen for set-notes-folder event from CLI (scratch .)
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | undefined;
-    listen<string>("set-notes-folder", async (event) => {
-      await setNotesFolder(event.payload);
+    listen<string>("set-notes-folder", (event) => {
+      setNotesFolder(event.payload);
     }).then((fn) => {
-      unlisten = fn;
+      if (cancelled) fn();
+      else unlisten = fn;
     });
     return () => {
-      if (unlisten) unlisten();
+      cancelled = true;
+      unlisten?.();
     };
   }, [setNotesFolder]);
 
