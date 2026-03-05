@@ -2312,7 +2312,7 @@ fn install_cli() -> Result<String, String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        use std::os::unix::fs::symlink;
+        use std::os::unix::fs::PermissionsExt;
 
         let target = cli_target_path();
 
@@ -2329,8 +2329,21 @@ fn install_cli() -> Result<String, String> {
         let exe_path = std::env::current_exe()
             .map_err(|e| format!("Cannot find exe path: {}", e))?;
 
-        symlink(&exe_path, &target)
-            .map_err(|e| format!("Failed to create symlink: {}", e))?;
+        // Write a wrapper script that launches the binary in the background so
+        // the terminal is not blocked waiting for the GUI app to exit.
+        let script = format!(
+            "#!/bin/sh\nnohup \"{}\" \"$@\" >/dev/null 2>&1 &\n",
+            exe_path.to_string_lossy()
+        );
+        std::fs::write(&target, script.as_bytes())
+            .map_err(|e| format!("Failed to write CLI script: {}", e))?;
+
+        let mut perms = std::fs::metadata(&target)
+            .map_err(|e| format!("Failed to read permissions: {}", e))?
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&target, perms)
+            .map_err(|e| format!("Failed to set permissions: {}", e))?;
 
         Ok(target.to_string_lossy().into_owned())
     }
