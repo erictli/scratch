@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type AiProvider = "claude" | "codex" | "ollama";
+export type AiProvider = "claude" | "codex" | "opencode" | "ollama";
 
 export interface AiExecutionResult {
   success: boolean;
@@ -28,6 +28,17 @@ export async function executeCodexEdit(
   prompt: string
 ): Promise<AiExecutionResult> {
   return invoke("ai_execute_codex", { filePath, prompt });
+}
+
+export async function checkOpenCodeCli(): Promise<boolean> {
+  return invoke("ai_check_opencode_cli");
+}
+
+export async function executeOpenCodeEdit(
+  filePath: string,
+  prompt: string
+): Promise<AiExecutionResult> {
+  return invoke("ai_execute_opencode", { filePath, prompt });
 }
 
 export async function checkOllamaCli(): Promise<boolean> {

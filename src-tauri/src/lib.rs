@@ -2127,6 +2127,7 @@ fn get_expanded_path() -> String {
         format!("{home}/.local/share/mise/installs/node"),
     ];
     let static_dirs = vec![
+        format!("{home}/.bun/bin"),
         format!("{home}/.volta/bin"),
         format!("{home}/.local/bin"),
         "/usr/local/bin".to_string(),
@@ -2208,6 +2209,16 @@ async fn ai_check_codex_cli() -> Result<bool, String> {
     .map_err(|e| format!("Failed to check Codex CLI: {}", e))?
 }
 
+#[tauri::command]
+async fn ai_check_opencode_cli() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let path = get_expanded_path();
+        check_cli_exists("opencode", &path)
+    })
+    .await
+    .map_err(|e| format!("Failed to check OpenCode CLI: {}", e))?
+}
+
 /// Shared AI CLI execution: spawns `command` with `args`, writes `stdin_input` to stdin,
 /// and returns the result with a 5-minute timeout.
 async fn execute_ai_cli(
@@ -2216,6 +2227,8 @@ async fn execute_ai_cli(
     args: Vec<String>,
     stdin_input: String,
     not_found_msg: String,
+    current_dir: Option<String>,
+    extra_env: Option<Vec<(String, String)>>,
 ) -> Result<AiExecutionResult, String> {
     use std::io::Write;
     use std::process::{Child, Stdio};
@@ -2249,6 +2262,14 @@ async fn execute_ai_cli(
 
         let mut cmd = no_window_cmd(&command);
         cmd.env("PATH", &path);
+        if let Some(dir) = &current_dir {
+            cmd.current_dir(dir);
+        }
+        if let Some(env_pairs) = &extra_env {
+            for (key, value) in env_pairs {
+                cmd.env(key, value);
+            }
+        }
         for arg in &args {
             cmd.arg(arg);
         }
@@ -2444,6 +2465,8 @@ async fn ai_execute_claude(
         ],
         prompt,
         "Claude CLI not found. Please install it from https://claude.ai/code".to_string(),
+        None,
+        None,
     )
     .await
 }
@@ -2469,6 +2492,66 @@ async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecuti
         ],
         stdin_input,
         "Codex CLI not found. Please install it from https://github.com/openai/codex".to_string(),
+        None,
+        None,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn ai_execute_opencode(
+    file_path: String,
+    prompt: String,
+    state: State<'_, AppState>,
+) -> Result<AiExecutionResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+    };
+    let path = PathBuf::from(&file_path);
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !ext.eq_ignore_ascii_case("md") && !ext.eq_ignore_ascii_case("markdown") {
+        return Err("AI editing is only supported for markdown files".to_string());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "Invalid file path".to_string())?;
+    let notes_root = PathBuf::from(&folder)
+        .canonicalize()
+        .map_err(|_| "Invalid notes folder".to_string())?;
+    if !canonical.starts_with(&notes_root) {
+        return Err("File must be within notes folder".to_string());
+    }
+
+    let run_prompt = format!(
+        "Edit only this markdown file: {}\n\
+         Apply the user's instructions below directly to that file.\n\
+         Do not create, delete, rename, or modify any other files.\n\
+         User instructions:\n\
+         {}",
+        canonical.to_string_lossy(),
+        prompt
+    );
+
+    execute_ai_cli(
+        "OpenCode",
+        "opencode".to_string(),
+        vec![
+            "run".to_string(),
+            "--file".to_string(),
+            canonical.to_string_lossy().to_string(),
+            "--".to_string(),
+            run_prompt,
+        ],
+        String::new(),
+        "OpenCode CLI not found. Please install it from https://opencode.ai".to_string(),
+        Some(notes_root.to_string_lossy().to_string()),
+        Some(vec![
+            (
+                "OPENCODE_PERMISSION".to_string(),
+                "{\"*\":\"allow\",\"external_directory\":\"allow\",\"doom_loop\":\"allow\"}".to_string(),
+            ),
+        ]),
     )
     .await
 }
@@ -2567,6 +2650,8 @@ async fn ai_execute_ollama(
         vec!["run".to_string(), model_name.clone()],
         stdin_input,
         "Ollama CLI not found. Please install it from https://ollama.com".to_string(),
+        None,
+        None,
     )
     .await?;
 
@@ -2941,9 +3026,11 @@ pub fn run() {
             git_push_with_upstream,
             ai_check_claude_cli,
             ai_check_codex_cli,
+            ai_check_opencode_cli,
             ai_check_ollama_cli,
             ai_execute_claude,
             ai_execute_codex,
+            ai_execute_opencode,
             ai_execute_ollama,
             read_file_direct,
             save_file_direct,
