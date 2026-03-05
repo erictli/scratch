@@ -13,6 +13,7 @@ import { useNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
 import * as notesService from "../../services/notes";
+import * as aiService from "../../services/ai";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import type { Settings } from "../../types/note";
 import type { Editor } from "@tiptap/react";
@@ -88,7 +89,7 @@ export function CommandPalette({
     unpinNote,
     notesFolder,
   } = useNotes();
-  const { theme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
   const { status, gitAvailable, commit, sync, isSyncing } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -98,6 +99,9 @@ export function CommandPalette({
     { id: string; title: string; preview: string; modified: number }[]
   >([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [availableAiProviders, setAvailableAiProviders] = useState<
+    AiProvider[]
+  >([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -106,6 +110,32 @@ export function CommandPalette({
     if (open) {
       notesService.getSettings().then(setSettings);
     }
+  }, [open, currentNote?.id]);
+
+  useEffect(() => {
+    if (!open || !currentNote) {
+      setAvailableAiProviders([]);
+      return;
+    }
+
+    let active = true;
+    aiService
+      .getAvailableAiProviders()
+      .then((providers) => {
+        if (active) {
+          setAvailableAiProviders(providers);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          console.error("Failed to discover AI providers:", error);
+          setAvailableAiProviders([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [open, currentNote?.id]);
 
   // Memoize commands array
@@ -127,6 +157,39 @@ export function CommandPalette({
     if (currentNote) {
       const isPinned =
         settings?.pinnedNoteIds?.includes(currentNote.id) || false;
+      const aiCommands: Command[] = onOpenAiModal
+        ? availableAiProviders.map((provider) => {
+            const action = () => {
+              onOpenAiModal(provider);
+              onClose();
+            };
+
+            if (provider === "codex") {
+              return {
+                id: "ai-edit-codex",
+                label: "Edit with OpenAI Codex",
+                icon: <CodexIcon className="w-4.5 h-4.5 fill-text-muted" />,
+                action,
+              };
+            }
+
+            if (provider === "ollama") {
+              return {
+                id: "ai-edit-ollama",
+                label: "Edit with Ollama",
+                icon: <OllamaIcon className="w-4.5 h-4.5 fill-text-muted" />,
+                action,
+              };
+            }
+
+            return {
+              id: "ai-edit-claude",
+              label: "Edit with Claude Code",
+              icon: <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted" />,
+              action,
+            };
+          })
+        : [];
 
       baseCommands.push(
         {
@@ -147,33 +210,7 @@ export function CommandPalette({
             }
           },
         },
-        {
-          id: "ai-edit",
-          label: "Edit with Claude Code",
-          icon: <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted" />,
-          action: () => {
-            onOpenAiModal?.("claude");
-            onClose();
-          },
-        },
-        {
-          id: "ai-edit-codex",
-          label: "Edit with OpenAI Codex",
-          icon: <CodexIcon className="w-4.5 h-4.5 fill-text-muted" />,
-          action: () => {
-            onOpenAiModal?.("codex");
-            onClose();
-          },
-        },
-        {
-          id: "ai-edit-ollama",
-          label: "Edit with Ollama",
-          icon: <OllamaIcon className="w-4.5 h-4.5 fill-text-muted" />,
-          action: () => {
-            onOpenAiModal?.("ollama");
-            onClose();
-          },
-        },
+        ...aiCommands,
         {
           id: "duplicate-note",
           label: "Duplicate Current Note",
@@ -436,8 +473,8 @@ export function CommandPalette({
     onClose,
     onOpenSettings,
     onOpenAiModal,
+    availableAiProviders,
     setTheme,
-    theme,
     gitAvailable,
     status,
     commit,
