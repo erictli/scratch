@@ -44,7 +44,10 @@ function isAllowedUrlScheme(url: string): boolean {
 }
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
-import { useOptionalNotes } from "../../context/NotesContext";
+import {
+  useOptionalNotes,
+  type NewNoteTitleFocusMode,
+} from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Frontmatter } from "./Frontmatter";
 import { BlockMathEditor } from "./BlockMathEditor";
@@ -105,6 +108,50 @@ function formatDateTime(timestamp: number): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function focusNewNoteTitle(
+  editor: TiptapEditor,
+  mode: NewNoteTitleFocusMode,
+): boolean {
+  let titleFrom = -1;
+  let titleTo = -1;
+
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "heading" || node.attrs.level !== 1) {
+      return true;
+    }
+
+    titleFrom = pos + 1;
+    titleTo = pos + node.nodeSize - 1;
+
+    return false;
+  });
+
+  if (titleFrom < 0 || titleTo < 0) {
+    return false;
+  }
+
+  if (mode === "append") {
+    editor.chain().focus().setTextSelection(titleTo).run();
+    return true;
+  }
+
+  if (titleFrom === titleTo) {
+    editor.chain().focus().setTextSelection(titleFrom).run();
+    return true;
+  }
+
+  editor
+    .chain()
+    .focus()
+    .setTextSelection({
+      from: titleFrom,
+      to: titleTo,
+    })
+    .run();
+
+  return true;
 }
 
 // Standard number-field shortcuts for KaTeX (shared between inline and block math)
@@ -440,6 +487,7 @@ export function Editor({
     : notesCtx!.saveNote;
 
   const createNote = notesCtx?.createNote;
+  const consumePendingTitleFocus = notesCtx?.consumePendingTitleFocus;
   const hasExternalChanges = previewMode
     ? previewMode.hasExternalChanges
     : notesCtx!.hasExternalChanges;
@@ -1345,6 +1393,14 @@ export function Editor({
 
       isLoadingRef.current = false;
 
+      const pendingTitleFocusMode = consumePendingTitleFocus?.(loadingNoteId);
+      if (pendingTitleFocusMode) {
+        if (!focusNewNoteTitle(editor, pendingTitleFocusMode)) {
+          editor.commands.focus("start");
+        }
+        return;
+      }
+
       // For brand new empty notes, focus and select all so user can start typing
       if ((isNewNote || wasEmpty) && currentNote.content.trim() === "") {
         editor.commands.focus("start");
@@ -1352,7 +1408,13 @@ export function Editor({
       }
       // For existing notes, don't auto-focus - let user click where they want
     });
-  }, [currentNote, editor, flushPendingSave, reloadVersion]);
+  }, [
+    currentNote,
+    editor,
+    flushPendingSave,
+    reloadVersion,
+    consumePendingTitleFocus,
+  ]);
 
   // Scroll to top on mount (e.g., when returning from settings)
   useEffect(() => {

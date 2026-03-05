@@ -13,6 +13,18 @@ import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
 
+export type NewNoteTitleFocusMode = "replace" | "append";
+
+const NOTE_NAME_DYNAMIC_TAG_REGEX =
+  /\{(?:timestamp|date|time|year|month|day|counter)\}/;
+
+function getNewNoteTitleFocusMode(
+  template: string | null | undefined,
+): NewNoteTitleFocusMode {
+  if (!template) return "replace";
+  return NOTE_NAME_DYNAMIC_TAG_REGEX.test(template) ? "append" : "replace";
+}
+
 // Separate contexts to prevent unnecessary re-renders
 // Data context: changes frequently, only subscribed by components that need the data
 interface NotesDataContextValue {
@@ -33,6 +45,7 @@ interface NotesDataContextValue {
 interface NotesActionsContextValue {
   selectNote: (id: string) => Promise<void>;
   createNote: () => Promise<void>;
+  consumePendingTitleFocus: (id: string) => NewNoteTitleFocusMode | null;
   saveNote: (content: string, noteId?: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   duplicateNote: (id: string) => Promise<void>;
@@ -72,8 +85,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   // Ref to access notes in search callback without re-creating it on every notes change
   const notesRef = useRef<NoteMetadata[]>([]);
   notesRef.current = notes;
+  // Monotonic counter to ignore stale async note selection responses.
+  const selectRequestIdRef = useRef(0);
   // Monotonic counter to ignore stale async search responses
   const searchRequestIdRef = useRef(0);
+  // Tracks whether the next loaded note title should be replaced or appended on focus.
+  const pendingTitleFocusRef = useRef<{
+    id: string;
+    mode: NewNoteTitleFocusMode;
+  } | null>(null);
 
   const refreshNotes = useCallback(async () => {
     if (!notesFolder) return;
@@ -97,13 +117,19 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, [refreshNotes]);
 
   const selectNote = useCallback(async (id: string) => {
+    const requestId = ++selectRequestIdRef.current;
     try {
+      if (pendingTitleFocusRef.current?.id !== id) {
+        pendingTitleFocusRef.current = null;
+      }
       // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
       setHasExternalChanges(false);
       const note = await notesService.readNote(id);
+      if (requestId !== selectRequestIdRef.current) return;
       setCurrentNote(note);
     } catch (err) {
+      if (requestId !== selectRequestIdRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load note");
     }
   }, []);
@@ -122,7 +148,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const createNote = useCallback(async () => {
     try {
+      const settingsPromise = notesService.getSettings().catch(() => null);
       const note = await notesService.createNote();
+      const settings = await settingsPromise;
+      selectRequestIdRef.current += 1;
+      const shouldAutoFocusTitle = settings?.autoFocusNewNoteTitle === true;
+      pendingTitleFocusRef.current = shouldAutoFocusTitle
+        ? {
+            id: note.id,
+            mode: getNewNoteTitleFocusMode(settings?.defaultNoteName),
+          }
+        : null;
       // Mark as recently saved to ignore file-change events from our own creation
       recentlySavedRef.current.add(note.id);
       await refreshNotes();
@@ -138,6 +174,21 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setError(err instanceof Error ? err.message : "Failed to create note");
     }
   }, [refreshNotes]);
+
+  const consumePendingTitleFocus = useCallback((id: string) => {
+    if (!pendingTitleFocusRef.current) {
+      return null;
+    }
+
+    if (pendingTitleFocusRef.current.id !== id) {
+      pendingTitleFocusRef.current = null;
+      return null;
+    }
+
+    const mode = pendingTitleFocusRef.current.mode;
+    pendingTitleFocusRef.current = null;
+    return mode;
+  }, []);
 
   const saveNote = useCallback(
     async (content: string, noteId?: string) => {
@@ -241,6 +292,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       try {
         const newNote = await notesService.duplicateNote(id);
+        selectRequestIdRef.current += 1;
         // Mark as recently saved to ignore file-change events from our own creation
         recentlySavedRef.current.add(newNote.id);
         await refreshNotes();
@@ -491,6 +543,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     () => ({
       selectNote,
       createNote,
+      consumePendingTitleFocus,
       saveNote,
       deleteNote,
       duplicateNote,
@@ -505,6 +558,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [
       selectNote,
       createNote,
+      consumePendingTitleFocus,
       saveNote,
       deleteNote,
       duplicateNote,

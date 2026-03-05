@@ -38,6 +38,7 @@ export interface Settings {
   editorWidth?: EditorWidth;
   customEditorWidthPx?: number;
   defaultNoteName?: string;
+  autoFocusNewNoteTitle?: boolean;
   interfaceZoom?: number;
   ollamaModel?: string;
 }

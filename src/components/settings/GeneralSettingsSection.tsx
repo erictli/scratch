@@ -63,6 +63,9 @@ export function GeneralSettingsSection() {
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
+  const [autoFocusNewNoteTitle, setAutoFocusNewNoteTitle] =
+    useState<boolean>(false);
+  const [isUpdatingAutoFocus, setIsUpdatingAutoFocus] = useState(false);
 
   // Load template from settings on mount
   useEffect(() => {
@@ -71,6 +74,7 @@ export function GeneralSettingsSection() {
         const settings = await invoke<Settings>("get_settings");
         const template = settings.defaultNoteName || "Untitled";
         setNoteTemplate(template);
+        setAutoFocusNewNoteTitle(settings.autoFocusNewNoteTitle ?? false);
 
         // Update preview
         const preview = await invoke<string>("preview_note_name", { template });
@@ -112,6 +116,30 @@ export function GeneralSettingsSection() {
     } catch (error) {
       console.error("Failed to save default name:", error);
       toast.error("Failed to save default name");
+    }
+  };
+
+  const handleToggleAutoFocusNewNoteTitle = async (enabled: boolean) => {
+    if (isUpdatingAutoFocus || enabled === autoFocusNewNoteTitle) return;
+
+    const previous = autoFocusNewNoteTitle;
+    setAutoFocusNewNoteTitle(enabled);
+    setIsUpdatingAutoFocus(true);
+
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: {
+          ...settings,
+          autoFocusNewNoteTitle: enabled ? true : undefined,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to update title focus setting:", error);
+      setAutoFocusNewNoteTitle(previous);
+      toast.error("Failed to update setting");
+    } finally {
+      setIsUpdatingAutoFocus(false);
     }
   };
 
@@ -544,6 +572,30 @@ export function GeneralSettingsSection() {
               </p>
             </div>
           </details>
+
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-text">
+              Auto-focus title on new note
+            </h3>
+            <div className="flex gap-1 p-1 rounded-[10px] border border-border">
+              <Button
+                onClick={() => handleToggleAutoFocusNewNoteTitle(false)}
+                variant={!autoFocusNewNoteTitle ? "primary" : "ghost"}
+                size="sm"
+                disabled={isUpdatingAutoFocus}
+              >
+                Off
+              </Button>
+              <Button
+                onClick={() => handleToggleAutoFocusNewNoteTitle(true)}
+                variant={autoFocusNewNoteTitle ? "primary" : "ghost"}
+                size="sm"
+                disabled={isUpdatingAutoFocus}
+              >
+                On
+              </Button>
+            </div>
+          </div>
         </div>
       </section>
     </div>

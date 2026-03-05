@@ -103,6 +103,8 @@ pub struct Settings {
     pub editor_width: Option<String>,
     #[serde(rename = "defaultNoteName")]
     pub default_note_name: Option<String>,
+    #[serde(rename = "autoFocusNewNoteTitle")]
+    pub auto_focus_new_note_title: Option<bool>,
     #[serde(rename = "interfaceZoom")]
     pub interface_zoom: Option<f32>,
     #[serde(rename = "customEditorWidthPx")]
