@@ -15,6 +15,8 @@ import {
   ChevronRightIcon,
 } from "../icons";
 import type { Settings } from "../../types/note";
+import * as cliService from "../../services/cli";
+import type { CliStatus } from "../../services/cli";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -63,6 +65,12 @@ export function GeneralSettingsSection() {
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
+  const [cliStatus, setCliStatus] = useState<CliStatus | null>(null);
+  const [cliLoading, setCliLoading] = useState(false);
+
+  useEffect(() => {
+    cliService.getCliStatus().then(setCliStatus).catch(console.error);
+  }, []);
 
   // Load template from settings on mount
   useEffect(() => {
@@ -182,6 +190,38 @@ export function GeneralSettingsSection() {
     setShowRemoteInput(false);
     setRemoteUrl("");
     clearError();
+  };
+
+  const handleInstallCli = async () => {
+    setCliLoading(true);
+    try {
+      await cliService.installCli();
+      const status = await cliService.getCliStatus();
+      setCliStatus(status);
+      toast.success("CLI tool installed. Open a new terminal to use `scratch`.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to install CLI tool"
+      );
+    } finally {
+      setCliLoading(false);
+    }
+  };
+
+  const handleUninstallCli = async () => {
+    setCliLoading(true);
+    try {
+      await cliService.uninstallCli();
+      const status = await cliService.getCliStatus();
+      setCliStatus(status);
+      toast.success("CLI tool uninstalled.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to uninstall CLI tool"
+      );
+    } finally {
+      setCliLoading(false);
+    }
   };
 
   return (
@@ -545,6 +585,87 @@ export function GeneralSettingsSection() {
             </div>
           </details>
         </div>
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* CLI Tool */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">CLI Tool</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Open notes from the terminal with the{" "}
+          <code className="font-mono text-xs bg-bg-muted px-1.5 py-0.5 rounded">
+            scratch
+          </code>{" "}
+          command
+        </p>
+
+        {cliStatus === null ? (
+          <div className="rounded-[10px] border border-border p-4 flex items-center justify-center">
+            <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin text-text-muted" />
+          </div>
+        ) : cliStatus.installed ? (
+          <div className="rounded-[10px] border border-border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-text font-medium">Status</span>
+              <span className="text-sm text-text-muted">Installed</span>
+            </div>
+            {cliStatus.path && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-text font-medium">Path</span>
+                <code className="text-xs font-mono text-text-muted bg-bg-muted px-2 py-0.5 rounded max-w-48 truncate">
+                  {cliStatus.path}
+                </code>
+              </div>
+            )}
+            <div className="pt-3 border-t border-border border-dashed">
+              <p className="text-sm text-text-muted mb-3 font-mono">
+                scratch file.md &nbsp;# open note<br />
+                scratch . &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# open folder<br />
+                scratch &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# launch app
+              </p>
+              <Button
+                onClick={handleUninstallCli}
+                disabled={cliLoading}
+                variant="outline"
+                size="md"
+              >
+                {cliLoading ? (
+                  <>
+                    <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
+                    Uninstalling...
+                  </>
+                ) : (
+                  "Uninstall CLI Tool"
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-bg-secondary rounded-[10px] border border-border p-4">
+            <p className="text-sm text-text-muted mb-3 font-mono">
+              scratch file.md &nbsp;# open note<br />
+              scratch . &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# open folder<br />
+              scratch &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# launch app
+            </p>
+            <Button
+              onClick={handleInstallCli}
+              disabled={cliLoading}
+              variant="outline"
+              size="md"
+            >
+              {cliLoading ? (
+                <>
+                  <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
+                  Installing...
+                </>
+              ) : (
+                "Install CLI Tool"
+              )}
+            </Button>
+          </div>
+        )}
       </section>
     </div>
   );
