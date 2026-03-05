@@ -612,49 +612,53 @@ export function GeneralSettingsSection() {
             <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin text-text-muted" />
           </div>
         ) : cliStatus.installed ? (
-          <div className="rounded-[10px] border border-border p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-text font-medium">Status</span>
-              <span className="text-sm text-text-muted">Installed</span>
-            </div>
-            {cliStatus.path && (
+          <>
+            <div className="rounded-[10px] border border-border p-4 space-y-3 mb-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-text font-medium">Path</span>
-                <code className="text-xs font-mono text-text-muted bg-bg-muted px-2 py-0.5 rounded max-w-48 truncate">
-                  {cliStatus.path}
-                </code>
+                <span className="text-sm text-text font-medium">Status</span>
+                <span className="text-sm text-text-muted">Installed</span>
               </div>
-            )}
-            <div className="pt-3 border-t border-border border-dashed">
-              <p className="text-sm text-text-muted mb-3 font-mono">
+              {cliStatus.path && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text font-medium">Path</span>
+                  <code className="text-xs font-mono text-text-muted bg-bg-muted px-2 py-0.5 rounded max-w-48 truncate">
+                    {cliStatus.path}
+                  </code>
+                </div>
+              )}
+              <div className="pt-3 border-t border-border border-dashed">
+                <p className="text-sm text-text-muted font-mono">
+                  scratch file.md &nbsp;# open note<br />
+                  scratch . &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# open folder<br />
+                  scratch &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# launch app
+                </p>
+              </div>
+            </div>
+            <Button
+              onClick={handleUninstallCli}
+              disabled={cliLoading}
+              variant="outline"
+              size="md"
+            >
+              {cliLoading ? (
+                <>
+                  <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
+                  Uninstalling...
+                </>
+              ) : (
+                "Uninstall CLI Tool"
+              )}
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2.5 p-2.5 rounded-[10px] border border-border mb-2.5">
+              <p className="text-sm text-text-muted font-mono">
                 scratch file.md &nbsp;# open note<br />
                 scratch . &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# open folder<br />
                 scratch &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# launch app
               </p>
-              <Button
-                onClick={handleUninstallCli}
-                disabled={cliLoading}
-                variant="outline"
-                size="md"
-              >
-                {cliLoading ? (
-                  <>
-                    <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
-                    Uninstalling...
-                  </>
-                ) : (
-                  "Uninstall CLI Tool"
-                )}
-              </Button>
             </div>
-          </div>
-        ) : (
-          <div className="bg-bg-secondary rounded-[10px] border border-border p-4">
-            <p className="text-sm text-text-muted mb-3 font-mono">
-              scratch file.md &nbsp;# open note<br />
-              scratch . &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# open folder<br />
-              scratch &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# launch app
-            </p>
             <Button
               onClick={handleInstallCli}
               disabled={cliLoading}
@@ -670,7 +674,7 @@ export function GeneralSettingsSection() {
                 "Install CLI Tool"
               )}
             </Button>
-          </div>
+          </>
         )}
       </section>
     </div>
