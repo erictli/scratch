@@ -232,6 +232,16 @@ export function NoteList() {
       window.removeEventListener("focus-note-list", handleFocusNoteList);
   }, []);
 
+  // Scroll selected note into view on keyboard navigation
+  useEffect(() => {
+    if (selectedNoteId && containerRef.current) {
+      const selectedItem = containerRef.current.querySelector(
+        `[data-note-id="${CSS.escape(selectedNoteId)}"]`,
+      );
+      selectedItem?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [selectedNoteId]);
+
   if (isLoading && notes.length === 0) {
     return (
       <div className="p-4 text-center text-text-muted select-none">
@@ -264,17 +274,18 @@ export function NoteList() {
         className="flex flex-col gap-1 p-1.5 outline-none"
       >
         {displayItems.map((item) => (
-          <NoteItem
-            key={item.id}
-            id={item.id}
-            title={item.title}
-            preview={item.preview}
-            modified={item.modified}
-            isSelected={selectedNoteId === item.id}
-            isPinned={pinnedIds.has(item.id)}
-            onSelect={selectNote}
-            onContextMenu={handleContextMenu}
-          />
+          <div key={item.id} data-note-id={item.id}>
+            <NoteItem
+              id={item.id}
+              title={item.title}
+              preview={item.preview}
+              modified={item.modified}
+              isSelected={selectedNoteId === item.id}
+              isPinned={pinnedIds.has(item.id)}
+              onSelect={selectNote}
+              onContextMenu={handleContextMenu}
+            />
+          </div>
         ))}
       </div>
 
