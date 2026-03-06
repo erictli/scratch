@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { SpinnerIcon, ClaudeIcon, CodexIcon, OllamaIcon } from "../icons";
+import {
+  SpinnerIcon,
+  ClaudeIcon,
+  CodexIcon,
+  OpenCodeIcon,
+  OllamaIcon,
+} from "../icons";
 import * as aiService from "../../services/ai";
 import type { AiProvider } from "../../services/ai";
 import type { Settings } from "../../types/note";
@@ -30,24 +36,32 @@ export function AiEditModal({
   const ProviderIcon =
     provider === "codex"
       ? CodexIcon
+      : provider === "opencode"
+        ? OpenCodeIcon
       : provider === "ollama"
         ? OllamaIcon
         : ClaudeIcon;
   const providerName =
     provider === "codex"
       ? "Codex"
+      : provider === "opencode"
+        ? "OpenCode"
       : provider === "ollama"
         ? "Ollama"
         : "Claude";
   const cliName =
     provider === "codex"
       ? "OpenAI Codex CLI"
+      : provider === "opencode"
+        ? "OpenCode CLI"
       : provider === "ollama"
         ? "Ollama CLI"
         : "Claude Code CLI";
   const installUrl =
     provider === "codex"
       ? "https://github.com/openai/codex"
+      : provider === "opencode"
+        ? "https://opencode.ai"
       : provider === "ollama"
         ? "https://ollama.com"
         : "https://code.claude.com/docs/en/quickstart";
@@ -66,6 +80,8 @@ export function AiEditModal({
     const checkCli =
       provider === "codex"
         ? aiService.checkCodexCli
+        : provider === "opencode"
+          ? aiService.checkOpenCodeCli
         : provider === "ollama"
           ? aiService.checkOllamaCli
           : aiService.checkClaudeCli;

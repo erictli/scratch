@@ -1,4 +1,4 @@
-import { ClaudeIcon, CodexIcon, OllamaIcon } from "../icons";
+import { ClaudeIcon, CodexIcon, OpenCodeIcon, OllamaIcon } from "../icons";
 import { mod } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
 
@@ -211,6 +211,8 @@ export function AiResponseToast({ output, provider }: AiResponseToastProps) {
   const Icon =
     provider === "codex"
       ? CodexIcon
+      : provider === "opencode"
+        ? OpenCodeIcon
       : provider === "ollama"
         ? OllamaIcon
         : ClaudeIcon;
