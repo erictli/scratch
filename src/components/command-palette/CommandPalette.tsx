@@ -45,6 +45,7 @@ import {
   ZenIcon,
   MarkdownIcon,
   CodexIcon,
+  OpenCodeIcon,
   OllamaIcon,
   FolderIcon,
 } from "../icons";
@@ -169,6 +170,17 @@ export function CommandPalette({
                 id: "ai-edit-codex",
                 label: "Edit with OpenAI Codex",
                 icon: <CodexIcon className="w-4.5 h-4.5 fill-text-muted" />,
+                action,
+              };
+            }
+
+            if (provider === "opencode") {
+              return {
+                id: "ai-edit-opencode",
+                label: "Edit with OpenCode",
+                icon: (
+                  <OpenCodeIcon className="w-4.5 h-4.5 fill-text-muted" />
+                ),
                 action,
               };
             }

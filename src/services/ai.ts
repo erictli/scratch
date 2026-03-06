@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type AiProvider = "claude" | "codex" | "ollama";
+export type AiProvider = "claude" | "codex" | "opencode" | "ollama";
 export const AI_PROVIDER_ORDER: ReadonlyArray<AiProvider> = [
   "claude",
   "codex",
+  "opencode",
   "ollama",
 ];
 
@@ -35,6 +36,10 @@ export async function executeCodexEdit(
   return invoke("ai_execute_codex", { filePath, prompt });
 }
 
+export async function checkOpenCodeCli(): Promise<boolean> {
+  return invoke("ai_check_opencode_cli");
+}
+
 export async function checkOllamaCli(): Promise<boolean> {
   return invoke("ai_check_ollama_cli");
 }
@@ -42,6 +47,7 @@ export async function checkOllamaCli(): Promise<boolean> {
 const providerCheckers: Record<AiProvider, () => Promise<boolean>> = {
   claude: checkClaudeCli,
   codex: checkCodexCli,
+  opencode: checkOpenCodeCli,
   ollama: checkOllamaCli,
 };
 
