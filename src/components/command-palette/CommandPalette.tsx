@@ -30,6 +30,7 @@ import {
 import { cleanTitle } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { duplicateNote } from "../../services/notes";
+import { insertObsidianFrontmatter } from "../editor/frontmatterUtils";
 import {
   CopyIcon,
   DownloadIcon,
@@ -46,6 +47,8 @@ import {
   CodexIcon,
   OllamaIcon,
   FolderIcon,
+  FolderPlusIcon,
+  FoldersIcon,
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
@@ -87,8 +90,15 @@ export function CommandPalette({
     pinNote,
     unpinNote,
     notesFolder,
+    vaults,
+    recentVaults,
+    activeVault,
+    switchVault,
+    toggleFavoriteVault,
+    openVaultInNewWindow,
+    addVault,
   } = useNotes();
-  const { theme, setTheme } = useTheme();
+  const { setTheme, setEditorWidth } = useTheme();
   const { status, gitAvailable, commit, sync, isSyncing } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -199,6 +209,20 @@ export function CommandPalette({
           },
         },
         {
+          id: "reveal-current-note",
+          label: "Reveal Current Note in Finder",
+          icon: <FolderIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              await invoke("open_in_file_manager", { path: currentNote.path });
+              onClose();
+            } catch (error) {
+              console.error("Failed to reveal note in file manager:", error);
+              toast.error("Failed to reveal note");
+            }
+          },
+        },
+        {
           id: "copy-markdown",
           label: "Copy Markdown",
           icon: <CopyIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
@@ -211,6 +235,26 @@ export function CommandPalette({
               console.error("Failed to copy markdown:", error);
               toast.error("Failed to copy");
             }
+          },
+        },
+        {
+          id: "insert-yaml-frontmatter",
+          label: "Insert YAML Frontmatter",
+          icon: <MarkdownIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: () => {
+            const editor = editorRef?.current;
+            if (!editor) {
+              toast.error("Editor not available");
+              return;
+            }
+
+            const result = insertObsidianFrontmatter(editor);
+            if (result === "exists") {
+              toast.info("Frontmatter already exists");
+            } else {
+              toast.success("Inserted YAML frontmatter");
+            }
+            onClose();
           },
         },
         {
@@ -385,6 +429,87 @@ export function CommandPalette({
           }
         },
       });
+
+      baseCommands.push({
+        id: "open-vault-new-window",
+        label: "Open Current Vault in New Window",
+        icon: <FoldersIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: async () => {
+          try {
+            await openVaultInNewWindow(notesFolder);
+            onClose();
+          } catch (error) {
+            console.error("Failed to open vault window:", error);
+            toast.error("Failed to open vault in new window");
+          }
+        },
+      });
+
+      baseCommands.push({
+        id: "add-vault",
+        label: "Add Vault...",
+        icon: <FolderPlusIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: async () => {
+          try {
+            const selected = await invoke<string | null>("open_folder_dialog", {
+              defaultPath: notesFolder || null,
+            });
+            if (selected) {
+              await addVault(selected);
+              toast.success("Vault added");
+            }
+            onClose();
+          } catch (error) {
+            console.error("Failed to add vault:", error);
+            toast.error("Failed to add vault");
+          }
+        },
+      });
+    }
+
+    if (activeVault) {
+      baseCommands.push({
+        id: "favorite-current-vault",
+        label: activeVault.isFavorite
+          ? "Unfavorite Current Vault"
+          : "Favorite Current Vault",
+        icon: <PinIcon className="w-5 h-5 stroke-[1.3]" />,
+        action: async () => {
+          try {
+            await toggleFavoriteVault(activeVault.id);
+            onClose();
+          } catch (error) {
+            console.error("Failed to update vault favorite:", error);
+            toast.error("Failed to update vault favorite");
+          }
+        },
+      });
+    }
+
+    if (vaults.length > 0) {
+      const recentIds = new Set(recentVaults.map((vault) => vault.id));
+      const orderedVaults = [
+        ...recentVaults,
+        ...vaults.filter((vault) => !recentIds.has(vault.id)),
+      ];
+
+      for (const vault of orderedVaults.slice(0, 10)) {
+        if (vault.path === notesFolder) continue;
+        baseCommands.push({
+          id: `switch-vault-${vault.id}`,
+          label: `Switch Vault: ${vault.name}${vault.isFavorite ? " ★" : ""}`,
+          icon: <FolderIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+          action: async () => {
+            try {
+              await switchVault(vault.path);
+              onClose();
+            } catch (error) {
+              console.error("Failed to switch vault:", error);
+              toast.error("Failed to switch vault");
+            }
+          },
+        });
+      }
     }
 
     // Settings and theme commands at the bottom
@@ -426,6 +551,33 @@ export function CommandPalette({
           onClose();
         },
       },
+      {
+        id: "width-normal",
+        label: "Set Page Width: Default",
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setEditorWidth("normal");
+          onClose();
+        },
+      },
+      {
+        id: "width-dynamic",
+        label: "Set Page Width: Almost Full",
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setEditorWidth("dynamic");
+          onClose();
+        },
+      },
+      {
+        id: "width-full",
+        label: "Set Page Width: Full Width",
+        icon: <SwatchIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          setEditorWidth("full");
+          onClose();
+        },
+      },
     );
 
     return baseCommands;
@@ -437,7 +589,6 @@ export function CommandPalette({
     onOpenSettings,
     onOpenAiModal,
     setTheme,
-    theme,
     gitAvailable,
     status,
     commit,
@@ -451,6 +602,14 @@ export function CommandPalette({
     focusMode,
     onToggleFocusMode,
     notesFolder,
+    vaults,
+    recentVaults,
+    activeVault,
+    switchVault,
+    toggleFavoriteVault,
+    openVaultInNewWindow,
+    addVault,
+    setEditorWidth,
   ]);
 
   // Debounced search using Tantivy (local state, doesn't affect sidebar)

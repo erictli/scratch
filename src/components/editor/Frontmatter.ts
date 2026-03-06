@@ -1,4 +1,6 @@
 import { Node, type JSONContent, type MarkdownToken } from "@tiptap/core";
+import { ReactNodeViewRenderer } from "@tiptap/react";
+import { FrontmatterView } from "./FrontmatterView";
 
 export const Frontmatter = Node.create({
   name: "frontmatter",
@@ -19,6 +21,10 @@ export const Frontmatter = Node.create({
       { ...HTMLAttributes, "data-frontmatter": "", class: "frontmatter" },
       ["code", 0],
     ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(FrontmatterView);
   },
 
   markdownTokenName: "frontmatter",

@@ -22,8 +22,10 @@ import {
   TableIcon,
   BracketsIcon,
   WorkflowIcon,
+  MarkdownIcon,
 } from "../icons";
 import { SlashCommandList, type SlashCommandListRef } from "./SlashCommandList";
+import { insertObsidianFrontmatter } from "./frontmatterUtils";
 
 export interface SlashCommandItem {
   title: string;
@@ -182,6 +184,15 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
     aliases: ["link", "note", "wikilink", "[["],
     command: (editor) => {
       editor.chain().focus().insertContent("[[").run();
+    },
+  },
+  {
+    title: "YAML Frontmatter",
+    description: "Insert metadata block at top",
+    icon: <MarkdownIcon />,
+    aliases: ["yaml", "frontmatter", "metadata", "properties"],
+    command: (editor) => {
+      insertObsidianFrontmatter(editor);
     },
   },
 ];
