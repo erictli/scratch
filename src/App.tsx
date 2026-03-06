@@ -1,6 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, useReducer } from "react";
 import { toast } from "sonner";
-import { NotesProvider, useNotes } from "./context/NotesContext";
+import {
+  NotesProvider,
+  useNotesData,
+  useNotesActions,
+} from "./context/NotesContext";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { GitProvider } from "./context/GitContext";
 import { TooltipProvider, Toaster } from "./components/ui";
@@ -26,6 +30,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as aiService from "./services/ai";
 import type { AiProvider } from "./services/ai";
+import { getDisplayItems } from "./lib/noteSelectors";
 
 // Detect preview mode from URL search params
 function getWindowMode(): {
@@ -46,59 +51,141 @@ function getWindowMode(): {
 
 type ViewState = "notes" | "settings";
 
+interface AppUiState {
+  paletteOpen: boolean;
+  view: ViewState;
+  sidebarVisible: boolean;
+  aiModalOpen: boolean;
+  aiEditing: boolean;
+  focusMode: boolean;
+  aiProvider: AiProvider;
+  openSidebarSearchSignal: number;
+  toggleSourceModeSignal: number;
+  focusNoteListSignal: number;
+  toggleAllFoldersSignal: number;
+}
+
+type AppUiAction =
+  | { type: "TOGGLE_SIDEBAR" }
+  | { type: "TOGGLE_SETTINGS" }
+  | { type: "CLOSE_SETTINGS" }
+  | { type: "OPEN_PALETTE" }
+  | { type: "CLOSE_PALETTE" }
+  | { type: "OPEN_AI_MODAL"; provider: AiProvider }
+  | { type: "CLOSE_AI_MODAL" }
+  | { type: "BACK_TO_PALETTE" }
+  | { type: "START_AI_EDIT" }
+  | { type: "FINISH_AI_EDIT" }
+  | { type: "TOGGLE_FOCUS_MODE"; canEnter: boolean }
+  | { type: "REQUEST_OPEN_SIDEBAR_SEARCH" }
+  | { type: "REQUEST_TOGGLE_SOURCE_MODE" }
+  | { type: "REQUEST_FOCUS_NOTE_LIST" }
+  | { type: "REQUEST_TOGGLE_ALL_FOLDERS" };
+
+const initialAppUiState: AppUiState = {
+  paletteOpen: false,
+  view: "notes",
+  sidebarVisible: true,
+  aiModalOpen: false,
+  aiEditing: false,
+  focusMode: false,
+  aiProvider: "claude",
+  openSidebarSearchSignal: 0,
+  toggleSourceModeSignal: 0,
+  focusNoteListSignal: 0,
+  toggleAllFoldersSignal: 0,
+};
+
+function appUiReducer(state: AppUiState, action: AppUiAction): AppUiState {
+  switch (action.type) {
+    case "TOGGLE_SIDEBAR":
+      return { ...state, sidebarVisible: !state.sidebarVisible };
+    case "TOGGLE_SETTINGS":
+      return {
+        ...state,
+        view: state.view === "settings" ? "notes" : "settings",
+      };
+    case "CLOSE_SETTINGS":
+      return { ...state, view: "notes" };
+    case "OPEN_PALETTE":
+      return { ...state, paletteOpen: true };
+    case "CLOSE_PALETTE":
+      return { ...state, paletteOpen: false };
+    case "OPEN_AI_MODAL":
+      return { ...state, aiProvider: action.provider, aiModalOpen: true };
+    case "CLOSE_AI_MODAL":
+      return { ...state, aiModalOpen: false };
+    case "BACK_TO_PALETTE":
+      return { ...state, aiModalOpen: false, paletteOpen: true };
+    case "START_AI_EDIT":
+      return { ...state, aiEditing: true };
+    case "FINISH_AI_EDIT":
+      return { ...state, aiEditing: false };
+    case "TOGGLE_FOCUS_MODE":
+      if (!state.focusMode && !action.canEnter) return state;
+      if (state.focusMode) {
+        return { ...state, focusMode: false, sidebarVisible: true };
+      }
+      return { ...state, focusMode: true };
+    case "REQUEST_OPEN_SIDEBAR_SEARCH":
+      return {
+        ...state,
+        sidebarVisible: true,
+        openSidebarSearchSignal: state.openSidebarSearchSignal + 1,
+      };
+    case "REQUEST_TOGGLE_SOURCE_MODE":
+      return {
+        ...state,
+        toggleSourceModeSignal: state.toggleSourceModeSignal + 1,
+      };
+    case "REQUEST_FOCUS_NOTE_LIST":
+      return { ...state, focusNoteListSignal: state.focusNoteListSignal + 1 };
+    case "REQUEST_TOGGLE_ALL_FOLDERS":
+      return {
+        ...state,
+        toggleAllFoldersSignal: state.toggleAllFoldersSignal + 1,
+      };
+    default:
+      return state;
+  }
+}
+
 function AppContent() {
   const {
     notesFolder,
     isLoading,
-    createNote,
     notes,
     selectedNoteId,
-    selectNote,
     searchQuery,
     searchResults,
-    reloadCurrentNote,
     currentNote,
-  } = useNotes();
+  } = useNotesData();
+  const { createNote, selectNote, reloadCurrentNote } = useNotesActions();
   const { interfaceZoom, setInterfaceZoom } = useTheme();
   const interfaceZoomRef = useRef(interfaceZoom);
   interfaceZoomRef.current = interfaceZoom;
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [view, setView] = useState<ViewState>("notes");
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [aiModalOpen, setAiModalOpen] = useState(false);
-  const [aiEditing, setAiEditing] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
-  const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
+  const [ui, dispatchUi] = useReducer(appUiReducer, initialAppUiState);
   const editorRef = useRef<TiptapEditor | null>(null);
 
   const toggleSidebar = useCallback(() => {
-    setSidebarVisible((prev) => !prev);
+    dispatchUi({ type: "TOGGLE_SIDEBAR" });
   }, []);
 
   const toggleFocusMode = useCallback(() => {
-    setFocusMode((prev) => {
-      // Don't enter focus mode without a selected note
-      if (!prev && !selectedNoteId) return prev;
-      if (prev) {
-        // Exiting focus mode — always restore sidebar
-        setSidebarVisible(true);
-      }
-      return !prev;
-    });
+    dispatchUi({ type: "TOGGLE_FOCUS_MODE", canEnter: Boolean(selectedNoteId) });
   }, [selectedNoteId]);
 
   const toggleSettings = useCallback(() => {
-    setView((prev) => (prev === "settings" ? "notes" : "settings"));
+    dispatchUi({ type: "TOGGLE_SETTINGS" });
   }, []);
 
   const closeSettings = useCallback(() => {
-    setView("notes");
+    dispatchUi({ type: "CLOSE_SETTINGS" });
   }, []);
 
   // Go back to command palette from AI modal
   const handleBackToPalette = useCallback(() => {
-    setAiModalOpen(false);
-    setPaletteOpen(true);
+    dispatchUi({ type: "BACK_TO_PALETTE" });
   }, []);
 
   // AI Edit handler
@@ -109,13 +196,13 @@ function AppContent() {
         return;
       }
 
-      setAiEditing(true);
+      dispatchUi({ type: "START_AI_EDIT" });
 
       try {
         let result: aiService.AiExecutionResult;
-        if (aiProvider === "codex") {
+        if (ui.aiProvider === "codex") {
           result = await aiService.executeCodexEdit(currentNote.path, prompt);
-        } else if (aiProvider === "ollama") {
+        } else if (ui.aiProvider === "ollama") {
           result = await aiService.executeOllamaEdit(
             currentNote.path,
             prompt,
@@ -131,17 +218,14 @@ function AppContent() {
         // Show results
         if (result.success) {
           // Close modal after success
-          setAiModalOpen(false);
+          dispatchUi({ type: "CLOSE_AI_MODAL" });
 
           // Show success toast with provider response
-          toast(
-            <AiResponseToast output={result.output} provider={aiProvider} />,
-            {
-              duration: Infinity,
-              closeButton: true,
-              className: "!min-w-[450px] !max-w-[600px]",
-            },
-          );
+          toast(<AiResponseToast output={result.output} provider={ui.aiProvider} />, {
+            duration: Infinity,
+            closeButton: true,
+            className: "!min-w-[450px] !max-w-[600px]",
+          });
         } else {
           toast.error(
             <div className="space-y-1">
@@ -157,16 +241,16 @@ function AppContent() {
           `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         );
       } finally {
-        setAiEditing(false);
+        dispatchUi({ type: "FINISH_AI_EDIT" });
       }
     },
-    [aiProvider, currentNote, reloadCurrentNote],
+    [currentNote, reloadCurrentNote, ui.aiProvider],
   );
 
-  // Memoize display items to prevent unnecessary recalculations
-  const displayItems = useMemo(() => {
-    return searchQuery.trim() ? searchResults : notes;
-  }, [searchQuery, searchResults, notes]);
+  const displayItems = useMemo(
+    () => getDisplayItems(notes, searchQuery, searchResults),
+    [notes, searchQuery, searchResults],
+  );
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -210,7 +294,7 @@ function AppContent() {
       }
 
       // Block all other shortcuts when in settings view
-      if (view === "settings") {
+      if (ui.view === "settings") {
         return;
       }
 
@@ -228,12 +312,12 @@ function AppContent() {
         e.key.toLowerCase() === "m"
       ) {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent("toggle-source-mode"));
+        dispatchUi({ type: "REQUEST_TOGGLE_SOURCE_MODE" });
         return;
       }
 
       // Escape exits focus mode when not in editor
-      if (e.key === "Escape" && focusMode && !isInEditor) {
+      if (e.key === "Escape" && ui.focusMode && !isInEditor) {
         e.preventDefault();
         toggleFocusMode();
         return;
@@ -249,7 +333,7 @@ function AppContent() {
       // Cmd+P - Open command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "p") {
         e.preventDefault();
-        setPaletteOpen(true);
+        dispatchUi({ type: "OPEN_PALETTE" });
         return;
       }
 
@@ -260,8 +344,7 @@ function AppContent() {
         e.key.toLowerCase() === "f"
       ) {
         e.preventDefault();
-        setSidebarVisible(true);
-        window.dispatchEvent(new CustomEvent("open-sidebar-search"));
+        dispatchUi({ type: "REQUEST_OPEN_SIDEBAR_SEARCH" });
         return;
       }
 
@@ -322,8 +405,7 @@ function AppContent() {
       if (e.key === "Escape" && isInEditor) {
         e.preventDefault();
         (target as HTMLElement).blur();
-        // Focus the note list for keyboard navigation
-        window.dispatchEvent(new CustomEvent("focus-note-list"));
+        dispatchUi({ type: "REQUEST_FOCUS_NOTE_LIST" });
         return;
       }
     };
@@ -356,13 +438,13 @@ function AppContent() {
     toggleSettings,
     toggleSidebar,
     toggleFocusMode,
-    focusMode,
-    view,
+    ui.focusMode,
+    ui.view,
     setInterfaceZoom,
   ]);
 
   const handleClosePalette = useCallback(() => {
-    setPaletteOpen(false);
+    dispatchUi({ type: "CLOSE_PALETTE" });
   }, []);
 
   if (isLoading) {
@@ -383,19 +465,28 @@ function AppContent() {
   return (
     <>
       <div className="h-screen flex bg-bg overflow-hidden">
-        {view === "settings" ? (
+        {ui.view === "settings" ? (
           <SettingsPage onBack={closeSettings} />
         ) : (
           <>
             <div
-              className={`transition-all duration-500 ease-out overflow-hidden ${!sidebarVisible || focusMode ? "opacity-0 -translate-x-4 w-0 pointer-events-none" : "opacity-100 translate-x-0 w-64"}`}
+              className={`transition-all duration-500 ease-out overflow-hidden ${!ui.sidebarVisible || ui.focusMode ? "opacity-0 -translate-x-4 w-0 pointer-events-none" : "opacity-100 translate-x-0 w-64"}`}
             >
-              <Sidebar onOpenSettings={toggleSettings} />
+              <Sidebar
+                onOpenSettings={toggleSettings}
+                openSearchSignal={ui.openSidebarSearchSignal}
+                focusNoteListSignal={ui.focusNoteListSignal}
+                toggleAllFoldersSignal={ui.toggleAllFoldersSignal}
+                onToggleAllFolders={() =>
+                  dispatchUi({ type: "REQUEST_TOGGLE_ALL_FOLDERS" })
+                }
+              />
             </div>
             <Editor
               onToggleSidebar={toggleSidebar}
-              sidebarVisible={sidebarVisible && !focusMode}
-              focusMode={focusMode}
+              sidebarVisible={ui.sidebarVisible && !ui.focusMode}
+              focusMode={ui.focusMode}
+              toggleSourceModeSignal={ui.toggleSourceModeSignal}
               onEditorReady={(editor) => {
                 editorRef.current = editor;
               }}
@@ -405,51 +496,56 @@ function AppContent() {
       </div>
 
       {/* Shared backdrop for command palette and AI modal */}
-      {(paletteOpen || aiModalOpen) && (
+      {(ui.paletteOpen || ui.aiModalOpen) && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 animate-fade-in"
           onClick={() => {
-            if (paletteOpen) handleClosePalette();
-            if (aiModalOpen) setAiModalOpen(false);
+            if (ui.paletteOpen) handleClosePalette();
+            if (ui.aiModalOpen) dispatchUi({ type: "CLOSE_AI_MODAL" });
           }}
         />
       )}
 
       <CommandPalette
-        open={paletteOpen}
+        open={ui.paletteOpen}
         onClose={handleClosePalette}
         onOpenSettings={toggleSettings}
+        onToggleSourceMode={() =>
+          dispatchUi({ type: "REQUEST_TOGGLE_SOURCE_MODE" })
+        }
+        onToggleFolderTree={() =>
+          dispatchUi({ type: "REQUEST_TOGGLE_ALL_FOLDERS" })
+        }
         onOpenAiModal={(provider) => {
-          setAiProvider(provider);
-          setAiModalOpen(true);
+          dispatchUi({ type: "OPEN_AI_MODAL", provider });
         }}
-        focusMode={focusMode}
+        focusMode={ui.focusMode}
         onToggleFocusMode={toggleFocusMode}
         editorRef={editorRef}
       />
       <AiEditModal
-        open={aiModalOpen}
-        provider={aiProvider}
+        open={ui.aiModalOpen}
+        provider={ui.aiProvider}
         onBack={handleBackToPalette}
         onExecute={handleAiEdit}
-        isExecuting={aiEditing}
+        isExecuting={ui.aiEditing}
       />
 
       {/* AI Editing Overlay */}
-      {aiEditing && (
+      {ui.aiEditing && (
         <div className="fixed inset-0 bg-bg/50 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="flex items-center gap-2">
-            {aiProvider === "codex" ? (
+            {ui.aiProvider === "codex" ? (
               <CodexIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
-            ) : aiProvider === "ollama" ? (
+            ) : ui.aiProvider === "ollama" ? (
               <OllamaIcon className="w-4.5 h-4.5 fill-text-muted animate-bounce-gentle" />
             ) : (
               <ClaudeIcon className="w-4.5 h-4.5 fill-text-muted animate-spin-slow" />
             )}
             <div className="text-sm font-medium text-text">
-              {aiProvider === "codex"
+              {ui.aiProvider === "codex"
                 ? "Codex is editing your note..."
-                : aiProvider === "ollama"
+                : ui.aiProvider === "ollama"
                   ? "Ollama is editing your note..."
                   : "Claude is editing your note..."}
             </div>

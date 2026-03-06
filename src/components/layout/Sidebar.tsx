@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNotes } from "../../context/NotesContext";
+import { useNotesActions, useNotesData } from "../../context/NotesContext";
 import { NoteList } from "../notes/NoteList";
 import { Footer } from "./Footer";
 import { IconButton, Input } from "../ui";
@@ -15,10 +15,21 @@ import { mod, shift, isMac } from "../../lib/platform";
 
 interface SidebarProps {
   onOpenSettings?: () => void;
+  openSearchSignal?: number;
+  focusNoteListSignal?: number;
+  toggleAllFoldersSignal?: number;
+  onToggleAllFolders?: () => void;
 }
 
-export function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { createNote, notes, search, searchQuery, clearSearch } = useNotes();
+export function Sidebar({
+  onOpenSettings,
+  openSearchSignal = 0,
+  focusNoteListSignal = 0,
+  toggleAllFoldersSignal = 0,
+  onToggleAllFolders,
+}: SidebarProps) {
+  const { notes, searchQuery } = useNotesData();
+  const { createNote, search, clearSearch } = useNotesActions();
   const [searchOpen, setSearchOpen] = useState(false);
   const [allFoldersExpanded, setAllFoldersExpanded] = useState(false);
   const [inputValue, setInputValue] = useState(searchQuery);
@@ -67,30 +78,13 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     }
   }, [searchOpen]);
 
-  // Global shortcut hook: open and focus sidebar search
   useEffect(() => {
-    const handleOpenSidebarSearch = () => {
-      setSearchOpen(true);
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-      });
-    };
-
-    window.addEventListener("open-sidebar-search", handleOpenSidebarSearch);
-    return () =>
-      window.removeEventListener("open-sidebar-search", handleOpenSidebarSearch);
-  }, []);
-
-  useEffect(() => {
-    const handleFolderTreeState = (event: Event) => {
-      const detail = (event as CustomEvent<{ allExpanded?: boolean }>).detail;
-      setAllFoldersExpanded(Boolean(detail?.allExpanded));
-    };
-
-    window.addEventListener("folder-tree-state", handleFolderTreeState);
-    return () =>
-      window.removeEventListener("folder-tree-state", handleFolderTreeState);
-  }, []);
+    if (openSearchSignal === 0) return;
+    setSearchOpen(true);
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+  }, [openSearchSignal]);
 
   const handleSearchKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -114,10 +108,6 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     clearSearch();
   }, [clearSearch]);
 
-  const toggleAllFolders = useCallback(() => {
-    window.dispatchEvent(new CustomEvent("toggle-all-folders"));
-  }, []);
-
   return (
     <div className="w-64 h-full bg-bg-secondary border-r border-border flex flex-col select-none">
       {/* Drag region */}
@@ -131,7 +121,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         </div>
         <div className="flex items-center gap-px">
           <IconButton
-            onClick={toggleAllFolders}
+            onClick={onToggleAllFolders}
             title="Toggle Folder Tree"
           >
             <div className="flex flex-col leading-none -space-y-1">
@@ -196,7 +186,11 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         )}
 
         {/* Note list */}
-        <NoteList />
+        <NoteList
+          focusSignal={focusNoteListSignal}
+          toggleAllFoldersSignal={toggleAllFoldersSignal}
+          onFolderTreeStateChange={setAllFoldersExpanded}
+        />
       </div>
 
       {/* Footer with git status, commit, and settings */}

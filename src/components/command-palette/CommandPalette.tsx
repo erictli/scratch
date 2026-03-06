@@ -9,12 +9,10 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import { useNotes } from "../../context/NotesContext";
+import { useNotesData, useNotesActions } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useGit } from "../../context/GitContext";
-import * as notesService from "../../services/notes";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
-import type { Settings } from "../../types/note";
 import type { Editor } from "@tiptap/react";
 import {
   CommandItem,
@@ -66,6 +64,8 @@ interface CommandPaletteProps {
   onClose: () => void;
   onOpenSettings?: () => void;
   onOpenAiModal?: (provider: AiProvider) => void;
+  onToggleSourceMode?: () => void;
+  onToggleFolderTree?: () => void;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
   editorRef?: React.RefObject<Editor | null>;
@@ -76,28 +76,33 @@ export function CommandPalette({
   onClose,
   onOpenSettings,
   onOpenAiModal,
+  onToggleSourceMode,
+  onToggleFolderTree,
   focusMode,
   onToggleFocusMode,
   editorRef,
 }: CommandPaletteProps) {
   const {
     notes,
-    selectNote,
-    createNote,
-    deleteNote,
     currentNote,
-    refreshNotes,
-    pinNote,
-    unpinNote,
+    pinnedNoteIds,
     notesFolder,
     vaults,
     recentVaults,
     activeVault,
+  } = useNotesData();
+  const {
+    selectNote,
+    createNote,
+    deleteNote,
+    refreshNotes,
+    pinNote,
+    unpinNote,
     switchVault,
     toggleFavoriteVault,
     openVaultInNewWindow,
     addVault,
-  } = useNotes();
+  } = useNotesActions();
   const { setTheme, setEditorWidth } = useTheme();
   const { status, gitAvailable, commit, sync, isSyncing } = useGit();
   const [query, setQuery] = useState("");
@@ -107,16 +112,8 @@ export function CommandPalette({
   const [localSearchResults, setLocalSearchResults] = useState<
     { id: string; title: string; preview: string; modified: number }[]
   >([]);
-  const [settings, setSettings] = useState<Settings | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  // Load settings when palette opens or current note changes
-  useEffect(() => {
-    if (open) {
-      notesService.getSettings().then(setSettings);
-    }
-  }, [open, currentNote?.id]);
 
   // Memoize commands array
   const commands = useMemo<Command[]>(() => {
@@ -135,8 +132,7 @@ export function CommandPalette({
 
     // Add note-specific commands if a note is selected
     if (currentNote) {
-      const isPinned =
-        settings?.pinnedNoteIds?.includes(currentNote.id) || false;
+      const isPinned = pinnedNoteIds.includes(currentNote.id);
 
       baseCommands.push(
         {
@@ -407,7 +403,7 @@ export function CommandPalette({
         shortcut: `${mod} ${shift} M`,
         icon: <MarkdownIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
-          window.dispatchEvent(new CustomEvent("toggle-source-mode"));
+          onToggleSourceMode?.();
           onClose();
         },
       },
@@ -416,7 +412,7 @@ export function CommandPalette({
         label: "Toggle Folder Tree",
         icon: <FoldersIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
         action: () => {
-          window.dispatchEvent(new CustomEvent("toggle-all-folders"));
+          onToggleFolderTree?.();
           onClose();
         },
       },
@@ -597,6 +593,8 @@ export function CommandPalette({
     onClose,
     onOpenSettings,
     onOpenAiModal,
+    onToggleSourceMode,
+    onToggleFolderTree,
     setTheme,
     gitAvailable,
     status,
@@ -605,7 +603,7 @@ export function CommandPalette({
     isSyncing,
     selectNote,
     refreshNotes,
-    settings,
+    pinnedNoteIds,
     pinNote,
     unpinNote,
     focusMode,

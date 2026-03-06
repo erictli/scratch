@@ -16,6 +16,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   const [hasExternalChanges, setHasExternalChanges] = useState(false);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [focusMode, setFocusMode] = useState(false);
+  const [toggleSourceModeSignal, setToggleSourceModeSignal] = useState(0);
   const recentlySavedRef = useRef(false);
 
   // Load file on mount
@@ -109,7 +110,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
       // Cmd+Shift+M: Toggle markdown source mode
       if (modKey && e.shiftKey && e.key.toLowerCase() === "m") {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent("toggle-source-mode"));
+        setToggleSourceModeSignal((prev) => prev + 1);
         return;
       }
 
@@ -176,6 +177,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     <div className="h-screen flex flex-col bg-bg text-text">
       <Editor
         focusMode={focusMode}
+        toggleSourceModeSignal={toggleSourceModeSignal}
         previewMode={previewData}
         onSaveToFolder={handleSaveToFolder}
         saveToFolderDisabled={isSaving}

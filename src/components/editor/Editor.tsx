@@ -54,13 +54,12 @@ import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
+import { useSourceMode } from "./useSourceMode";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
-import * as notesService from "../../services/notes";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
-import type { Settings } from "../../types/note";
 import {
   BoldIcon,
   ItalicIcon,
@@ -403,6 +402,7 @@ interface EditorProps {
   onToggleSidebar?: () => void;
   sidebarVisible?: boolean;
   focusMode?: boolean;
+  toggleSourceModeSignal?: number;
   previewMode?: PreviewModeData;
   onEditorReady?: (editor: TiptapEditor | null) => void;
   onSaveToFolder?: () => void;
@@ -413,6 +413,7 @@ export function Editor({
   onToggleSidebar,
   sidebarVisible,
   focusMode,
+  toggleSourceModeSignal = 0,
   onEditorReady,
   previewMode,
   onSaveToFolder,
@@ -451,13 +452,13 @@ export function Editor({
     : notesCtx!.reloadVersion;
   const pinNote = notesCtx?.pinNote;
   const unpinNote = notesCtx?.unpinNote;
+  const pinnedNoteIds = notesCtx?.pinnedNoteIds || [];
   const notes = notesCtx?.notes;
   const { textDirection } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
-  const [settings, setSettings] = useState<Settings | null>(null);
   // Delay transition classes until after initial mount to avoid format bar height animation on note load
   const [hasTransitioned, setHasTransitioned] = useState(false);
   useEffect(() => {
@@ -467,9 +468,6 @@ export function Editor({
     }
   }, [hasTransitioned, currentNote]);
   // Source mode state
-  const [sourceMode, setSourceMode] = useState(false);
-  const [sourceContent, setSourceContent] = useState("");
-  const sourceTimeoutRef = useRef<number | null>(null);
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -498,7 +496,7 @@ export function Editor({
 
   // Get markdown from editor
   const getMarkdown = useCallback(
-    (editorInstance: ReturnType<typeof useEditor>) => {
+    (editorInstance: TiptapEditor | null) => {
       if (!editorInstance) return "";
       const manager = editorInstance.storage.markdown?.manager;
       if (manager) {
@@ -513,21 +511,8 @@ export function Editor({
     [],
   );
 
-  // Load settings when note changes or notes are refreshed (e.g., after pin/unpin)
-  useEffect(() => {
-    if (currentNote?.id && !previewMode) {
-      notesService
-        .getSettings()
-        .then(setSettings)
-        .catch((error) => {
-          console.error("Failed to load settings:", error);
-        });
-    }
-  }, [currentNote?.id, notes, previewMode]);
-
   // Calculate if current note is pinned
-  const isPinned =
-    settings?.pinnedNoteIds?.includes(currentNote?.id || "") || false;
+  const isPinned = currentNote ? pinnedNoteIds.includes(currentNote.id) : false;
 
   // Find all matches for search query (case-insensitive)
   const findMatches = useCallback(
@@ -1124,6 +1109,22 @@ export function Editor({
   // Track reloadVersion to detect manual refreshes
   const lastReloadVersionRef = useRef(0);
 
+  const {
+    sourceMode,
+    sourceContent,
+    toggleSourceMode,
+    handleSourceChange,
+    resetSourceMode,
+  } = useSourceMode({
+    editor,
+    currentNote,
+    saveNote,
+    getMarkdown,
+    toggleSourceModeSignal,
+    setIsSaving,
+    lastSaveRef,
+  });
+
   // Notify parent component when editor is ready
   useEffect(() => {
     onEditorReady?.(editor);
@@ -1269,11 +1270,7 @@ export function Editor({
     }
     // Reset source mode when genuinely switching notes (renames return early above)
     if (!isSameNote) {
-      setSourceMode(false);
-      if (sourceTimeoutRef.current) {
-        clearTimeout(sourceTimeoutRef.current);
-        sourceTimeoutRef.current = null;
-      }
+      resetSourceMode();
     }
     // Check if this is a manual reload (user clicked Refresh button or pressed Cmd+R)
     const isManualReload = reloadVersion !== lastReloadVersionRef.current;
@@ -1352,7 +1349,7 @@ export function Editor({
       }
       // For existing notes, don't auto-focus - let user click where they want
     });
-  }, [currentNote, editor, flushPendingSave, reloadVersion]);
+  }, [currentNote, editor, flushPendingSave, reloadVersion, resetSourceMode]);
 
   // Scroll to top on mount (e.g., when returning from settings)
   useEffect(() => {
@@ -1711,63 +1708,6 @@ export function Editor({
     }
   }, [editor, currentNote, getMarkdown]);
 
-  // Toggle source mode
-  const toggleSourceMode = useCallback(() => {
-    if (!editor) return;
-    if (!sourceMode) {
-      // Entering source mode: get markdown from editor
-      const md = getMarkdown(editor);
-      setSourceContent(md);
-      setSourceMode(true);
-    } else {
-      // Exiting source mode: parse markdown back to TipTap JSON, then set content
-      const manager = editor.storage.markdown?.manager;
-      if (manager) {
-        try {
-          const parsed = manager.parse(sourceContent);
-          editor.commands.setContent(parsed);
-        } catch {
-          editor.commands.setContent(sourceContent);
-        }
-      } else {
-        editor.commands.setContent(sourceContent);
-      }
-      setSourceMode(false);
-    }
-  }, [editor, sourceMode, sourceContent, getMarkdown]);
-
-  // Listen for toggle-source-mode custom event (from App.tsx shortcut / command palette)
-  useEffect(() => {
-    const handler = () => toggleSourceMode();
-    window.addEventListener("toggle-source-mode", handler);
-    return () => window.removeEventListener("toggle-source-mode", handler);
-  }, [toggleSourceMode]);
-
-  // Auto-save in source mode with debounce
-  const handleSourceChange = useCallback(
-    (value: string) => {
-      setSourceContent(value);
-      if (sourceTimeoutRef.current) {
-        clearTimeout(sourceTimeoutRef.current);
-      }
-      sourceTimeoutRef.current = window.setTimeout(async () => {
-        if (currentNote) {
-          setIsSaving(true);
-          try {
-            lastSaveRef.current = { noteId: currentNote.id, content: value };
-            await saveNote(value, currentNote.id);
-          } catch (error) {
-            console.error("Failed to save note:", error);
-            toast.error("Failed to save note");
-          } finally {
-            setIsSaving(false);
-          }
-        }
-      }, 300);
-    },
-    [currentNote, saveNote],
-  );
-
   if (!currentNote) {
     // Preview mode: show loading state (content not yet loaded)
     if (previewMode) {
@@ -1912,9 +1852,6 @@ export function Editor({
                       await pinNote(currentNote.id);
                       toast.success("Note pinned");
                     }
-                    // Reload settings to update isPinned state
-                    const updatedSettings = await notesService.getSettings();
-                    setSettings(updatedSettings);
                   } catch (error) {
                     console.error("Failed to pin/unpin note:", error);
                     toast.error(

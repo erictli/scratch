@@ -12,11 +12,18 @@ import { listen } from "@tauri-apps/api/event";
 import type { Note, NoteMetadata, VaultInfo } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
+import {
+  addPinnedId,
+  removePinnedId,
+  togglePinnedId,
+  transferPinnedId,
+} from "./pinUtils";
 
 // Separate contexts to prevent unnecessary re-renders
 // Data context: changes frequently, only subscribed by components that need the data
 interface NotesDataContextValue {
   notes: NoteMetadata[];
+  pinnedNoteIds: string[];
   selectedNoteId: string | null;
   currentNote: Note | null;
   notesFolder: string | null;
@@ -52,6 +59,7 @@ interface NotesActionsContextValue {
   clearSearch: () => void;
   pinNote: (id: string) => Promise<void>;
   unpinNote: (id: string) => Promise<void>;
+  togglePinNote: (id: string) => Promise<void>;
 }
 
 const NotesDataContext = createContext<NotesDataContextValue | null>(null);
@@ -65,6 +73,7 @@ export function NotesProvider({
   initialVaultPath?: string | null;
 }) {
   const [notes, setNotes] = useState<NoteMetadata[]>([]);
+  const [pinnedNoteIds, setPinnedNoteIds] = useState<string[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [notesFolder, setNotesFolderState] = useState<string | null>(null);
@@ -114,6 +123,15 @@ export function NotesProvider({
       setError(err instanceof Error ? err.message : "Failed to load notes");
     }
   }, [notesFolder]);
+
+  const refreshPinnedNoteIds = useCallback(async () => {
+    try {
+      const settings = await notesService.getSettings();
+      setPinnedNoteIds(settings.pinnedNoteIds || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load settings");
+    }
+  }, []);
 
   // Debounced refresh - coalesces rapid saves into a single refresh
   const scheduleRefresh = useCallback(() => {
@@ -191,13 +209,17 @@ export function NotesProvider({
           const currentSettings = await notesService.getSettings();
           const pinnedIds = currentSettings.pinnedNoteIds || [];
           if (pinnedIds.includes(savingNoteId)) {
+            const nextPinnedIds = transferPinnedId(
+              pinnedIds,
+              savingNoteId,
+              updated.id
+            );
             const updatedSettings = {
               ...currentSettings,
-              pinnedNoteIds: pinnedIds.map((id) =>
-                id === savingNoteId ? updated.id : id
-              ),
+              pinnedNoteIds: nextPinnedIds,
             };
             await notesService.updateSettings(updatedSettings);
+            setPinnedNoteIds(nextPinnedIds);
           }
         }
 
@@ -244,11 +266,13 @@ export function NotesProvider({
         const currentSettings = await notesService.getSettings();
         const pinnedIds = currentSettings.pinnedNoteIds || [];
         if (pinnedIds.includes(id)) {
+          const nextPinnedIds = removePinnedId(pinnedIds, id);
           const updatedSettings = {
             ...currentSettings,
-            pinnedNoteIds: pinnedIds.filter((pinId) => pinId !== id),
+            pinnedNoteIds: nextPinnedIds,
           };
           await notesService.updateSettings(updatedSettings);
+          setPinnedNoteIds(nextPinnedIds);
         }
 
         // Only clear selection if we're deleting the currently selected note
@@ -293,11 +317,13 @@ export function NotesProvider({
         const pinnedIds = currentSettings.pinnedNoteIds || [];
 
         if (!pinnedIds.includes(id)) {
+          const nextPinnedIds = addPinnedId(pinnedIds, id);
           const updatedSettings = {
             ...currentSettings,
-            pinnedNoteIds: [...pinnedIds, id],
+            pinnedNoteIds: nextPinnedIds,
           };
           await notesService.updateSettings(updatedSettings);
+          setPinnedNoteIds(nextPinnedIds);
           await refreshNotes();
         }
       } catch (err) {
@@ -312,18 +338,33 @@ export function NotesProvider({
       try {
         const currentSettings = await notesService.getSettings();
         const pinnedIds = currentSettings.pinnedNoteIds || [];
+        const nextPinnedIds = removePinnedId(pinnedIds, id);
 
         const updatedSettings = {
           ...currentSettings,
-          pinnedNoteIds: pinnedIds.filter((pinId) => pinId !== id),
+          pinnedNoteIds: nextPinnedIds,
         };
         await notesService.updateSettings(updatedSettings);
+        setPinnedNoteIds(nextPinnedIds);
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to unpin note");
       }
     },
     [refreshNotes]
+  );
+
+  const togglePinNote = useCallback(
+    async (id: string) => {
+      const nextPinnedIds = togglePinnedId(pinnedNoteIds, id);
+      const shouldBePinned = nextPinnedIds.includes(id);
+      if (shouldBePinned) {
+        await pinNote(id);
+      } else {
+        await unpinNote(id);
+      }
+    },
+    [pinnedNoteIds, pinNote, unpinNote]
   );
 
   const switchVault = useCallback(async (path: string) => {
@@ -336,14 +377,16 @@ export function NotesProvider({
       setSearchQuery("");
       setSearchResults([]);
       setHasExternalChanges(false);
+      setPinnedNoteIds([]);
       // Start file watcher after setting folder
       await notesService.startFileWatcher();
       await refreshNotes();
       await refreshVaults();
+      await refreshPinnedNoteIds();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to switch vault");
     }
-  }, [refreshNotes, refreshVaults]);
+  }, [refreshNotes, refreshVaults, refreshPinnedNoteIds]);
 
   const setNotesFolder = useCallback(async (path: string) => {
     try {
@@ -353,10 +396,11 @@ export function NotesProvider({
       await notesService.startFileWatcher();
       await refreshNotes();
       await refreshVaults();
+      await refreshPinnedNoteIds();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set notes folder");
     }
-  }, [refreshNotes, refreshVaults]);
+  }, [refreshNotes, refreshVaults, refreshPinnedNoteIds]);
 
   const addVault = useCallback(async (path: string) => {
     try {
@@ -476,6 +520,7 @@ export function NotesProvider({
         if (resolvedFolder) {
           const notesList = await notesService.listNotes();
           setNotes(notesList);
+          await refreshPinnedNoteIds();
           // Start file watcher
           await notesService.startFileWatcher();
         }
@@ -486,7 +531,7 @@ export function NotesProvider({
       }
     }
     init();
-  }, [initialVaultPath, refreshVaults]);
+  }, [initialVaultPath, refreshVaults, refreshPinnedNoteIds]);
 
   // Listen for file change events and notify if current note changed externally
   useEffect(() => {
@@ -554,6 +599,7 @@ export function NotesProvider({
   const dataValue = useMemo<NotesDataContextValue>(
     () => ({
       notes,
+      pinnedNoteIds,
       selectedNoteId,
       currentNote,
       notesFolder,
@@ -570,6 +616,7 @@ export function NotesProvider({
     }),
     [
       notes,
+      pinnedNoteIds,
       selectedNoteId,
       currentNote,
       notesFolder,
@@ -606,6 +653,7 @@ export function NotesProvider({
       clearSearch,
       pinNote,
       unpinNote,
+      togglePinNote,
     }),
     [
       selectNote,
@@ -626,6 +674,7 @@ export function NotesProvider({
       clearSearch,
       pinNote,
       unpinNote,
+      togglePinNote,
     ]
   );
 

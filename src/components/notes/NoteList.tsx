@@ -9,7 +9,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
-import { useNotes } from "../../context/NotesContext";
+import { useNotesData, useNotesActions } from "../../context/NotesContext";
 import {
   ListItem,
   AlertDialog,
@@ -23,8 +23,7 @@ import {
 } from "../ui";
 import { ChevronDownIcon, ChevronRightIcon, FolderIcon } from "../icons";
 import { cleanTitle } from "../../lib/utils";
-import * as notesService from "../../services/notes";
-import type { Settings } from "../../types/note";
+import { getDisplayItems } from "../../lib/noteSelectors";
 
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -171,40 +170,38 @@ function buildFolderTree(items: DisplayItem[]): FolderTreeNode {
   return root;
 }
 
-export function NoteList() {
+interface NoteListProps {
+  focusSignal?: number;
+  toggleAllFoldersSignal?: number;
+  onFolderTreeStateChange?: (allExpanded: boolean) => void;
+}
+
+export function NoteList({
+  focusSignal = 0,
+  toggleAllFoldersSignal = 0,
+  onFolderTreeStateChange,
+}: NoteListProps) {
   const {
     notes,
+    notesFolder,
+    pinnedNoteIds,
     selectedNoteId,
-    selectNote,
-    deleteNote,
-    duplicateNote,
-    pinNote,
-    unpinNote,
     isLoading,
     searchQuery,
     searchResults,
-  } = useNotes();
+  } = useNotesData();
+  const { selectNote, deleteNote, duplicateNote, togglePinNote } =
+    useNotesActions();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Load settings when notes change
-  useEffect(() => {
-    notesService
-      .getSettings()
-      .then(setSettings)
-      .catch((error) => {
-        console.error("Failed to load settings:", error);
-      });
-  }, [notes]);
-
   // Calculate pinned IDs set for efficient lookup
   const pinnedIds = useMemo(
-    () => new Set(settings?.pinnedNoteIds || []),
-    [settings]
+    () => new Set(pinnedNoteIds),
+    [pinnedNoteIds]
   );
 
   const handleDeleteConfirm = useCallback(async () => {
@@ -230,10 +227,7 @@ export function NoteList() {
             text: isPinned ? "Unpin" : "Pin",
             action: async () => {
               try {
-                await (isPinned ? unpinNote(noteId) : pinNote(noteId));
-                // Refresh settings after pin/unpin
-                const newSettings = await notesService.getSettings();
-                setSettings(newSettings);
+                await togglePinNote(noteId);
               } catch (error) {
                 console.error("Failed to pin/unpin note:", error);
               }
@@ -247,9 +241,8 @@ export function NoteList() {
             text: "Copy Filepath",
             action: async () => {
               try {
-                const folder = await notesService.getNotesFolder();
-                if (folder) {
-                  const filepath = `${folder}/${noteId}.md`;
+                if (notesFolder) {
+                  const filepath = `${notesFolder}/${noteId}.md`;
                   await invoke("copy_to_clipboard", { text: filepath });
                 }
               } catch (error) {
@@ -270,21 +263,13 @@ export function NoteList() {
 
       await menu.popup();
     },
-    [pinnedIds, pinNote, unpinNote, duplicateNote]
+    [pinnedIds, togglePinNote, duplicateNote, notesFolder]
   );
 
-  // Memoize display items to prevent recalculation on every render
-  const displayItems = useMemo(() => {
-    if (searchQuery.trim()) {
-      return searchResults.map((r) => ({
-        id: r.id,
-        title: r.title,
-        preview: r.preview,
-        modified: r.modified,
-      }));
-    }
-    return notes;
-  }, [searchQuery, searchResults, notes]);
+  const displayItems = useMemo(
+    () => getDisplayItems(notes, searchQuery, searchResults),
+    [notes, searchQuery, searchResults],
+  );
 
   const folderTree = useMemo(
     () => buildFolderTree(displayItems),
@@ -351,30 +336,18 @@ export function NoteList() {
     const allExpanded =
       allFolderPaths.length > 0 &&
       allFolderPaths.every((path) => expandedFolders.has(path));
-    window.dispatchEvent(
-      new CustomEvent("folder-tree-state", {
-        detail: { allExpanded },
-      }),
-    );
-  }, [expandedFolders, allFolderPaths]);
+    onFolderTreeStateChange?.(allExpanded);
+  }, [expandedFolders, allFolderPaths, onFolderTreeStateChange]);
 
-  // Listen for focus request from editor (when Escape is pressed)
   useEffect(() => {
-    const handleFocusNoteList = () => {
-      containerRef.current?.focus();
-    };
-    const handleToggleAllFolders = () => {
-      toggleAllFolders();
-    };
+    if (focusSignal === 0) return;
+    containerRef.current?.focus();
+  }, [focusSignal]);
 
-    window.addEventListener("focus-note-list", handleFocusNoteList);
-    window.addEventListener("toggle-all-folders", handleToggleAllFolders);
-    return () =>
-      {
-        window.removeEventListener("focus-note-list", handleFocusNoteList);
-        window.removeEventListener("toggle-all-folders", handleToggleAllFolders);
-      };
-  }, [toggleAllFolders]);
+  useEffect(() => {
+    if (toggleAllFoldersSignal === 0) return;
+    toggleAllFolders();
+  }, [toggleAllFoldersSignal, toggleAllFolders]);
 
   if (isLoading && notes.length === 0) {
     return (
