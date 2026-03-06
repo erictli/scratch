@@ -1466,6 +1466,18 @@ export function PencilIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   );
 }
 
+export function OpenCodeIcon({
+  className = "w-4.5 h-4.5 text-text-muted",
+}: IconProps) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 240 300">
+      <title>OpenCode icon</title>
+      <path d="M180 60H60V240H180V60ZM240 300H0V0H240V300Z" />
+      <path d="M180 240H60V120H180V240Z" opacity="0.55" />
+    </svg>
+  );
+}
+
 export function CodexIcon({
   className = "w-4.5 h-4.5 text-text-muted",
 }: IconProps) {
