@@ -197,6 +197,7 @@ export function NoteList({
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastHandledToggleSignalRef = useRef(0);
 
   // Calculate pinned IDs set for efficient lookup
   const pinnedIds = useMemo(
@@ -345,7 +346,13 @@ export function NoteList({
   }, [focusSignal]);
 
   useEffect(() => {
-    if (toggleAllFoldersSignal === 0) return;
+    if (
+      toggleAllFoldersSignal === 0 ||
+      toggleAllFoldersSignal === lastHandledToggleSignalRef.current
+    ) {
+      return;
+    }
+    lastHandledToggleSignalRef.current = toggleAllFoldersSignal;
     toggleAllFolders();
   }, [toggleAllFoldersSignal, toggleAllFolders]);
 
