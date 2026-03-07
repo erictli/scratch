@@ -108,14 +108,12 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   root.style.setProperty("--editor-paragraph-spacing", "0.875em");
 }
 
-// Apply editor layout CSS variables
+// Apply editor layout width CSS variables
 function applyLayoutCSSVariables(
-  direction: TextDirection,
   width: EditorWidth,
   customWidthPx?: number
 ) {
   const root = document.documentElement;
-  root.style.setProperty("--editor-direction", direction);
   if (width === "custom" && customWidthPx) {
     root.style.setProperty("--editor-max-width", `${customWidthPx}px`);
   } else if (width !== "custom") {
@@ -123,12 +121,16 @@ function applyLayoutCSSVariables(
   }
 }
 
+function isTextDirection(value: unknown): value is TextDirection {
+  return value === "auto" || value === "ltr" || value === "rtl";
+}
+
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<ThemeMode>("system");
   const [editorFontSettings, setEditorFontSettings] = useState<
     Required<EditorFontSettings>
   >(defaultEditorFontSettings);
-  const [textDirection, setTextDirectionState] = useState<TextDirection>("ltr");
+  const [textDirection, setTextDirectionState] = useState<TextDirection>("auto");
   const [editorWidth, setEditorWidthState] = useState<EditorWidth>("normal");
   const [interfaceZoom, setInterfaceZoomState] = useState(1.0);
   const [customEditorWidthPx, setCustomEditorWidthPxState] = useState<number>(
@@ -162,7 +164,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           ...fontSettings,
         });
       }
-      if (settings.textDirection === "ltr" || settings.textDirection === "rtl") {
+      if (isTextDirection(settings.textDirection)) {
         setTextDirectionState(settings.textDirection);
       }
       if (
@@ -263,10 +265,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     applyFontCSSVariables(editorFontSettings);
   }, [editorFontSettings]);
 
-  // Apply layout CSS variables whenever direction or width change
+  // Apply layout CSS variables whenever width changes
   useEffect(() => {
-    applyLayoutCSSVariables(textDirection, editorWidth, customEditorWidthPx);
-  }, [textDirection, editorWidth, customEditorWidthPx]);
+    applyLayoutCSSVariables(editorWidth, customEditorWidthPx);
+  }, [editorWidth, customEditorWidthPx]);
 
   // Apply interface zoom whenever it changes (suppress transitions during zoom)
   useEffect(() => {
@@ -313,7 +315,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   // Reset font settings to defaults (single atomic save to avoid race conditions)
   const resetEditorFontSettings = useCallback(async () => {
     setEditorFontSettings(defaultEditorFontSettings);
-    setTextDirectionState("ltr");
+    setTextDirectionState("auto");
     setEditorWidthState("normal");
     setInterfaceZoomState(1.0);
     setCustomEditorWidthPxState(DEFAULT_CUSTOM_WIDTH_PX);
@@ -322,7 +324,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       await updateSettings({
         ...settings,
         editorFont: defaultEditorFontSettings,
-        textDirection: "ltr",
+        textDirection: "auto",
         editorWidth: "normal",
         interfaceZoom: 1.0,
         customEditorWidthPx: undefined,

@@ -5,6 +5,7 @@ import { EyeIcon, MinusIcon, PlusIcon } from "../icons";
 
 // Text direction options
 const textDirectionOptions: { value: TextDirection; label: string }[] = [
+  { value: "auto", label: "Auto" },
   { value: "ltr", label: "LTR" },
   { value: "rtl", label: "RTL" },
 ];
@@ -70,7 +71,7 @@ export function AppearanceSettingsSection() {
     editorFontSettings.baseFontSize !== 15 ||
     editorFontSettings.boldWeight !== 600 ||
     editorFontSettings.lineHeight !== 1.6 ||
-    textDirection !== "ltr" ||
+    textDirection !== "auto" ||
     editorWidth !== "normal" ||
     Math.round(interfaceZoom * 100) !== 100;
 

@@ -81,6 +81,14 @@ pub struct EditorFontSettings {
     pub line_height: Option<f32>,         // default 1.6
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TextDirection {
+    Auto,
+    Ltr,
+    Rtl,
+}
+
 // App config (stored in app data directory - just the notes folder path)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -98,7 +106,7 @@ pub struct Settings {
     #[serde(rename = "pinnedNoteIds")]
     pub pinned_note_ids: Option<Vec<String>>,
     #[serde(rename = "textDirection")]
-    pub text_direction: Option<String>,
+    pub text_direction: Option<TextDirection>,
     #[serde(rename = "editorWidth")]
     pub editor_width: Option<String>,
     #[serde(rename = "defaultNoteName")]
