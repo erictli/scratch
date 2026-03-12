@@ -2194,62 +2194,25 @@ fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
     Ok(check_output.status.success())
 }
 
-/// Returns the path where the CLI symlink should be installed.
-/// macOS: /usr/local/bin/scratch (fallback: /opt/homebrew/bin/scratch)
-/// Linux: ~/.local/bin/scratch
-#[cfg(not(target_os = "windows"))]
+/// Returns the path where the CLI script should be installed (macOS only).
+/// Apple Silicon: /opt/homebrew/bin/scratch
+/// Intel: /usr/local/bin/scratch
+#[cfg(target_os = "macos")]
 fn cli_target_path() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        // Apple Silicon Macs use /opt/homebrew, Intel Macs use /usr/local
-        if PathBuf::from("/opt/homebrew").exists() {
-            return PathBuf::from("/opt/homebrew/bin/scratch");
-        }
-        PathBuf::from("/usr/local/bin/scratch")
+    if PathBuf::from("/opt/homebrew").exists() {
+        return PathBuf::from("/opt/homebrew/bin/scratch");
     }
-    #[cfg(target_os = "linux")]
-    {
-        let home = std::env::var("HOME").unwrap_or_default();
-        PathBuf::from(format!("{home}/.local/bin/scratch"))
-    }
+    PathBuf::from("/usr/local/bin/scratch")
 }
 
 #[tauri::command]
 fn get_cli_status() -> Result<CliStatus, String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_os = "macos"))]
     {
-        let exe_dir = std::env::current_exe()
-            .map_err(|e| e.to_string())?
-            .parent()
-            .map(|p| p.to_string_lossy().to_lowercase().into_owned())
-            .unwrap_or_default();
-
-        let output = std::process::Command::new("reg")
-            .args(["query", "HKCU\\Environment", "/v", "Path"])
-            .output()
-            .map_err(|e| e.to_string())?;
-
-        let installed = if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let path_value = stdout.lines()
-                .find(|l| l.trim_start().starts_with("Path"))
-                .and_then(|l| l.split("REG_").nth(1))
-                .and_then(|l| l.split_once('\t').map(|(_, v)| v.trim().to_string()))
-                .unwrap_or_default();
-            path_value
-                .split(';')
-                .any(|segment| segment.trim().to_lowercase() == exe_dir)
-        } else {
-            false
-        };
-
-        return Ok(CliStatus {
-            installed,
-            path: if installed { Some(exe_dir) } else { None },
-        });
+        return Ok(CliStatus { installed: false, path: None });
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
         let target = cli_target_path();
         if !target.exists() && target.symlink_metadata().is_err() {
@@ -2264,53 +2227,12 @@ fn get_cli_status() -> Result<CliStatus, String> {
 
 #[tauri::command]
 fn install_cli() -> Result<String, String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_os = "macos"))]
     {
-        let exe_dir = std::env::current_exe()
-            .map_err(|e| format!("Cannot find exe path: {}", e))?
-            .parent()
-            .map(|p| p.to_string_lossy().into_owned())
-            .ok_or_else(|| "Cannot determine exe directory".to_string())?;
-
-        let output = std::process::Command::new("reg")
-            .args(["query", "HKCU\\Environment", "/v", "Path"])
-            .output()
-            .map_err(|e| format!("Failed to read registry: {}", e))?;
-
-        let current_path = if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.lines()
-                .find(|l| l.trim_start().starts_with("Path"))
-                .and_then(|l| l.split("REG_").nth(1))
-                .and_then(|l| l.split_once('\t').map(|(_, v)| v.trim().to_string()))
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
-
-        if current_path.to_lowercase().contains(&exe_dir.to_lowercase()) {
-            return Ok(exe_dir);
-        }
-
-        let new_path = if current_path.is_empty() {
-            exe_dir.clone()
-        } else {
-            format!("{};{}", current_path, exe_dir)
-        };
-
-        let status = std::process::Command::new("reg")
-            .args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_path, "/f"])
-            .status()
-            .map_err(|e| format!("Failed to write registry: {}", e))?;
-
-        if !status.success() {
-            return Err("Failed to update PATH in registry".to_string());
-        }
-
-        Ok(exe_dir)
+        return Err("CLI install is only supported on macOS".to_string());
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
         use std::os::unix::fs::PermissionsExt;
 
@@ -2351,55 +2273,17 @@ fn install_cli() -> Result<String, String> {
 
 #[tauri::command]
 fn uninstall_cli() -> Result<(), String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_os = "macos"))]
     {
-        let exe_dir = std::env::current_exe()
-            .map_err(|e| format!("Cannot find exe path: {}", e))?
-            .parent()
-            .map(|p| p.to_string_lossy().into_owned())
-            .ok_or_else(|| "Cannot determine exe directory".to_string())?;
-
-        let output = std::process::Command::new("reg")
-            .args(["query", "HKCU\\Environment", "/v", "Path"])
-            .output()
-            .map_err(|e| format!("Failed to read registry: {}", e))?;
-
-        if !output.status.success() {
-            return Ok(());
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let current_path = stdout.lines()
-            .find(|l| l.trim_start().starts_with("Path"))
-            .and_then(|l| l.split("REG_").nth(1))
-            .and_then(|l| l.split_once('\t').map(|(_, v)| v.trim().to_string()))
-            .unwrap_or_default();
-
-        let exe_dir_lower = exe_dir.to_lowercase();
-        let new_path: String = current_path
-            .split(';')
-            .filter(|segment| !segment.trim().to_lowercase().eq(&exe_dir_lower))
-            .collect::<Vec<_>>()
-            .join(";");
-
-        let status = std::process::Command::new("reg")
-            .args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_path, "/f"])
-            .status()
-            .map_err(|e| format!("Failed to write registry: {}", e))?;
-
-        if !status.success() {
-            return Err("Failed to update PATH in registry".to_string());
-        }
-
-        Ok(())
+        return Ok(());
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
         let target = cli_target_path();
         if target.exists() || target.symlink_metadata().is_ok() {
             std::fs::remove_file(&target)
-                .map_err(|e| format!("Failed to remove symlink: {}", e))?;
+                .map_err(|e| format!("Failed to remove CLI script: {}", e))?;
         }
         Ok(())
     }
