@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useReducer } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useNotes } from "../../context/NotesContext";
@@ -15,6 +15,8 @@ import {
   ChevronRightIcon,
 } from "../icons";
 import type { Settings } from "../../types/note";
+import * as cliService from "../../services/cli";
+import type { CliStatus } from "../../services/cli";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -43,6 +45,52 @@ function getRemoteWebUrl(url: string | null): string | null {
   return null;
 }
 
+type CliState = {
+  status: CliStatus | null;
+  loaded: boolean;
+  error: boolean;
+  operating: boolean;
+};
+
+type CliAction =
+  | { type: "loaded"; status: CliStatus }
+  | { type: "error" }
+  | { type: "operating" }
+  | { type: "operated"; status: CliStatus }
+  | { type: "operate_failed" };
+
+const cliInitialState: CliState = {
+  status: null,
+  loaded: false,
+  error: false,
+  operating: false,
+};
+
+function cliReducer(state: CliState, action: CliAction): CliState {
+  switch (action.type) {
+    case "loaded":
+      return { ...state, status: action.status, loaded: true, error: false };
+    case "error":
+      return { ...state, error: true };
+    case "operating":
+      return { ...state, operating: true };
+    case "operated":
+      return { ...state, status: action.status, operating: false };
+    case "operate_failed":
+      return { ...state, operating: false };
+  }
+}
+
+function CliUsageHint() {
+  return (
+    <p className="text-sm text-text-muted font-mono">
+      scratch file.md # open note<br />
+      scratch . # open folder<br />
+      scratch # launch app
+    </p>
+  );
+}
+
 export function GeneralSettingsSection() {
   const { notesFolder, setNotesFolder } = useNotes();
   const { reloadSettings } = useTheme();
@@ -63,6 +111,17 @@ export function GeneralSettingsSection() {
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
+  const [cli, dispatchCli] = useReducer(cliReducer, cliInitialState);
+
+  useEffect(() => {
+    cliService
+      .getCliStatus()
+      .then((status) => dispatchCli({ type: "loaded", status }))
+      .catch((err) => {
+        console.error("Failed to get CLI status:", err);
+        dispatchCli({ type: "error" });
+      });
+  }, []);
 
   // Load template from settings on mount
   useEffect(() => {
@@ -182,6 +241,36 @@ export function GeneralSettingsSection() {
     setShowRemoteInput(false);
     setRemoteUrl("");
     clearError();
+  };
+
+  const handleInstallCli = async () => {
+    dispatchCli({ type: "operating" });
+    try {
+      await cliService.installCli();
+      const status = await cliService.getCliStatus();
+      dispatchCli({ type: "operated", status });
+      toast.success("CLI tool installed. Open a new terminal to use `scratch`.");
+    } catch (err) {
+      dispatchCli({ type: "operate_failed" });
+      toast.error(
+        err instanceof Error ? err.message : "Failed to install CLI tool"
+      );
+    }
+  };
+
+  const handleUninstallCli = async () => {
+    dispatchCli({ type: "operating" });
+    try {
+      await cliService.uninstallCli();
+      const status = await cliService.getCliStatus();
+      dispatchCli({ type: "operated", status });
+      toast.success("CLI tool uninstalled.");
+    } catch (err) {
+      dispatchCli({ type: "operate_failed" });
+      toast.error(
+        err instanceof Error ? err.message : "Failed to uninstall CLI tool"
+      );
+    }
   };
 
   return (
@@ -546,6 +635,90 @@ export function GeneralSettingsSection() {
           </details>
         </div>
       </section>
+
+      {/* CLI Tool (macOS only) */}
+      {(cli.loaded && cli.status?.supported) || cli.error ? (
+      <>
+      <div className="border-t border-border border-dashed" />
+
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">CLI Tool</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Open notes from the terminal with the{" "}
+          <code className="font-mono text-xs bg-bg-muted px-1.5 py-0.5 rounded">
+            scratch
+          </code>{" "}
+          command
+        </p>
+
+        {cli.error ? (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3">
+            <p className="text-sm text-red-500">Failed to check CLI status. Please restart the app.</p>
+          </div>
+        ) : cli.status === null ? (
+          <div className="rounded-[10px] border border-border p-4 flex items-center justify-center">
+            <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin text-text-muted" />
+          </div>
+        ) : cli.status.installed ? (
+          <>
+            <div className="rounded-[10px] border border-border p-4 space-y-3 mb-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-text font-medium">Status</span>
+                <span className="text-sm text-text-muted">Installed</span>
+              </div>
+              {cli.status.path && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-text font-medium">Path</span>
+                  <code className="text-xs font-mono text-text-muted bg-bg-muted px-2 py-0.5 rounded max-w-48 truncate">
+                    {cli.status.path}
+                  </code>
+                </div>
+              )}
+              <div className="pt-3 border-t border-border border-dashed">
+                <CliUsageHint />
+              </div>
+            </div>
+            <Button
+              onClick={handleUninstallCli}
+              disabled={cli.operating}
+              variant="outline"
+              size="md"
+            >
+              {cli.operating ? (
+                <>
+                  <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
+                  Uninstalling...
+                </>
+              ) : (
+                "Uninstall CLI Tool"
+              )}
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2.5 p-2.5 rounded-[10px] border border-border mb-2.5">
+              <CliUsageHint />
+            </div>
+            <Button
+              onClick={handleInstallCli}
+              disabled={cli.operating}
+              variant="outline"
+              size="md"
+            >
+              {cli.operating ? (
+                <>
+                  <SpinnerIcon className="w-3.25 h-3.25 mr-2 animate-spin" />
+                  Installing...
+                </>
+              ) : (
+                "Install CLI Tool"
+              )}
+            </Button>
+          </>
+        )}
+      </section>
+      </>
+      ) : null}
     </div>
   );
 }
