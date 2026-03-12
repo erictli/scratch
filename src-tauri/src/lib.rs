@@ -2195,6 +2195,11 @@ fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
     Ok(check_output.status.success())
 }
 
+/// Marker comment embedded in CLI wrapper scripts installed by Scratch.
+/// Used to identify and validate our own wrapper before modifying or removing it.
+#[cfg(target_os = "macos")]
+const SCRATCH_CLI_MARKER: &str = "# SCRATCH_CLI_WRAPPER";
+
 /// Returns the path where the CLI script should be installed (macOS only).
 /// Apple Silicon: /opt/homebrew/bin/scratch
 /// Intel: /usr/local/bin/scratch
@@ -2217,6 +2222,19 @@ fn get_cli_status() -> Result<CliStatus, String> {
     {
         let target = cli_target_path();
         if !target.exists() && target.symlink_metadata().is_err() {
+            return Ok(CliStatus { supported: true, installed: false, path: None });
+        }
+        // Verify this is our wrapper (has marker) and points to the current binary
+        let content = std::fs::read_to_string(&target).unwrap_or_default();
+        if !content.contains(SCRATCH_CLI_MARKER) {
+            // Foreign binary at this path — don't claim it as ours
+            return Ok(CliStatus { supported: true, installed: false, path: None });
+        }
+        let current_exe = std::env::current_exe()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !current_exe.is_empty() && !content.contains(&current_exe) {
+            // Our wrapper but points to a moved/deleted binary — needs reinstall
             return Ok(CliStatus { supported: true, installed: false, path: None });
         }
         Ok(CliStatus {
@@ -2246,6 +2264,14 @@ fn install_cli() -> Result<String, String> {
         }
 
         if target.exists() || target.symlink_metadata().is_ok() {
+            // Only remove if it's our wrapper (contains marker)
+            let content = std::fs::read_to_string(&target).unwrap_or_default();
+            if !content.contains(SCRATCH_CLI_MARKER) {
+                return Err(format!(
+                    "A different 'scratch' command already exists at {}. Remove it manually to install the Scratch CLI.",
+                    target.display()
+                ));
+            }
             std::fs::remove_file(&target)
                 .map_err(|e| format!("Failed to remove existing file: {}", e))?;
         }
@@ -2256,7 +2282,8 @@ fn install_cli() -> Result<String, String> {
         // Write a wrapper script that launches the binary in the background so
         // the terminal is not blocked waiting for the GUI app to exit.
         let script = format!(
-            "#!/bin/sh\nnohup \"{}\" \"$@\" >/dev/null 2>&1 &\n",
+            "#!/bin/sh\n{}\nnohup \"{}\" \"$@\" >/dev/null 2>&1 &\n",
+            SCRATCH_CLI_MARKER,
             exe_path.to_string_lossy()
         );
         std::fs::write(&target, script.as_bytes())
@@ -2284,6 +2311,13 @@ fn uninstall_cli() -> Result<(), String> {
     {
         let target = cli_target_path();
         if target.exists() || target.symlink_metadata().is_ok() {
+            let content = std::fs::read_to_string(&target).unwrap_or_default();
+            if !content.contains(SCRATCH_CLI_MARKER) {
+                return Err(format!(
+                    "File at {} was not installed by Scratch. Refusing to remove.",
+                    target.display()
+                ));
+            }
             std::fs::remove_file(&target)
                 .map_err(|e| format!("Failed to remove CLI script: {}", e))?;
         }
@@ -2877,6 +2911,21 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
                 .unwrap_or(path.clone())
                 .to_string_lossy()
                 .into_owned();
+            // Persist to config so the frontend init picks it up on cold start
+            // (the event below may be dropped if the frontend hasn't mounted yet)
+            let state = app.state::<AppState>();
+            {
+                let mut config = state.app_config.write().expect("app_config write lock");
+                config.notes_folder = Some(path_str.clone());
+                let _ = save_app_config(app, &config);
+            }
+            // Also reload per-folder settings for the new folder
+            {
+                let new_settings = load_settings(&path_str);
+                let mut settings = state.settings.write().expect("settings write lock");
+                *settings = new_settings;
+            }
+            // Emit event for when app is already running (single-instance)
             let _ = app.emit("set-notes-folder", path_str);
             if let Some(main_window) = app.get_webview_window("main") {
                 let _ = main_window.show();

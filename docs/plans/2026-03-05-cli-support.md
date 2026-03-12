@@ -4,9 +4,11 @@
 
 **Goal:** Add a `scratch` terminal command so users can open notes and set the notes folder directly from the command line (`scratch file.md`, `scratch .`, `scratch`).
 
-**Architecture:** Three new Tauri commands (`install_cli`, `uninstall_cli`, `get_cli_status`) added to `lib.rs` handle the platform-specific symlink/PATH work. `handle_cli_args` is extended to detect directory arguments and emit a `set-notes-folder` Tauri event. The frontend gains a CLI Tool section in Settings → General and a `set-notes-folder` event listener in `NotesContext`.
+**Architecture (macOS only — Windows/Linux are future work):** Three new Tauri commands (`install_cli`, `uninstall_cli`, `get_cli_status`) added to `lib.rs` handle the macOS-specific wrapper script installation. `handle_cli_args` is extended to detect directory arguments, persist the folder to app config, and emit a `set-notes-folder` Tauri event. The frontend gains a CLI Tool section in Settings → General and a `set-notes-folder` event listener in `AppContent`.
 
-**Tech Stack:** Rust (std::os::unix, std::process::Command for Windows registry), Tauri v2 AppHandle, React/TypeScript, Tailwind CSS v4
+**Tech Stack:** Rust (std::os::unix), Tauri v2 AppHandle, React/TypeScript, Tailwind CSS v4
+
+> **Note:** The plan below was originally written for cross-platform support (macOS, Windows, Linux). The shipped implementation is **macOS-only** — non-macOS platforms return `supported: false` from `get_cli_status`. Windows registry PATH manipulation and Linux `~/.local/bin` symlink support are deferred to future work.
 
 ---
 
@@ -643,7 +645,8 @@ Expected: both pass with no errors.
 
 ## Notes
 
-- On macOS, if the user installed via App Store or moved the `.app` bundle, `std::env::current_exe()` always points to the correct binary inside the current bundle.
-- On Linux, `~/.local/bin` may not be in PATH by default on all distros. The success toast mentions opening a new terminal; it does not attempt to add `~/.local/bin` to the shell profile.
-- On Windows, the PATH change only takes effect in new terminal sessions (OS limitation). The success toast communicates this.
-- The `get_cli_status` on Windows uses `reg query` to avoid adding the `winreg` crate dependency. The string parsing is fragile for edge cases but acceptable for this use case.
+- **macOS only (shipped):** The CLI installer writes a wrapper shell script to `/opt/homebrew/bin/scratch` (Apple Silicon) or `/usr/local/bin/scratch` (Intel). The script contains a `# SCRATCH_CLI_WRAPPER` marker used to verify ownership before removal or replacement.
+- On macOS, if the user moves the `.app` bundle, `get_cli_status` detects the stale wrapper (exe path mismatch) and reports `installed: false`, prompting reinstallation.
+- On cold start with a directory argument (`scratch .`), the folder is persisted to `app_config` so the frontend init picks it up without relying on a Tauri event (which would be dropped before React mounts).
+- **Windows (future work):** Registry-based PATH manipulation via `reg query`/`reg add`.
+- **Linux (future work):** Symlink to `~/.local/bin/scratch`.

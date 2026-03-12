@@ -309,22 +309,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Listen for set-notes-folder event from CLI (scratch .)
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    listen<string>("set-notes-folder", (event) => {
-      setNotesFolder(event.payload);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [setNotesFolder]);
-
   const search = useCallback(async (query: string) => {
     const requestId = ++searchRequestIdRef.current;
     setSearchQuery(query);
