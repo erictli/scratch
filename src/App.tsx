@@ -391,7 +391,7 @@ function AppContent() {
             </div>
             <Editor
               onToggleSidebar={toggleSidebar}
-              sidebarVisible={sidebarVisible && !focusMode}
+              sidebarVisible={sidebarVisible}
               focusMode={focusMode}
               onEditorReady={(editor) => {
                 editorRef.current = editor;
