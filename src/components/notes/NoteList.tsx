@@ -83,11 +83,18 @@ const NoteItem = memo(function NoteItem({
   onSelect,
   onContextMenu,
 }: NoteItemProps) {
+  const ref = useRef<HTMLDivElement>(null);
   const handleClick = useCallback(() => onSelect(id), [onSelect, id]);
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => onContextMenu(e, id),
     [onContextMenu, id]
   );
+
+  useEffect(() => {
+    if (isSelected) {
+      ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [isSelected]);
 
   const folder = id.includes('/') ? id.substring(0, id.lastIndexOf('/')) : null;
   const displayPreview = folder
@@ -95,15 +102,17 @@ const NoteItem = memo(function NoteItem({
     : preview;
 
   return (
-    <ListItem
-      title={cleanTitle(title)}
-      subtitle={displayPreview}
-      meta={formatDate(modified)}
-      isSelected={isSelected}
-      isPinned={isPinned}
-      onClick={handleClick}
-      onContextMenu={handleContextMenu}
-    />
+    <div ref={ref}>
+      <ListItem
+        title={cleanTitle(title)}
+        subtitle={displayPreview}
+        meta={formatDate(modified)}
+        isSelected={isSelected}
+        isPinned={isPinned}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+      />
+    </div>
   );
 });
 
@@ -232,16 +241,6 @@ export function NoteList() {
       window.removeEventListener("focus-note-list", handleFocusNoteList);
   }, []);
 
-  // Scroll selected note into view on keyboard navigation
-  useEffect(() => {
-    if (selectedNoteId && containerRef.current) {
-      const selectedItem = containerRef.current.querySelector(
-        `[data-note-id="${CSS.escape(selectedNoteId)}"]`,
-      );
-      selectedItem?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
-  }, [selectedNoteId]);
-
   if (isLoading && notes.length === 0) {
     return (
       <div className="p-4 text-center text-text-muted select-none">
@@ -274,18 +273,17 @@ export function NoteList() {
         className="flex flex-col gap-1 p-1.5 outline-none"
       >
         {displayItems.map((item) => (
-          <div key={item.id} data-note-id={item.id}>
-            <NoteItem
-              id={item.id}
-              title={item.title}
-              preview={item.preview}
-              modified={item.modified}
-              isSelected={selectedNoteId === item.id}
-              isPinned={pinnedIds.has(item.id)}
-              onSelect={selectNote}
-              onContextMenu={handleContextMenu}
-            />
-          </div>
+          <NoteItem
+            key={item.id}
+            id={item.id}
+            title={item.title}
+            preview={item.preview}
+            modified={item.modified}
+            isSelected={selectedNoteId === item.id}
+            isPinned={pinnedIds.has(item.id)}
+            onSelect={selectNote}
+            onContextMenu={handleContextMenu}
+          />
         ))}
       </div>
 
