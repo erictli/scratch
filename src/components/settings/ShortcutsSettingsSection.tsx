@@ -23,6 +23,21 @@ const shortcuts: Shortcut[] = [
     category: "Notes",
   },
   {
+    keys: [mod, "D"],
+    description: "Duplicate current note",
+    category: "Notes",
+  },
+  {
+    keys: ["Delete"],
+    description: "Delete current note",
+    category: "Notes",
+  },
+  {
+    keys: [mod, "Backspace"],
+    description: "Delete current note",
+    category: "Notes",
+  },
+  {
     keys: [mod, "R"],
     description: "Reload current note",
     category: "Notes",
