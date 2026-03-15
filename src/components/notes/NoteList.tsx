@@ -275,7 +275,8 @@ export function NoteList() {
       <div
         ref={containerRef}
         tabIndex={0}
-        className="flex flex-col gap-1 p-1.5 outline-none"
+        data-note-list
+        className="group/notelist flex flex-col gap-1 p-1.5 outline-none"
       >
         {displayItems.map((item) => (
           <NoteItem

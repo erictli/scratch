@@ -241,6 +241,11 @@ function AppContent() {
         return;
       }
 
+      // Let dialogs handle their own keyboard events (Tab, Enter, etc.)
+      if (target.closest("[role='dialog'], [role='alertdialog']")) {
+        return;
+      }
+
       // Trap Tab/Shift+Tab in notes view only - prevent focus navigation
       // TipTap handles indentation internally before event bubbles up
       if (e.key === "Tab") {
