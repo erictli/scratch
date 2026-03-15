@@ -101,7 +101,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   }, [clearSearch]);
 
   return (
-    <div className="w-64 h-full bg-bg-secondary border-r border-border flex flex-col select-none">
+    <div className="relative w-64 h-full bg-bg-secondary border-r border-border flex flex-col select-none">
       {/* Drag region */}
       <div className="h-11 shrink-0" data-tauri-drag-region></div>
       <div className="flex items-center justify-between pl-4 pr-3 pb-2 border-b border-border shrink-0">
