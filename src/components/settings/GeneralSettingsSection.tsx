@@ -56,6 +56,9 @@ export function GeneralSettingsSection() {
   const {
     status,
     gitAvailable,
+    gitEnabled,
+    isUpdatingGitEnabled,
+    setGitEnabled,
     initRepo,
     isLoading,
     addRemote,
@@ -201,6 +204,21 @@ export function GeneralSettingsSection() {
     clearError();
   };
 
+  const handleToggleGitEnabled = async (enabled: boolean) => {
+    if (isUpdatingGitEnabled) return;
+
+    const success = await setGitEnabled(enabled);
+    if (!success) {
+      toast.error("Failed to update version control setting");
+      return;
+    }
+
+    if (!enabled) {
+      setShowRemoteInput(false);
+      setRemoteUrl("");
+    }
+  };
+
   return (
     <div className="space-y-8 py-8">
       {/* Folder Location */}
@@ -248,11 +266,33 @@ export function GeneralSettingsSection() {
 
       {/* Git Section */}
       <section className="pb-2">
-        <h2 className="text-xl font-medium mb-0.5">Version Control</h2>
-        <p className="text-sm text-text-muted mb-4">
-          Track changes and store backups of your notes using Git
-        </p>
-        {!gitAvailable ? (
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex flex-col gap-0.75">
+            <h2 className="text-xl font-medium">Version Control</h2>
+            <p className="text-sm text-text-muted">
+              Track changes and store backups of your notes using Git
+            </p>
+          </div>
+          <div className="flex gap-1 p-1 rounded-[10px] border border-border">
+            <Button
+              onClick={() => handleToggleGitEnabled(false)}
+              variant={!gitEnabled ? "primary" : "ghost"}
+              size="xs"
+              disabled={isUpdatingGitEnabled}
+            >
+              Off
+            </Button>
+            <Button
+              onClick={() => handleToggleGitEnabled(true)}
+              variant={gitEnabled ? "primary" : "ghost"}
+              size="xs"
+              disabled={isUpdatingGitEnabled}
+            >
+              On
+            </Button>
+          </div>
+        </div>
+        {!gitEnabled ? null : !gitAvailable ? (
           <div className="bg-bg-secondary rounded-[10px] border border-border p-4">
             <p className="text-sm text-text-muted">
               Git is not available on this system.{" "}
