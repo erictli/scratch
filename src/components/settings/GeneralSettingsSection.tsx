@@ -249,13 +249,18 @@ export function GeneralSettingsSection() {
 
       {/* Git Section */}
       <section className="pb-2">
-        <div className="flex items-center justify-between mb-0.5">
-          <h2 className="text-xl font-medium">Version Control</h2>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex flex-col gap-0.75">
+            <h2 className="text-xl font-medium">Version Control</h2>
+            <p className="text-sm text-text-muted">
+              Track changes and store backups of your notes using Git
+            </p>
+          </div>
           <div className="flex gap-1 p-1 rounded-[10px] border border-border">
             <Button
               onClick={() => handleToggleGitEnabled(false)}
               variant={!gitEnabled ? "primary" : "ghost"}
-              size="sm"
+              size="xs"
               disabled={isUpdatingGitEnabled}
             >
               Off
@@ -263,17 +268,13 @@ export function GeneralSettingsSection() {
             <Button
               onClick={() => handleToggleGitEnabled(true)}
               variant={gitEnabled ? "primary" : "ghost"}
-              size="sm"
+              size="xs"
               disabled={isUpdatingGitEnabled}
             >
               On
             </Button>
           </div>
         </div>
-        <p className="text-sm text-text-muted mb-4">
-          Track changes and store backups of your notes using Git
-        </p>
-
         {!gitEnabled ? null : !gitAvailable ? (
           <div className="bg-bg-secondary rounded-[10px] border border-border p-4">
             <p className="text-sm text-text-muted">

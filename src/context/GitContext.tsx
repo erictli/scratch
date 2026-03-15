@@ -53,7 +53,7 @@ export function GitProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isAddingRemote, setIsAddingRemote] = useState(false);
   const [gitAvailable, setGitAvailable] = useState(false);
-  const [gitEnabled, setGitEnabledState] = useState(true);
+  const [gitEnabled, setGitEnabledState] = useState(false);
   const [isUpdatingGitEnabled, setIsUpdatingGitEnabled] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -300,11 +300,12 @@ export function GitProvider({ children }: { children: ReactNode }) {
     gitService.isGitAvailable().then(setGitAvailable);
   }, []);
 
-  // Load per-folder git visibility setting (defaults to enabled)
+  // Load per-folder git visibility setting
+  // If explicitly set in settings, use that. Otherwise auto-detect: enable if the folder is a git repo.
   useEffect(() => {
     if (!notesFolder) {
       settingsReadRequestIdRef.current += 1;
-      setGitEnabledState(true);
+      setGitEnabledState(false);
       setIsUpdatingGitEnabled(false);
       return;
     }
@@ -312,16 +313,25 @@ export function GitProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const requestId = ++settingsReadRequestIdRef.current;
 
-    notesService
-      .getSettings()
-      .then((settings) => {
+    (async () => {
+      try {
+        const settings = await notesService.getSettings();
         if (cancelled || requestId !== settingsReadRequestIdRef.current) return;
-        setGitEnabledState(settings.gitEnabled !== false);
-      })
-      .catch(() => {
+
+        if (settings.gitEnabled === true || settings.gitEnabled === false) {
+          setGitEnabledState(settings.gitEnabled);
+          return;
+        }
+
+        // Not explicitly set — auto-detect by checking if folder is a git repo
+        const gitStatus = await gitService.getGitStatus();
         if (cancelled || requestId !== settingsReadRequestIdRef.current) return;
-        setGitEnabledState(true);
-      });
+        setGitEnabledState(gitStatus.isRepo === true);
+      } catch {
+        if (cancelled || requestId !== settingsReadRequestIdRef.current) return;
+        setGitEnabledState(false);
+      }
+    })();
 
     return () => {
       cancelled = true;

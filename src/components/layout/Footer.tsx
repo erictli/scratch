@@ -135,7 +135,8 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
 
   // Determine what buttons to show
   const hasChanges = (status?.changedCount ?? 0) > 0;
-  const showCommitButton = gitEnabled && gitAvailable && status?.isRepo && hasChanges;
+  const showCommitButton =
+    gitEnabled && gitAvailable && status?.isRepo && hasChanges;
   const behindCount = Math.max(status?.behindCount ?? 0, 0);
   const aheadCount = Math.max(status?.aheadCount ?? 0, 0);
   const syncCount = behindCount + aheadCount;
@@ -151,6 +152,24 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
         : aheadCount > 0
           ? `${aheadCount} commit${aheadCount === 1 ? "" : "s"} to push`
           : "Synced with remote";
+
+  const hasGitFooterContent =
+    showCommitButton || showSyncButton || renderGitStatus() !== null;
+
+  // When there's no git content, show a floating settings button
+  if (!hasGitFooterContent) {
+    return (
+      <div className="absolute bottom-3 right-3">
+        <IconButton
+          onClick={onOpenSettings}
+          title={`Settings (${mod}${isMac ? "" : "+"}, to toggle)`}
+          className="rounded-lg bg-bg-secondary border border-border hover:bg-bg-muted backdrop-blur-sm w-8 h-8"
+        >
+          <SettingsIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+        </IconButton>
+      </div>
+    );
+  }
 
   return (
     <div className="shrink-0 border-t border-border">

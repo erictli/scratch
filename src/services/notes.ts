@@ -51,7 +51,7 @@ export async function updateGitEnabled(
   expectedFolder: string,
 ): Promise<void> {
   return invoke("update_git_enabled", {
-    enabled: enabled ? null : false,
+    enabled,
     expectedFolder,
   });
 }
