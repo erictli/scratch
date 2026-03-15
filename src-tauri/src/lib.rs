@@ -2552,12 +2552,10 @@ async fn ai_execute_opencode(
     }
 
     let run_prompt = format!(
-        "Edit only this markdown file: {}\n\
-         Apply the user's instructions below directly to that file.\n\
+        "Edit the attached markdown file in place.\n\
          Do not create, delete, rename, or modify any other files.\n\
          User instructions:\n\
          {}",
-        canonical.to_string_lossy(),
         prompt
     );
 
@@ -2568,6 +2566,7 @@ async fn ai_execute_opencode(
             "run".to_string(),
             "--file".to_string(),
             canonical.to_string_lossy().to_string(),
+            "--".to_string(),
             run_prompt,
         ],
         String::new(),
