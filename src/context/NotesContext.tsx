@@ -13,18 +13,6 @@ import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
 
-export type NewNoteTitleFocusMode = "replace" | "append";
-
-const NOTE_NAME_DYNAMIC_TAG_REGEX =
-  /\{(?:timestamp|date|time|year|month|day|counter)\}/;
-
-function getNewNoteTitleFocusMode(
-  template: string | null | undefined,
-): NewNoteTitleFocusMode {
-  if (!template) return "replace";
-  return NOTE_NAME_DYNAMIC_TAG_REGEX.test(template) ? "append" : "replace";
-}
-
 // Separate contexts to prevent unnecessary re-renders
 // Data context: changes frequently, only subscribed by components that need the data
 interface NotesDataContextValue {
@@ -45,7 +33,7 @@ interface NotesDataContextValue {
 interface NotesActionsContextValue {
   selectNote: (id: string) => Promise<void>;
   createNote: () => Promise<void>;
-  consumePendingTitleFocus: (id: string) => NewNoteTitleFocusMode | null;
+  consumePendingNewNote: (id: string) => boolean;
   saveNote: (content: string, noteId?: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   duplicateNote: (id: string) => Promise<void>;
@@ -89,11 +77,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const selectRequestIdRef = useRef(0);
   // Monotonic counter to ignore stale async search responses
   const searchRequestIdRef = useRef(0);
-  // Tracks whether the next loaded note title should be replaced or appended on focus.
-  const pendingTitleFocusRef = useRef<{
-    id: string;
-    mode: NewNoteTitleFocusMode;
-  } | null>(null);
+  // Tracks the ID of a newly created note so Editor can focus its title.
+  const pendingNewNoteIdRef = useRef<string | null>(null);
 
   const refreshNotes = useCallback(async () => {
     if (!notesFolder) return;
@@ -119,8 +104,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const selectNote = useCallback(async (id: string) => {
     const requestId = ++selectRequestIdRef.current;
     try {
-      if (pendingTitleFocusRef.current?.id !== id) {
-        pendingTitleFocusRef.current = null;
+      if (pendingNewNoteIdRef.current !== id) {
+        pendingNewNoteIdRef.current = null;
       }
       // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
@@ -148,17 +133,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const createNote = useCallback(async () => {
     try {
-      const settingsPromise = notesService.getSettings().catch(() => null);
       const note = await notesService.createNote();
-      const settings = await settingsPromise;
       selectRequestIdRef.current += 1;
-      const shouldAutoFocusTitle = settings?.autoFocusNewNoteTitle === true;
-      pendingTitleFocusRef.current = shouldAutoFocusTitle
-        ? {
-            id: note.id,
-            mode: getNewNoteTitleFocusMode(settings?.defaultNoteName),
-          }
-        : null;
+      pendingNewNoteIdRef.current = note.id;
       // Mark as recently saved to ignore file-change events from our own creation
       recentlySavedRef.current.add(note.id);
       await refreshNotes();
@@ -175,19 +152,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshNotes]);
 
-  const consumePendingTitleFocus = useCallback((id: string) => {
-    if (!pendingTitleFocusRef.current) {
-      return null;
+  const consumePendingNewNote = useCallback((id: string) => {
+    if (pendingNewNoteIdRef.current !== id) {
+      pendingNewNoteIdRef.current = null;
+      return false;
     }
-
-    if (pendingTitleFocusRef.current.id !== id) {
-      pendingTitleFocusRef.current = null;
-      return null;
-    }
-
-    const mode = pendingTitleFocusRef.current.mode;
-    pendingTitleFocusRef.current = null;
-    return mode;
+    pendingNewNoteIdRef.current = null;
+    return true;
   }, []);
 
   const saveNote = useCallback(
@@ -543,7 +514,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     () => ({
       selectNote,
       createNote,
-      consumePendingTitleFocus,
+      consumePendingNewNote,
       saveNote,
       deleteNote,
       duplicateNote,
@@ -558,7 +529,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [
       selectNote,
       createNote,
-      consumePendingTitleFocus,
+      consumePendingNewNote,
       saveNote,
       deleteNote,
       duplicateNote,

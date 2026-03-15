@@ -44,10 +44,7 @@ function isAllowedUrlScheme(url: string): boolean {
 }
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
-import {
-  useOptionalNotes,
-  type NewNoteTitleFocusMode,
-} from "../../context/NotesContext";
+import { useOptionalNotes } from "../../context/NotesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Frontmatter } from "./Frontmatter";
 import { BlockMathEditor } from "./BlockMathEditor";
@@ -110,10 +107,7 @@ function formatDateTime(timestamp: number): string {
   });
 }
 
-function focusNewNoteTitle(
-  editor: TiptapEditor,
-  mode: NewNoteTitleFocusMode,
-): boolean {
+function focusAndSelectTitle(editor: TiptapEditor): boolean {
   let titleFrom = -1;
   let titleTo = -1;
 
@@ -121,34 +115,17 @@ function focusNewNoteTitle(
     if (node.type.name !== "heading" || node.attrs.level !== 1) {
       return true;
     }
-
     titleFrom = pos + 1;
     titleTo = pos + node.nodeSize - 1;
-
     return false;
   });
 
-  if (titleFrom < 0 || titleTo < 0) {
-    return false;
-  }
-
-  if (mode === "append") {
-    editor.chain().focus().setTextSelection(titleTo).run();
-    return true;
-  }
-
-  if (titleFrom === titleTo) {
-    editor.chain().focus().setTextSelection(titleFrom).run();
-    return true;
-  }
+  if (titleFrom < 0 || titleTo < 0) return false;
 
   editor
     .chain()
     .focus()
-    .setTextSelection({
-      from: titleFrom,
-      to: titleTo,
-    })
+    .setTextSelection(titleFrom === titleTo ? titleFrom : { from: titleFrom, to: titleTo })
     .run();
 
   return true;
@@ -487,7 +464,7 @@ export function Editor({
     : notesCtx!.saveNote;
 
   const createNote = notesCtx?.createNote;
-  const consumePendingTitleFocus = notesCtx?.consumePendingTitleFocus;
+  const consumePendingNewNote = notesCtx?.consumePendingNewNote;
   const hasExternalChanges = previewMode
     ? previewMode.hasExternalChanges
     : notesCtx!.hasExternalChanges;
@@ -1397,9 +1374,8 @@ export function Editor({
 
       isLoadingRef.current = false;
 
-      const pendingTitleFocusMode = consumePendingTitleFocus?.(loadingNoteId);
-      if (pendingTitleFocusMode) {
-        if (!focusNewNoteTitle(editor, pendingTitleFocusMode)) {
+      if (consumePendingNewNote?.(loadingNoteId)) {
+        if (!focusAndSelectTitle(editor)) {
           editor.commands.focus("start");
         }
         return;
@@ -1421,7 +1397,7 @@ export function Editor({
     editor,
     flushPendingSave,
     reloadVersion,
-    consumePendingTitleFocus,
+    consumePendingNewNote,
   ]);
 
   // Scroll to top on mount (e.g., when returning from settings)
