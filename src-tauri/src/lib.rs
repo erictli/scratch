@@ -2568,7 +2568,6 @@ async fn ai_execute_opencode(
             "run".to_string(),
             "--file".to_string(),
             canonical.to_string_lossy().to_string(),
-            "--".to_string(),
             run_prompt,
         ],
         String::new(),
