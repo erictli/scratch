@@ -83,11 +83,18 @@ const NoteItem = memo(function NoteItem({
   onSelect,
   onContextMenu,
 }: NoteItemProps) {
+  const ref = useRef<HTMLDivElement>(null);
   const handleClick = useCallback(() => onSelect(id), [onSelect, id]);
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => onContextMenu(e, id),
     [onContextMenu, id]
   );
+
+  useEffect(() => {
+    if (isSelected) {
+      ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [isSelected]);
 
   const folder = id.includes('/') ? id.substring(0, id.lastIndexOf('/')) : null;
   const displayPreview = folder
@@ -95,15 +102,17 @@ const NoteItem = memo(function NoteItem({
     : preview;
 
   return (
-    <ListItem
-      title={cleanTitle(title)}
-      subtitle={displayPreview}
-      meta={formatDate(modified)}
-      isSelected={isSelected}
-      isPinned={isPinned}
-      onClick={handleClick}
-      onContextMenu={handleContextMenu}
-    />
+    <div ref={ref}>
+      <ListItem
+        title={cleanTitle(title)}
+        subtitle={displayPreview}
+        meta={formatDate(modified)}
+        isSelected={isSelected}
+        isPinned={isPinned}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+      />
+    </div>
   );
 });
 
@@ -154,6 +163,11 @@ export function NoteList() {
     }
   }, [noteToDelete, deleteNote]);
 
+  const openDeleteDialogForNote = useCallback((noteId: string) => {
+    setNoteToDelete(noteId);
+    setDeleteDialogOpen(true);
+  }, []);
+
   const handleContextMenu = useCallback(
     async (e: React.MouseEvent, noteId: string) => {
       e.preventDefault();
@@ -195,17 +209,14 @@ export function NoteList() {
           await PredefinedMenuItem.new({ item: "Separator" }),
           await MenuItem.new({
             text: "Delete",
-            action: () => {
-              setNoteToDelete(noteId);
-              setDeleteDialogOpen(true);
-            },
+            action: () => openDeleteDialogForNote(noteId),
           }),
         ],
       });
 
       await menu.popup();
     },
-    [pinnedIds, pinNote, unpinNote, duplicateNote]
+    [pinnedIds, pinNote, unpinNote, duplicateNote, openDeleteDialogForNote]
   );
 
   // Memoize display items to prevent recalculation on every render
@@ -231,6 +242,18 @@ export function NoteList() {
     return () =>
       window.removeEventListener("focus-note-list", handleFocusNoteList);
   }, []);
+
+  useEffect(() => {
+    const handleRequestDelete = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      if (!customEvent.detail) return;
+      openDeleteDialogForNote(customEvent.detail);
+    };
+
+    window.addEventListener("request-delete-note", handleRequestDelete);
+    return () =>
+      window.removeEventListener("request-delete-note", handleRequestDelete);
+  }, [openDeleteDialogForNote]);
 
   if (isLoading && notes.length === 0) {
     return (
@@ -261,7 +284,8 @@ export function NoteList() {
       <div
         ref={containerRef}
         tabIndex={0}
-        className="flex flex-col gap-1 p-1.5 outline-none"
+        data-note-list
+        className="group/notelist flex flex-col gap-1 p-1.5 outline-none"
       >
         {displayItems.map((item) => (
           <NoteItem

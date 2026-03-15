@@ -81,7 +81,6 @@ export function GeneralSettingsSection() {
       .catch(() => setAiProviders([]))
       .finally(() => setAiProvidersLoading(false));
   }, []);
-
   // Load template from settings on mount
   useEffect(() => {
     const loadTemplate = async () => {
@@ -562,6 +561,7 @@ export function GeneralSettingsSection() {
               </p>
             </div>
           </details>
+
         </div>
       </section>
 
