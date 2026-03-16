@@ -117,6 +117,8 @@ pub struct Settings {
     pub custom_editor_width_px: Option<u32>,
     #[serde(rename = "ollamaModel")]
     pub ollama_model: Option<String>,
+    #[serde(rename = "foldersEnabled")]
+    pub folders_enabled: Option<bool>,
 }
 
 // Search result
@@ -1093,7 +1095,7 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
 }
 
 #[tauri::command]
-async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
+async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) -> Result<Note, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config
@@ -1117,6 +1119,17 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
 
     // Sanitize filename
     let sanitized = sanitize_filename(&expanded);
+
+    // Prepend folder prefix if specified
+    let sanitized = if let Some(ref folder_prefix) = target_folder {
+        if folder_prefix.is_empty() {
+            sanitized
+        } else {
+            format!("{}/{}", folder_prefix.trim_end_matches('/'), sanitized)
+        }
+    } else {
+        sanitized
+    };
 
     // Handle {counter} tag
     let has_counter = template.contains("{counter}");
@@ -1179,6 +1192,453 @@ async fn create_note(state: State<'_, AppState>) -> Result<Note, String> {
         path: file_path.to_string_lossy().into_owned(),
         modified,
     })
+}
+
+/// Validate a relative folder path against traversal attacks
+const RESERVED_FOLDER_NAMES: &[&str] = &[".git", ".scratch", ".obsidian", ".trash", "assets"];
+
+fn validate_folder_path(path: &str) -> Result<(), String> {
+    if path.contains('\\') {
+        return Err("Invalid path: backslashes not allowed".to_string());
+    }
+    if path.is_empty() {
+        return Err("Path cannot be empty".to_string());
+    }
+    let rel = Path::new(path);
+    for component in rel.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                return Err("Path traversal not allowed".to_string());
+            }
+            std::path::Component::CurDir => {
+                return Err("Invalid path: current directory references not allowed".to_string());
+            }
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                return Err("Invalid path: absolute paths not allowed".to_string());
+            }
+            std::path::Component::Normal(name) => {
+                if let Some(name_str) = name.to_str() {
+                    if RESERVED_FOLDER_NAMES.contains(&name_str) {
+                        return Err(format!("'{}' is a reserved folder name", name_str));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_folders(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+    let folder_path = PathBuf::from(&folder);
+
+    let fp = folder_path.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut folders = Vec::new();
+        use walkdir::WalkDir;
+        for entry in WalkDir::new(&fp)
+            .max_depth(10)
+            .into_iter()
+            .filter_entry(is_visible_notes_entry)
+            .flatten()
+        {
+            if entry.file_type().is_dir() && entry.path() != fp {
+                if let Ok(rel) = entry.path().strip_prefix(&fp) {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    if !rel_str.is_empty() {
+                        folders.push(rel_str);
+                    }
+                }
+            }
+        }
+        folders.sort();
+        folders
+    })
+    .await
+    .map_err(|e| format!("Failed to list folders: {}", e))
+}
+
+#[tauri::command]
+async fn create_folder(path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    validate_folder_path(&path)?;
+
+    let target = PathBuf::from(&folder).join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
+
+    if !target.starts_with(&folder) {
+        return Err("Invalid path: escapes notes folder".to_string());
+    }
+
+    fs::create_dir_all(&target)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn delete_folder(path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    validate_folder_path(&path)?;
+
+    let target = PathBuf::from(&folder).join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
+
+    if !target.starts_with(&folder) {
+        return Err("Invalid path: escapes notes folder".to_string());
+    }
+
+    if !target.is_dir() {
+        return Err("Path is not a directory".to_string());
+    }
+
+    // Remove notes from search index
+    {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let cache = state.notes_cache.read().expect("cache read lock");
+            let prefix = format!("{}/", path);
+            for note_id in cache.keys() {
+                if note_id.starts_with(&prefix) {
+                    let _ = search_index.delete_note(note_id);
+                }
+            }
+        }
+    }
+
+    // Remove notes from cache
+    {
+        let mut cache = state.notes_cache.write().expect("cache write lock");
+        let prefix = format!("{}/", path);
+        cache.retain(|id, _| !id.starts_with(&prefix));
+    }
+
+    fs::remove_dir_all(&target)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn rename_folder(
+    old_path: String,
+    new_name: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    validate_folder_path(&old_path)?;
+
+    // Sanitize new name (no slashes allowed in the name itself)
+    let sanitized_name = new_name
+        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-")
+        .trim()
+        .to_string();
+    if sanitized_name.is_empty() {
+        return Err("Folder name cannot be empty".to_string());
+    }
+
+    let folder_root = PathBuf::from(&folder);
+    let old_target = folder_root.join(old_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+
+    if !old_target.starts_with(&folder_root) {
+        return Err("Invalid path: escapes notes folder".to_string());
+    }
+    if !old_target.is_dir() {
+        return Err("Path is not a directory".to_string());
+    }
+
+    // Build new path: same parent, new name
+    let new_target = old_target
+        .parent()
+        .ok_or("Cannot determine parent directory")?
+        .join(&sanitized_name);
+
+    if new_target.exists() {
+        return Err("A folder with that name already exists".to_string());
+    }
+
+    // Compute old and new path prefixes for updating IDs
+    let old_prefix = format!("{}/", old_path);
+    let new_path = if old_path.contains('/') {
+        let parent = &old_path[..old_path.rfind('/').unwrap()];
+        format!("{}/{}", parent, sanitized_name)
+    } else {
+        sanitized_name.clone()
+    };
+    let new_prefix = format!("{}/", new_path);
+
+    // Rename on disk
+    tokio::fs::rename(&old_target, &new_target)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Update pinned note IDs in settings
+    {
+        let mut settings = state.settings.write().expect("settings write lock");
+        if let Some(ref mut pinned) = settings.pinned_note_ids {
+            for id in pinned.iter_mut() {
+                if id.starts_with(&old_prefix) {
+                    *id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
+                } else if *id == old_path {
+                    *id = new_path.clone();
+                }
+            }
+        }
+        // Save settings
+        let _ = save_settings(&folder, &settings);
+    }
+
+    // Update cache
+    {
+        let mut cache = state.notes_cache.write().expect("cache write lock");
+        let updates: Vec<(String, String)> = cache
+            .keys()
+            .filter(|id| id.starts_with(&old_prefix))
+            .map(|id| {
+                let new_id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
+                (id.clone(), new_id)
+            })
+            .collect();
+        for (old_id, new_id) in updates {
+            if let Some(mut meta) = cache.remove(&old_id) {
+                meta.id = new_id.clone();
+                cache.insert(new_id, meta);
+            }
+        }
+    }
+
+    // Rebuild search index for affected notes
+    {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let _ = search_index.rebuild_index(&folder_root);
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn move_note(
+    id: String,
+    target_folder: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+    let folder_root = PathBuf::from(&folder);
+    let source_path = abs_path_from_id(&folder_root, &id)?;
+
+    if !source_path.exists() {
+        return Err("Note not found".to_string());
+    }
+
+    // Extract the filename (leaf) from the note ID
+    let leaf = id.rsplit('/').next().unwrap_or(&id);
+
+    // Build new ID
+    let new_id = if target_folder.is_empty() {
+        leaf.to_string()
+    } else {
+        validate_folder_path(&target_folder)?;
+        format!("{}/{}", target_folder, leaf)
+    };
+
+    if new_id == id {
+        return Ok(id);
+    }
+
+    let dest_path = abs_path_from_id(&folder_root, &new_id)?;
+
+    // Ensure target directory exists
+    if let Some(parent) = dest_path.parent() {
+        fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+    }
+
+    // Handle collision
+    if dest_path.exists() {
+        return Err("A note with that name already exists in the target folder".to_string());
+    }
+
+    tokio::fs::rename(&source_path, &dest_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Update pinned note IDs
+    {
+        let mut settings = state.settings.write().expect("settings write lock");
+        if let Some(ref mut pinned) = settings.pinned_note_ids {
+            for pin_id in pinned.iter_mut() {
+                if *pin_id == id {
+                    *pin_id = new_id.clone();
+                }
+            }
+        }
+        let _ = save_settings(&folder, &settings);
+    }
+
+    // Update cache
+    {
+        let mut cache = state.notes_cache.write().expect("cache write lock");
+        if let Some(mut meta) = cache.remove(&id) {
+            meta.id = new_id.clone();
+            cache.insert(new_id.clone(), meta);
+        }
+    }
+
+    // Rebuild search index
+    {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let _ = search_index.rebuild_index(&folder_root);
+        }
+    }
+
+    Ok(new_id)
+}
+
+#[tauri::command]
+async fn move_folder(
+    path: String,
+    target_parent: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    validate_folder_path(&path)?;
+    if !target_parent.is_empty() {
+        validate_folder_path(&target_parent)?;
+    }
+
+    let folder_root = PathBuf::from(&folder);
+    let source = folder_root.join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
+
+    if !source.is_dir() {
+        return Err("Source is not a directory".to_string());
+    }
+
+    // Get folder name
+    let name = source
+        .file_name()
+        .ok_or("Cannot determine folder name")?
+        .to_string_lossy()
+        .to_string();
+
+    let dest = if target_parent.is_empty() {
+        folder_root.join(&name)
+    } else {
+        folder_root
+            .join(target_parent.replace('/', std::path::MAIN_SEPARATOR_STR))
+            .join(&name)
+    };
+
+    // Prevent moving into itself
+    if dest.starts_with(&source) {
+        return Err("Cannot move a folder into itself".to_string());
+    }
+
+    if dest.exists() {
+        return Err("A folder with that name already exists in the target".to_string());
+    }
+
+    // Ensure target parent exists
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+    }
+
+    // Compute old and new path prefixes for updating IDs
+    let old_prefix = format!("{}/", path);
+    let new_path = if target_parent.is_empty() {
+        name.clone()
+    } else {
+        format!("{}/{}", target_parent, name)
+    };
+    let new_prefix = format!("{}/", new_path);
+
+    tokio::fs::rename(&source, &dest)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Update pinned note IDs
+    {
+        let mut settings = state.settings.write().expect("settings write lock");
+        if let Some(ref mut pinned) = settings.pinned_note_ids {
+            for pin_id in pinned.iter_mut() {
+                if pin_id.starts_with(&old_prefix) {
+                    *pin_id = format!("{}{}", new_prefix, &pin_id[old_prefix.len()..]);
+                }
+            }
+        }
+        let _ = save_settings(&folder, &settings);
+    }
+
+    // Update cache
+    {
+        let mut cache = state.notes_cache.write().expect("cache write lock");
+        let updates: Vec<(String, String)> = cache
+            .keys()
+            .filter(|id| id.starts_with(&old_prefix))
+            .map(|id| {
+                let new_id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
+                (id.clone(), new_id)
+            })
+            .collect();
+        for (old_id, new_id) in updates {
+            if let Some(mut meta) = cache.remove(&old_id) {
+                meta.id = new_id.clone();
+                cache.insert(new_id, meta);
+            }
+        }
+    }
+
+    // Rebuild search index
+    {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let _ = search_index.rebuild_index(&folder_root);
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -3036,6 +3496,12 @@ pub fn run() {
             save_note,
             delete_note,
             create_note,
+            list_folders,
+            create_folder,
+            delete_folder,
+            rename_folder,
+            move_note,
+            move_folder,
             get_settings,
             update_settings,
             update_git_enabled,

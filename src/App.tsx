@@ -325,10 +325,13 @@ function AppContent() {
       }
 
       // Arrow keys for note navigation
+      // Skip if folder tree view is handling its own navigation
+      const isInFolderTree = !!(e.target as HTMLElement).closest("[data-folder-tree]");
       if (
         displayItems.length > 0 &&
         (e.key === "ArrowDown" || e.key === "ArrowUp") &&
-        ((!isInEditor && !isInInput) || isEditorEmpty)
+        ((!isInEditor && !isInInput) || isEditorEmpty) &&
+        !isInFolderTree
       ) {
         e.preventDefault();
         const currentIndex = displayItems.findIndex(
@@ -372,12 +375,13 @@ function AppContent() {
     // Disable right-click context menu except in editor
     const handleContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      // Allow context menu in editor (prose class) and inputs
+      // Allow context menu in editor (prose class), inputs, and note list sidebar
       const isInEditor =
         target.closest(".prose") || target.closest(".ProseMirror");
       const isInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
-      if (!isInEditor && !isInput) {
+      const isInNoteList = target.closest("[data-note-list]");
+      if (!isInEditor && !isInput && !isInNoteList) {
         e.preventDefault();
       }
     };

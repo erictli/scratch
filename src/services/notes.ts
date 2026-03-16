@@ -25,14 +25,40 @@ export async function deleteNote(id: string): Promise<void> {
   return invoke("delete_note", { id });
 }
 
-export async function createNote(): Promise<Note> {
-  return invoke("create_note");
+export async function createNote(targetFolder?: string): Promise<Note> {
+  return invoke("create_note", { targetFolder: targetFolder ?? null });
+}
+
+export async function listFolders(): Promise<string[]> {
+  return invoke("list_folders");
+}
+
+export async function createFolder(path: string): Promise<void> {
+  return invoke("create_folder", { path });
+}
+
+export async function deleteFolder(path: string): Promise<void> {
+  return invoke("delete_folder", { path });
+}
+
+export async function renameFolder(oldPath: string, newName: string): Promise<void> {
+  return invoke("rename_folder", { oldPath, newName });
+}
+
+export async function moveNote(id: string, targetFolder: string): Promise<string> {
+  return invoke("move_note", { id, targetFolder });
+}
+
+export async function moveFolder(path: string, targetParent: string): Promise<void> {
+  return invoke("move_folder", { path, targetParent });
 }
 
 export async function duplicateNote(id: string): Promise<Note> {
-  // Read the original note, then create a new one with the same content
+  // Read the original note, then create a new one in the same folder
   const original = await readNote(id);
-  const newNote = await createNote();
+  const lastSlash = id.lastIndexOf("/");
+  const folder = lastSlash > 0 ? id.substring(0, lastSlash) : undefined;
+  const newNote = await createNote(folder);
   // Save with the original content (title will be extracted from content)
   const duplicatedContent = original.content.replace(/^# (.+)$/m, (_, title) => `# ${title} (Copy)`);
   return saveNote(newNote.id, duplicatedContent || original.content);
