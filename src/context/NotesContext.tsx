@@ -521,6 +521,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const syncNotesFolder = useCallback(async (path: string) => {
     try {
       setNotesFolderState(path);
+      setSelectedNoteId(null);
+      setCurrentNote(null);
       const notesList = await notesService.listNotes();
       setNotes(notesList);
       await notesService.startFileWatcher();
