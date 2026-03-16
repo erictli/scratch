@@ -3508,6 +3508,7 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
                 Ok(normalized_path) => {
                     // Emit event for when app is already running (single-instance)
                     let _ = app.emit("set-notes-folder", normalized_path);
+                    opened_file = true;
                 }
                 Err(e) => {
                     eprintln!("Failed to initialize notes folder {:?}: {}", canonical, e);
@@ -3517,7 +3518,6 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
                 let _ = main_window.show();
                 let _ = main_window.set_focus();
             }
-            opened_file = true;
         }
     }
 

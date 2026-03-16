@@ -817,9 +817,13 @@ export function GeneralSettingsSection() {
                         type="button"
                         className="text-xs font-mono text-text-muted bg-bg-muted px-2 py-0.5 rounded max-w-48 truncate cursor-pointer hover:bg-bg-hover transition-colors"
                         title="Click to copy path"
-                        onClick={() => {
-                          navigator.clipboard.writeText(cli.status!.path!);
-                          toast.success("Path copied to clipboard");
+                        onClick={async () => {
+                          try {
+                            await invoke("copy_to_clipboard", { text: cli.status!.path! });
+                            toast.success("Path copied to clipboard");
+                          } catch {
+                            toast.error("Failed to copy path");
+                          }
                         }}
                       >
                         {cli.status.path}
