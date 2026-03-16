@@ -18,7 +18,7 @@ export interface ThemeSettings {
 }
 
 export type FontFamily = "system-sans" | "serif" | "monospace";
-export type TextDirection = "ltr" | "rtl";
+export type TextDirection = "auto" | "ltr" | "rtl";
 export type EditorWidth = "narrow" | "normal" | "wide" | "full" | "custom";
 
 export interface EditorFontSettings {

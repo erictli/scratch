@@ -136,7 +136,7 @@ scratch/
 │   ├── services/                   # Tauri command wrappers
 │   │   ├── notes.ts                # Note management commands
 │   │   ├── git.ts                  # Git commands
-│   │   └── ai.ts                   # AI/Claude Code CLI commands
+│   │   └── ai.ts                   # AI CLI command wrappers (Claude/Codex/OpenCode/Ollama)
 │   ├── types/
 │   │   └── note.ts                 # TypeScript types
 │   ├── App.tsx                     # Main app component
@@ -209,7 +209,7 @@ TipTap editor with extensions and features:
 - Find in note (`Cmd+F`) with highlighting
 - "Last saved" status indicator
 - Unsaved changes spinner
-- AI editing with Claude Code CLI integration
+- AI editing with Claude Code, Codex, OpenCode, and Ollama CLI integration
 
 ### Component Architecture
 
@@ -230,7 +230,7 @@ TipTap editor with extensions and features:
 - `GitStatus` - Floating commit UI in sidebar
 - `NoteList` - Scrollable list with context menu and smart date formatting
 - `SettingsPage` - Tabbed settings (General, Appearance, Shortcuts, About)
-- `AiEditModal` - AI prompt input for Claude Code CLI integration
+- `AiEditModal` - AI prompt input for Claude/Codex/OpenCode/Ollama CLI integration
 - `AiResponseToast` - AI response display with markdown parsing and undo button
 
 ### Tauri Commands
@@ -245,7 +245,7 @@ TipTap editor with extensions and features:
 
 **Git:** `git_is_available`, `git_get_status`, `git_init_repo`, `git_commit`, `git_push`, `git_add_remote`, `git_push_with_upstream`
 
-**AI:** `ai_check_claude_cli`, `ai_execute_claude`, `ai_check_codex_cli`, `ai_execute_codex`, `ai_check_ollama_cli`, `ai_execute_ollama` (shell execution with Claude Code, Codex, or Ollama CLI)
+**AI:** `ai_check_claude_cli`, `ai_execute_claude`, `ai_check_codex_cli`, `ai_execute_codex`, `ai_check_opencode_cli`, `ai_execute_opencode`, `ai_check_ollama_cli`, `ai_execute_ollama` (shell execution with Claude Code, Codex, OpenCode, or Ollama CLI)
 
 **Utilities:** `copy_to_clipboard`, `copy_image_to_assets`, `save_clipboard_image`
 

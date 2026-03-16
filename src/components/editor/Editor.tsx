@@ -107,6 +107,30 @@ function formatDateTime(timestamp: number): string {
   });
 }
 
+function focusAndSelectTitle(editor: TiptapEditor): boolean {
+  let titleFrom = -1;
+  let titleTo = -1;
+
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "heading" || node.attrs.level !== 1) {
+      return true;
+    }
+    titleFrom = pos + 1;
+    titleTo = pos + node.nodeSize - 1;
+    return false;
+  });
+
+  if (titleFrom < 0 || titleTo < 0) return false;
+
+  editor
+    .chain()
+    .focus()
+    .setTextSelection(titleFrom === titleTo ? titleFrom : { from: titleFrom, to: titleTo })
+    .run();
+
+  return true;
+}
+
 // Standard number-field shortcuts for KaTeX (shared between inline and block math)
 const katexMacros: Record<string, string> = {
   "\\R": "\\mathbb{R}",
@@ -440,6 +464,7 @@ export function Editor({
     : notesCtx!.saveNote;
 
   const createNote = notesCtx?.createNote;
+  const consumePendingNewNote = notesCtx?.consumePendingNewNote;
   const hasExternalChanges = previewMode
     ? previewMode.hasExternalChanges
     : notesCtx!.hasExternalChanges;
@@ -466,6 +491,10 @@ export function Editor({
       return () => cancelAnimationFrame(id);
     }
   }, [hasTransitioned, currentNote]);
+
+  // Delay format bar / header transitions only when the sidebar needs to animate closed
+  const needsSidebarDelay = focusMode && sidebarVisible;
+  const isSidebarActive = sidebarVisible && !focusMode;
   // Source mode state
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceContent, setSourceContent] = useState("");
@@ -943,6 +972,7 @@ export function Editor({
   }, [closeBlockMathPopup, handleEditBlockMath]);
 
   const editor = useEditor({
+    textDirection,
     extensions: [
       StarterKit.configure({
         heading: {
@@ -1345,14 +1375,31 @@ export function Editor({
 
       isLoadingRef.current = false;
 
+      if (consumePendingNewNote?.(loadingNoteId)) {
+        if (!focusAndSelectTitle(editor)) {
+          editor.commands.focus("start");
+        }
+        return;
+      }
+
       // For brand new empty notes, focus and select all so user can start typing
+      // Skip if the note list has focus (e.g. keyboard navigation with arrow keys)
       if ((isNewNote || wasEmpty) && currentNote.content.trim() === "") {
-        editor.commands.focus("start");
-        editor.commands.selectAll();
+        const noteListFocused = document.activeElement?.closest("[data-note-list]");
+        if (!noteListFocused) {
+          editor.commands.focus("start");
+          editor.commands.selectAll();
+        }
       }
       // For existing notes, don't auto-focus - let user click where they want
     });
-  }, [currentNote, editor, flushPendingSave, reloadVersion]);
+  }, [
+    currentNote,
+    editor,
+    flushPendingSave,
+    reloadVersion,
+    consumePendingNewNote,
+  ]);
 
   // Scroll to top on mount (e.g., when returning from settings)
   useEffect(() => {
@@ -1846,19 +1893,18 @@ export function Editor({
       <div
         className={cn(
           "h-11 shrink-0 flex items-center justify-between px-3",
-          !sidebarVisible && "pl-22",
-          focusMode && "pl-22",
+          !isSidebarActive && "pl-22",
         )}
         data-tauri-drag-region
       >
         <div
-          className={`titlebar-no-drag flex items-center gap-1 min-w-0 transition-opacity duration-1000 delay-500 ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+          className={`titlebar-no-drag flex items-center gap-1 min-w-0 transition-opacity duration-400 ${needsSidebarDelay ? "delay-200" : ""} ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
         >
           {onToggleSidebar && (
             <IconButton
               onClick={onToggleSidebar}
               title={
-                sidebarVisible
+                isSidebarActive
                   ? `Hide sidebar (${mod}${isMac ? "" : "+"}\\)`
                   : `Show sidebar (${mod}${isMac ? "" : "+"}\\)`
               }
@@ -1872,7 +1918,7 @@ export function Editor({
           </span>
         </div>
         <div
-          className={`titlebar-no-drag flex items-center gap-px shrink-0 transition-opacity duration-1000 delay-500 ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+          className={`titlebar-no-drag flex items-center gap-px shrink-0 transition-opacity duration-400 ${needsSidebarDelay ? "delay-200" : ""} ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
         >
           {hasExternalChanges ? (
             <Tooltip
@@ -2043,7 +2089,7 @@ export function Editor({
 
       {/* Format Bar – transition only after initial mount to avoid height animation on note load */}
       <div
-        className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? "transition-all duration-1000 delay-500" : ""}`}
+        className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? `transition-all duration-400 ${needsSidebarDelay ? "delay-200" : ""}` : ""}`}
       >
         <FormatBar
           editor={editor}
@@ -2249,8 +2295,7 @@ export function Editor({
                     menuItems.push(
                       await MenuItem.new({
                         text: "Delete Row",
-                        action: () =>
-                          editor.chain().focus().deleteRow().run(),
+                        action: () => editor.chain().focus().deleteRow().run(),
                       }),
                     );
                     menuItems.push(

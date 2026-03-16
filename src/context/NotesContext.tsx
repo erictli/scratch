@@ -33,6 +33,7 @@ interface NotesDataContextValue {
 interface NotesActionsContextValue {
   selectNote: (id: string) => Promise<void>;
   createNote: () => Promise<void>;
+  consumePendingNewNote: (id: string) => boolean;
   saveNote: (content: string, noteId?: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   duplicateNote: (id: string) => Promise<void>;
@@ -72,8 +73,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   // Ref to access notes in search callback without re-creating it on every notes change
   const notesRef = useRef<NoteMetadata[]>([]);
   notesRef.current = notes;
+  // Monotonic counter to ignore stale async note selection responses.
+  const selectRequestIdRef = useRef(0);
   // Monotonic counter to ignore stale async search responses
   const searchRequestIdRef = useRef(0);
+  // Tracks the ID of a newly created note so Editor can focus its title.
+  const pendingNewNoteIdRef = useRef<string | null>(null);
 
   const refreshNotes = useCallback(async () => {
     if (!notesFolder) return;
@@ -97,13 +102,19 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, [refreshNotes]);
 
   const selectNote = useCallback(async (id: string) => {
+    const requestId = ++selectRequestIdRef.current;
     try {
+      if (pendingNewNoteIdRef.current !== id) {
+        pendingNewNoteIdRef.current = null;
+      }
       // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
       setHasExternalChanges(false);
       const note = await notesService.readNote(id);
+      if (requestId !== selectRequestIdRef.current) return;
       setCurrentNote(note);
     } catch (err) {
+      if (requestId !== selectRequestIdRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load note");
     }
   }, []);
@@ -123,6 +134,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const createNote = useCallback(async () => {
     try {
       const note = await notesService.createNote();
+      selectRequestIdRef.current += 1;
+      pendingNewNoteIdRef.current = note.id;
       // Mark as recently saved to ignore file-change events from our own creation
       recentlySavedRef.current.add(note.id);
       await refreshNotes();
@@ -138,6 +151,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setError(err instanceof Error ? err.message : "Failed to create note");
     }
   }, [refreshNotes]);
+
+  const consumePendingNewNote = useCallback((id: string) => {
+    if (pendingNewNoteIdRef.current !== id) {
+      pendingNewNoteIdRef.current = null;
+      return false;
+    }
+    pendingNewNoteIdRef.current = null;
+    return true;
+  }, []);
 
   const saveNote = useCallback(
     async (content: string, noteId?: string) => {
@@ -241,6 +263,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       try {
         const newNote = await notesService.duplicateNote(id);
+        selectRequestIdRef.current += 1;
         // Mark as recently saved to ignore file-change events from our own creation
         recentlySavedRef.current.add(newNote.id);
         await refreshNotes();
@@ -491,6 +514,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     () => ({
       selectNote,
       createNote,
+      consumePendingNewNote,
       saveNote,
       deleteNote,
       duplicateNote,
@@ -505,6 +529,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [
       selectNote,
       createNote,
+      consumePendingNewNote,
       saveNote,
       deleteNote,
       duplicateNote,
