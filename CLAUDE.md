@@ -256,7 +256,7 @@ TipTap editor with extensions and features:
 
 **Utilities:** `copy_to_clipboard`, `copy_image_to_assets`, `save_clipboard_image`
 
-**UI Helpers:** `open_folder_dialog`, `reveal_in_file_manager`, `open_url_safe` (URL scheme validated)
+**UI Helpers:** `open_folder_dialog`, `open_in_file_manager`, `open_url_safe` (URL scheme validated)
 
 ### Search Implementation
 

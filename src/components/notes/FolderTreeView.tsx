@@ -182,7 +182,7 @@ const FileItem = memo(function FileItem({
           </ContextMenu.Item>
           <ContextMenu.Item
             className={menuItemClass}
-            onSelect={() => onDuplicate(note.id)}
+            onSelect={() => void onDuplicate(note.id).catch((err) => toast.error(`Failed to duplicate: ${err?.message || err}`))}
           >
             <CopyIcon className="w-4 h-4 stroke-[1.6]" />
             Duplicate
@@ -206,7 +206,8 @@ const FileItem = memo(function FileItem({
                         noteParentFolder.lastIndexOf("/"),
                       )
                     : "";
-                  onMoveToParent(note.id, parentOfParent);
+                  void Promise.resolve(onMoveToParent(note.id, parentOfParent)).catch((err) =>
+                    toast.error(`Failed to move: ${err?.message || err}`));
                 }}
               >
                 <ArrowUpIcon className="w-4 h-4 stroke-[1.6]" />
@@ -424,7 +425,8 @@ const FolderItemComponent = memo(function FolderItem({
                         parentOfParent.lastIndexOf("/"),
                       )
                     : "";
-                  onMoveFolderToParent(folder.path, grandparent);
+                  void Promise.resolve(onMoveFolderToParent(folder.path, grandparent)).catch((err) =>
+                    toast.error(`Failed to move: ${err?.message || err}`));
                 }}
               >
                 <ArrowUpIcon className="w-4 h-4 stroke-[1.6]" />
@@ -796,7 +798,7 @@ export function FolderTreeView({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm}>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleDeleteConfirm(); }}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -839,7 +841,7 @@ export function FolderTreeView({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleNoteDeleteConfirm}>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleNoteDeleteConfirm(); }}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

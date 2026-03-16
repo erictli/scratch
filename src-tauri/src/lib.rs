@@ -1195,6 +1195,8 @@ async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) 
 }
 
 /// Validate a relative folder path against traversal attacks
+const RESERVED_FOLDER_NAMES: &[&str] = &[".git", ".scratch", ".obsidian", ".trash", "assets"];
+
 fn validate_folder_path(path: &str) -> Result<(), String> {
     if path.contains('\\') {
         return Err("Invalid path: backslashes not allowed".to_string());
@@ -1214,7 +1216,13 @@ fn validate_folder_path(path: &str) -> Result<(), String> {
             std::path::Component::RootDir | std::path::Component::Prefix(_) => {
                 return Err("Invalid path: absolute paths not allowed".to_string());
             }
-            _ => {}
+            std::path::Component::Normal(name) => {
+                if let Some(name_str) = name.to_str() {
+                    if RESERVED_FOLDER_NAMES.contains(&name_str) {
+                        return Err(format!("'{}' is a reserved folder name", name_str));
+                    }
+                }
+            }
         }
     }
     Ok(())
