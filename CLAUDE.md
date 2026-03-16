@@ -103,10 +103,12 @@ scratch/
 │   │   │   ├── SlashCommand.tsx    # Slash command extension for TipTap
 │   │   │   └── SlashCommandList.tsx # Slash command popup menu UI
 │   │   ├── layout/                 # Sidebar, main layout
-│   │   │   ├── Sidebar.tsx         # Note list, search, git status
+│   │   │   ├── Sidebar.tsx         # Note list, search, git status, DnD context
 │   │   │   └── FolderPicker.tsx    # Initial folder selection dialog
 │   │   ├── notes/
-│   │   │   └── NoteList.tsx        # Scrollable note list with context menu
+│   │   │   ├── NoteList.tsx        # Scrollable note list with context menu
+│   │   │   ├── FolderTreeView.tsx  # Collapsible folder tree with drag-and-drop
+│   │   │   └── FolderNameDialog.tsx # Dialog for creating/renaming folders
 │   │   ├── command-palette/
 │   │   │   └── CommandPalette.tsx  # Cmd+P for notes & commands
 │   │   ├── settings/               # Settings page
@@ -132,7 +134,8 @@ scratch/
 │   │   ├── GitContext.tsx          # Git operations wrapper
 │   │   └── ThemeContext.tsx        # Theme mode & typography settings
 │   ├── lib/                        # Utility functions
-│   │   └── utils.ts                # cn() for className merging
+│   │   ├── utils.ts                # cn() for className merging
+│   │   └── folderTree.ts           # Build folder tree from flat note list
 │   ├── services/                   # Tauri command wrappers
 │   │   ├── notes.ts                # Note management commands
 │   │   ├── git.ts                  # Git commands
@@ -158,7 +161,7 @@ All backend operations go through Tauri commands defined in `src-tauri/src/lib.r
 
 ### State Management
 
-- `NotesContext` manages all note state, CRUD operations, and search
+- `NotesContext` manages all note state, CRUD operations, search, and folder operations
 - `ThemeContext` handles light/dark/system theme, editor typography, text direction, and page width settings
 
 ### Settings
@@ -172,6 +175,7 @@ The settings page provides UI for:
 - Editor typography (font family, size, line height, bold weight)
 - Text direction (LTR/RTL)
 - Page width (narrow/normal/wide/full)
+- Folder view (opt-in tree view with drag-and-drop)
 - Git integration (optional)
 - Keyboard shortcuts reference
 - App version, updates, and project links
@@ -216,7 +220,7 @@ TipTap editor with extensions and features:
 **Context Providers:**
 - `NotesContext` - Dual context pattern (data/actions separated for performance)
   - Data: notes, selectedNoteId, currentNote, searchResults, etc.
-  - Actions: selectNote, createNote, saveNote, deleteNote, search, etc.
+  - Actions: selectNote, createNote, saveNote, deleteNote, search, moveNote, moveFolder, etc.
   - Race condition protection during note switches
   - Recently saved note tracking to ignore own file watcher events
 - `GitContext` - Git operations with loading states and error handling
@@ -228,14 +232,17 @@ TipTap editor with extensions and features:
 - `LinkEditor` - Inline popup for link management
 - `CommandPalette` - Cmd+P for quick actions and note search
 - `GitStatus` - Floating commit UI in sidebar
-- `NoteList` - Scrollable list with context menu and smart date formatting
+- `NoteList` - Scrollable list with Radix context menu and smart date formatting
+- `FolderTreeView` - Collapsible folder tree with @dnd-kit drag-and-drop
 - `SettingsPage` - Tabbed settings (General, Appearance, Shortcuts, About)
 - `AiEditModal` - AI prompt input for Claude/Codex/OpenCode/Ollama CLI integration
 - `AiResponseToast` - AI response display with markdown parsing and undo button
 
 ### Tauri Commands
 
-**Note Management:** `list_notes`, `read_note`, `save_note`, `delete_note`, `create_note`
+**Note Management:** `list_notes`, `read_note`, `save_note`, `delete_note`, `create_note`, `move_note`
+
+**Folder Management:** `list_folders`, `create_folder`, `delete_folder`, `rename_folder`, `move_folder`
 
 **Configuration:** `get_notes_folder`, `set_notes_folder`, `get_settings`, `update_settings`
 
