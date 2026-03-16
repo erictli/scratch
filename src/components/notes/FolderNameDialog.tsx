@@ -25,8 +25,8 @@ export function FolderNameDialog({
   open,
   onOpenChange,
   onConfirm,
-  title = "New Folder",
-  description = "Enter a name for the new folder",
+  title = "Create New Folder",
+  description = "Enter a name for your new folder",
   confirmLabel = "Create",
   defaultValue = "",
 }: FolderNameDialogProps) {
@@ -55,7 +55,7 @@ export function FolderNameDialog({
         handleConfirm();
       }
     },
-    [handleConfirm]
+    [handleConfirm],
   );
 
   return (
@@ -63,7 +63,9 @@ export function FolderNameDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
+          <AlertDialogDescription className="-mt-1">
+            {description}
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <Input
           ref={inputRef}

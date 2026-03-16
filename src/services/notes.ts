@@ -54,9 +54,11 @@ export async function moveFolder(path: string, targetParent: string): Promise<vo
 }
 
 export async function duplicateNote(id: string): Promise<Note> {
-  // Read the original note, then create a new one with the same content
+  // Read the original note, then create a new one in the same folder
   const original = await readNote(id);
-  const newNote = await createNote();
+  const lastSlash = id.lastIndexOf("/");
+  const folder = lastSlash > 0 ? id.substring(0, lastSlash) : undefined;
+  const newNote = await createNote(folder);
   // Save with the original content (title will be extracted from content)
   const duplicatedContent = original.content.replace(/^# (.+)$/m, (_, title) => `# ${title} (Copy)`);
   return saveNote(newNote.id, duplicatedContent || original.content);

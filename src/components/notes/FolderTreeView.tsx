@@ -1,15 +1,8 @@
 import { useCallback, useMemo, useState, useEffect, useRef, memo } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
   useDroppable,
   useDraggable,
-  type DragStartEvent,
-  type DragEndEvent,
 } from "@dnd-kit/core";
 import { useNotes } from "../../context/NotesContext";
 import { buildFolderTree, countNotesInFolder } from "../../lib/folderTree";
@@ -91,6 +84,12 @@ const FileItem = memo(function FileItem({
   const itemRef = useRef<HTMLDivElement>(null);
   const handleClick = useCallback(() => onSelect(note.id), [onSelect, note.id]);
 
+  // The parent folder for this note (empty string = root)
+  const noteParentFolder = useMemo(() => {
+    const lastSlash = note.id.lastIndexOf("/");
+    return lastSlash > 0 ? note.id.substring(0, lastSlash) : "";
+  }, [note.id]);
+
   const {
     attributes,
     listeners,
@@ -99,6 +98,11 @@ const FileItem = memo(function FileItem({
   } = useDraggable({
     id: `note:${note.id}`,
     data: { type: "note", id: note.id },
+  });
+
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `drop-note:${note.id}`,
+    data: { type: "folder", path: noteParentFolder },
   });
 
   useEffect(() => {
@@ -132,17 +136,20 @@ const FileItem = memo(function FileItem({
         <div
           ref={(el) => {
             setDragRef(el);
+            setDropRef(el);
             (itemRef as React.MutableRefObject<HTMLDivElement | null>).current =
               el;
           }}
           {...attributes}
           {...listeners}
-          className={`flex items-center gap-1.5 py-1.5 cursor-pointer rounded-md select-none ${
+          className={`flex items-center gap-1.5 py-1.5 cursor-pointer rounded-md select-none transition-colors ${
             isDragging
               ? "opacity-40"
-              : isSelected
-                ? "bg-bg-muted group-focus/notelist:ring-1 group-focus/notelist:ring-text-muted"
-                : "hover:bg-bg-muted"
+              : isOver
+                ? "bg-accent/10 ring-1 ring-accent"
+                : isSelected
+                  ? "bg-bg-muted group-focus/notelist:ring-1 group-focus/notelist:ring-text-muted"
+                  : "hover:bg-bg-muted"
           }`}
           style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: "8px" }}
           onClick={handleClick}
@@ -396,8 +403,6 @@ export function FolderTreeView({
     unpinNote,
     duplicateNote,
     deleteNote,
-    moveNote,
-    moveFolder,
   } = useNotes();
 
   const [collapsedFolders, setCollapsedFolders] =
@@ -412,13 +417,7 @@ export function FolderTreeView({
   const [noteDeleteDialogOpen, setNoteDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [knownFolders, setKnownFolders] = useState<string[]>([]);
-  const [dragLabel, setDragLabel] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // dnd-kit sensor — require 5px movement before starting drag to avoid interfering with clicks
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
 
   // Load known folders from disk (includes empty folders)
   useEffect(() => {
@@ -449,6 +448,30 @@ export function FolderTreeView({
       return next;
     });
   }, []);
+
+  // Expand a folder and all its ancestors
+  const expandFolder = useCallback((folderPath: string) => {
+    if (!folderPath) return;
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      // Expand this folder and every ancestor
+      const parts = folderPath.split("/");
+      for (let i = 1; i <= parts.length; i++) {
+        next.delete(parts.slice(0, i).join("/"));
+      }
+      return next;
+    });
+  }, []);
+
+  // Listen for expand-folder events (from drag-drop in Sidebar, or search navigation)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const path = (e as CustomEvent<string>).detail;
+      if (path) expandFolder(path);
+    };
+    window.addEventListener("expand-folder", handler);
+    return () => window.removeEventListener("expand-folder", handler);
+  }, [expandFolder]);
 
   const handleNewSubfolder = useCallback((parentPath: string) => {
     setSubfolderParent(parentPath);
@@ -508,74 +531,12 @@ export function FolderTreeView({
   const handleSubfolderConfirm = useCallback(
     async (name: string) => {
       await createFolder(subfolderParent, name);
+      // Expand parent so the new subfolder is visible
+      expandFolder(subfolderParent);
       setSubfolderDialogOpen(false);
     },
-    [subfolderParent, createFolder],
+    [subfolderParent, createFolder, expandFolder],
   );
-
-  // dnd-kit handlers
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    const data = event.active.data.current;
-    if (data?.type === "note") {
-      const noteId = data.id as string;
-      const leaf = noteId.includes("/")
-        ? noteId.substring(noteId.lastIndexOf("/") + 1)
-        : noteId;
-      setDragLabel(leaf);
-    } else if (data?.type === "folder") {
-      const path = data.path as string;
-      const name = path.includes("/")
-        ? path.substring(path.lastIndexOf("/") + 1)
-        : path;
-      setDragLabel(name);
-    }
-  }, []);
-
-  const handleDragEnd = useCallback(
-    async (event: DragEndEvent) => {
-      setDragLabel(null);
-      const { active, over } = event;
-      if (!over) return;
-
-      const activeData = active.data.current;
-      const overData = over.data.current;
-      if (!activeData || !overData) return;
-
-      const targetFolder =
-        overData.type === "root" ? "" : (overData.path as string);
-
-      if (activeData.type === "note") {
-        const noteId = activeData.id as string;
-        // Don't move to the same folder
-        const noteParent = noteId.includes("/")
-          ? noteId.substring(0, noteId.lastIndexOf("/"))
-          : "";
-        if (noteParent === targetFolder) return;
-        await moveNote(noteId, targetFolder);
-      } else if (activeData.type === "folder") {
-        const folderPath = activeData.path as string;
-        // Don't move into itself or a descendant
-        if (
-          targetFolder === folderPath ||
-          targetFolder.startsWith(folderPath + "/")
-        )
-          return;
-        // Don't move if already in the target parent
-        const folderParent = folderPath.includes("/")
-          ? folderPath.substring(0, folderPath.lastIndexOf("/"))
-          : "";
-        if (folderParent === targetFolder) return;
-        await moveFolder(folderPath, targetFolder);
-      }
-    },
-    [moveNote, moveFolder],
-  );
-
-  // Root drop zone
-  const { setNodeRef: setRootDropRef, isOver: isRootOver } = useDroppable({
-    id: "drop-root",
-    data: { type: "root" },
-  });
 
   // Listen for focus requests
   useEffect(() => {
@@ -596,24 +557,12 @@ export function FolderTreeView({
 
   return (
     <>
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
+      <div
+        ref={containerRef}
+        tabIndex={0}
+        data-note-list
+        className="group/notelist flex flex-col gap-0.5 p-1.5 outline-none"
       >
-        <div
-          ref={(el) => {
-            (
-              containerRef as React.MutableRefObject<HTMLDivElement | null>
-            ).current = el;
-            setRootDropRef(el);
-          }}
-          tabIndex={0}
-          data-note-list
-          className={`group/notelist flex flex-col gap-0.5 p-1.5 outline-none transition-colors ${
-            isRootOver ? "bg-accent/5" : ""
-          }`}
-        >
           {/* Pinned root notes */}
           {pinnedRootNotes.map((note) => (
             <FileItem
@@ -669,17 +618,6 @@ export function FolderTreeView({
           ))}
         </div>
 
-        {/* Drag overlay — floating label while dragging */}
-        <DragOverlay>
-          {dragLabel && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-bg border border-border rounded-md shadow-lg text-sm text-text">
-              <NoteIcon className="w-3.5 h-3.5 stroke-[1.6] opacity-50 shrink-0" />
-              {dragLabel}
-            </div>
-          )}
-        </DragOverlay>
-      </DndContext>
-
       {/* Delete folder confirmation dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -715,8 +653,8 @@ export function FolderTreeView({
         open={subfolderDialogOpen}
         onOpenChange={setSubfolderDialogOpen}
         onConfirm={handleSubfolderConfirm}
-        title="New Subfolder"
-        description="Enter a name for the new subfolder"
+        title="Create new subfolder"
+        description="Enter a name for your new subfolder"
         confirmLabel="Create"
       />
 

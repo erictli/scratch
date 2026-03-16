@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import { useNotes } from "../../context/NotesContext";
 import { NoteList } from "../notes/NoteList";
 import { Footer } from "./Footer";
@@ -11,6 +20,7 @@ import {
   SearchOffIcon,
   AddNoteIcon,
   FolderPlusIcon,
+  NoteIcon,
 } from "../icons";
 import { mod, shift, isMac } from "../../lib/platform";
 import * as notesService from "../../services/notes";
@@ -29,6 +39,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     searchQuery,
     clearSearch,
     selectedNoteId,
+    moveNote,
+    moveFolder,
   } = useNotes();
   const [searchOpen, setSearchOpen] = useState(false);
   const [inputValue, setInputValue] = useState(searchQuery);
@@ -36,8 +48,74 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDialogParent, setFolderDialogParent] = useState("");
   const [foldersEnabled, setFoldersEnabled] = useState(true);
+  const [dragLabel, setDragLabel] = useState<string | null>(null);
   const debounceRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // dnd-kit
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const data = event.active.data.current;
+    if (data?.type === "note") {
+      const noteId = data.id as string;
+      const leaf = noteId.includes("/")
+        ? noteId.substring(noteId.lastIndexOf("/") + 1)
+        : noteId;
+      setDragLabel(leaf);
+    } else if (data?.type === "folder") {
+      const path = data.path as string;
+      const name = path.includes("/")
+        ? path.substring(path.lastIndexOf("/") + 1)
+        : path;
+      setDragLabel(name);
+    }
+  }, []);
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      setDragLabel(null);
+      const { active, over } = event;
+      if (!over) return;
+
+      const activeData = active.data.current;
+      const overData = over.data.current;
+      if (!activeData || !overData) return;
+
+      const targetFolder = overData.path as string;
+
+      if (activeData.type === "note") {
+        const noteId = activeData.id as string;
+        const noteParent = noteId.includes("/")
+          ? noteId.substring(0, noteId.lastIndexOf("/"))
+          : "";
+        if (noteParent === targetFolder) return;
+        await moveNote(noteId, targetFolder);
+      } else if (activeData.type === "folder") {
+        const folderPath = activeData.path as string;
+        if (
+          targetFolder === folderPath ||
+          targetFolder.startsWith(folderPath + "/")
+        )
+          return;
+        const folderParent = folderPath.includes("/")
+          ? folderPath.substring(0, folderPath.lastIndexOf("/"))
+          : "";
+        if (folderParent === targetFolder) return;
+        await moveFolder(folderPath, targetFolder);
+      }
+
+      // Expand target folder so the moved item is visible
+      if (targetFolder) {
+        window.dispatchEvent(
+          new CustomEvent("expand-folder", { detail: targetFolder }),
+        );
+      }
+    },
+    [moveNote, moveFolder],
+  );
 
   // Load folders setting
   useEffect(() => {
@@ -65,7 +143,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         search(value);
       }, 220);
     },
-    [search]
+    [search],
   );
 
   const toggleSearch = useCallback(() => {
@@ -99,7 +177,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
 
     window.addEventListener("open-sidebar-search", handleOpenSidebarSearch);
     return () =>
-      window.removeEventListener("open-sidebar-search", handleOpenSidebarSearch);
+      window.removeEventListener(
+        "open-sidebar-search",
+        handleOpenSidebarSearch,
+      );
   }, []);
 
   const handleSearchKeyDown = useCallback(
@@ -116,7 +197,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         }
       }
     },
-    [inputValue, clearSearch, closeSearch]
+    [inputValue, clearSearch, closeSearch],
   );
 
   const handleClearSearch = useCallback(() => {
@@ -134,7 +215,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       await createFolder(folderDialogParent, name);
       setFolderDialogOpen(false);
     },
-    [createFolder, folderDialogParent]
+    [createFolder, folderDialogParent],
   );
 
   // Listen for create-new-folder event (from command palette / keyboard shortcut)
@@ -142,7 +223,9 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     const handleCreateFolder = () => {
       // Derive parent folder from currently selected note
       const lastSlash = selectedNoteId?.lastIndexOf("/") ?? -1;
-      setFolderDialogParent(lastSlash > 0 ? selectedNoteId!.substring(0, lastSlash) : "");
+      setFolderDialogParent(
+        lastSlash > 0 ? selectedNoteId!.substring(0, lastSlash) : "",
+      );
       setFolderDialogOpen(true);
     };
 
@@ -151,8 +234,13 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       window.removeEventListener("create-new-folder", handleCreateFolder);
   }, [selectedNoteId]);
 
-
   return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setDragLabel(null)}
+    >
     <div className="relative w-64 h-full bg-bg-secondary border-r border-border flex flex-col select-none">
       {/* Drag region */}
       <div className="h-11 shrink-0" data-tauri-drag-region></div>
@@ -175,7 +263,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             )}
           </IconButton>
           {foldersEnabled ? (
-            <DropdownMenu.Root open={plusMenuOpen} onOpenChange={setPlusMenuOpen}>
+            <DropdownMenu.Root
+              open={plusMenuOpen}
+              onOpenChange={setPlusMenuOpen}
+            >
               <DropdownMenu.Trigger asChild>
                 <IconButton
                   variant="ghost"
@@ -197,7 +288,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   >
                     <AddNoteIcon className="w-4 h-4 stroke-[1.6]" />
                     <span className="flex-1">New Note</span>
-                    <kbd className="text-xs text-text-muted ml-2">{mod}{isMac ? "" : "+"}N</kbd>
+                    <kbd className="text-xs text-text-muted ml-2">
+                      {mod}
+                      {isMac ? "" : "+"}N
+                    </kbd>
                   </DropdownMenu.Item>
                   <DropdownMenu.Item
                     className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
@@ -260,10 +354,21 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         open={folderDialogOpen}
         onOpenChange={setFolderDialogOpen}
         onConfirm={handleFolderDialogConfirm}
-        title="New Folder"
-        description="Enter a name for the new folder"
+        title="Create new folder"
+        description="Enter a name for your new folder"
         confirmLabel="Create"
       />
     </div>
+
+    {/* Drag overlay — floating label while dragging */}
+    <DragOverlay>
+      {dragLabel && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-bg border border-border rounded-md shadow-lg text-sm text-text">
+          <NoteIcon className="w-3.5 h-3.5 stroke-[1.6] opacity-50 shrink-0" />
+          {dragLabel}
+        </div>
+      )}
+    </DragOverlay>
+    </DndContext>
   );
 }

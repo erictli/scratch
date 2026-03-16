@@ -116,6 +116,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
       setHasExternalChanges(false);
+      // Expand parent folders so the note is visible in the tree
+      const lastSlash = id.lastIndexOf("/");
+      if (lastSlash > 0) {
+        window.dispatchEvent(
+          new CustomEvent("expand-folder", {
+            detail: id.substring(0, lastSlash),
+          }),
+        );
+      }
       const note = await notesService.readNote(id);
       if (requestId !== selectRequestIdRef.current) return;
       setCurrentNote(note);

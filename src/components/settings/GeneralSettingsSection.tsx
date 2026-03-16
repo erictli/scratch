@@ -266,16 +266,19 @@ export function GeneralSettingsSection() {
       {/* Divider */}
       <div className="border-t border-border border-dashed" />
 
-      {/* Folder View Section */}
+      {/* Folders Section */}
       <section className="pb-2">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center justify-between gap-6">
           <div className="flex flex-col gap-0.75">
-            <h2 className="text-xl font-medium">Folder View</h2>
-            <p className="text-sm text-text-muted">
-              Organize notes in a collapsible folder tree in the sidebar
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-medium">Enable Folders</h2>
+            </div>
+            <p className="text-sm text-text-muted max-w-lg">
+              Create and view nested folders to organize your notes. When off,
+              notes are shown in a flat list sorted by date.
             </p>
           </div>
-          <FolderViewToggle />
+          <FoldersToggle />
         </div>
       </section>
 
@@ -283,11 +286,11 @@ export function GeneralSettingsSection() {
       <div className="border-t border-border border-dashed" />
 
       {/* Git Section */}
-      <section className="pb-2">
-        <div className="flex items-start justify-between gap-4 mb-4">
+      <section className="pb-2 flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-6">
           <div className="flex flex-col gap-0.75">
             <h2 className="text-xl font-medium">Version Control</h2>
-            <p className="text-sm text-text-muted">
+            <p className="text-sm text-text-muted max-w-lg">
               Track changes and store backups of your notes using Git
             </p>
           </div>
@@ -619,7 +622,6 @@ export function GeneralSettingsSection() {
               </p>
             </div>
           </details>
-
         </div>
       </section>
 
@@ -712,7 +714,7 @@ const AI_PROVIDER_INFO: Record<
   },
 };
 
-function FolderViewToggle() {
+function FoldersToggle() {
   const [foldersEnabled, setFoldersEnabled] = useState<boolean | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -732,7 +734,7 @@ function FolderViewToggle() {
       });
       setFoldersEnabled(enabled);
     } catch {
-      toast.error("Failed to update folder view setting");
+      toast.error("Failed to update folder setting");
     } finally {
       setIsUpdating(false);
     }
@@ -740,15 +742,19 @@ function FolderViewToggle() {
 
   if (foldersEnabled === null) {
     return (
-      <div className="flex gap-1 p-1 rounded-[10px] border border-border">
-        <Button variant="ghost" size="xs" disabled>Off</Button>
-        <Button variant="ghost" size="xs" disabled>On</Button>
+      <div className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0">
+        <Button variant="ghost" size="xs" disabled>
+          Off
+        </Button>
+        <Button variant="ghost" size="xs" disabled>
+          On
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="flex gap-1 p-1 rounded-[10px] border border-border">
+    <div className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0">
       <Button
         onClick={() => handleToggle(false)}
         variant={!foldersEnabled ? "primary" : "ghost"}
