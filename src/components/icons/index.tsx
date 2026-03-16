@@ -965,10 +965,8 @@ export function NoteIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       strokeLinejoin="round"
     >
       <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-      <path d="M3 5a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14" />
-      <path d="M9 13h-2" />
-      <path d="M13 10h-6" />
-      <path d="M11 7h-4" />
+      <path d="M13 20l7 -7" />
+      <path d="M13 20v-6a1 1 0 0 1 1 -1h6v-7a2 2 0 0 0 -2 -2h-12a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7" />
     </svg>
   );
 }

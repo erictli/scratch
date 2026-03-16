@@ -355,12 +355,31 @@ export function GeneralSettingsSection() {
       {/* Divider */}
       <div className="border-t border-border border-dashed" />
 
-      {/* Git Section */}
+      {/* Folders Section */}
       <section className="pb-2">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex items-center justify-between gap-6">
+          <div className="flex flex-col gap-0.75">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-medium">Enable Folders</h2>
+            </div>
+            <p className="text-sm text-text-muted max-w-lg">
+              Create and view nested folders to organize your notes. When off,
+              notes are shown in a flat list sorted by date.
+            </p>
+          </div>
+          <FoldersToggle />
+        </div>
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Git Section */}
+      <section className="pb-2 flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-6">
           <div className="flex flex-col gap-0.75">
             <h2 className="text-xl font-medium">Version Control</h2>
-            <p className="text-sm text-text-muted">
+            <p className="text-sm text-text-muted max-w-lg">
               Track changes and store backups of your notes using Git
             </p>
           </div>
@@ -692,7 +711,6 @@ export function GeneralSettingsSection() {
               </p>
             </div>
           </details>
-
         </div>
       </section>
 
@@ -868,6 +886,70 @@ const AI_PROVIDER_INFO: Record<
     installUrl: "https://ollama.com",
   },
 };
+
+function FoldersToggle() {
+  const [foldersEnabled, setFoldersEnabled] = useState<boolean | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  useEffect(() => {
+    invoke<Settings>("get_settings").then((s) => {
+      setFoldersEnabled(s.foldersEnabled === true);
+    }).catch((error) => {
+      console.error("Failed to load folder setting:", error);
+      setFoldersEnabled(false);
+    });
+  }, []);
+
+  const handleToggle = async (enabled: boolean) => {
+    if (isUpdating) return;
+    setIsUpdating(true);
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: { ...settings, foldersEnabled: enabled },
+      });
+      setFoldersEnabled(enabled);
+    } catch {
+      toast.error("Failed to update folder setting");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  if (foldersEnabled === null) {
+    return (
+      <div className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0">
+        <Button variant="ghost" size="xs" disabled>
+          Off
+        </Button>
+        <Button variant="ghost" size="xs" disabled>
+          On
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0">
+      <Button
+        onClick={() => handleToggle(false)}
+        variant={!foldersEnabled ? "primary" : "ghost"}
+        size="xs"
+        disabled={isUpdating}
+      >
+        Off
+      </Button>
+      <Button
+        onClick={() => handleToggle(true)}
+        variant={foldersEnabled ? "primary" : "ghost"}
+        size="xs"
+        disabled={isUpdating}
+      >
+        On
+      </Button>
+    </div>
+  );
+}
 
 function RemoteInstructions() {
   return (

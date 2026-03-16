@@ -48,6 +48,7 @@ import {
   OpenCodeIcon,
   OllamaIcon,
   FolderIcon,
+  FolderPlusIcon,
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
@@ -150,6 +151,16 @@ export function CommandPalette({
         action: () => {
           createNote();
           onClose();
+        },
+      },
+      {
+        id: "new-folder",
+        label: "New Folder",
+        shortcut: undefined,
+        icon: <FolderPlusIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          onClose();
+          window.dispatchEvent(new CustomEvent("create-new-folder"));
         },
       },
     ];
