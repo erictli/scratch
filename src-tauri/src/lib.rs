@@ -2267,9 +2267,7 @@ fn cli_target_path() -> PathBuf {
 #[tauri::command]
 fn get_cli_status() -> Result<CliStatus, String> {
     #[cfg(not(target_os = "macos"))]
-    {
-        return Ok(CliStatus { supported: false, installed: false, path: None });
-    }
+    return Ok(CliStatus { supported: false, installed: false, path: None });
 
     #[cfg(target_os = "macos")]
     {
@@ -2301,9 +2299,7 @@ fn get_cli_status() -> Result<CliStatus, String> {
 #[tauri::command]
 fn install_cli() -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
-    {
-        return Err("CLI install is only supported on macOS".to_string());
-    }
+    return Err("CLI install is only supported on macOS".to_string());
 
     #[cfg(target_os = "macos")]
     {
@@ -2332,12 +2328,17 @@ fn install_cli() -> Result<String, String> {
         let exe_path = std::env::current_exe()
             .map_err(|e| format!("Cannot find exe path: {}", e))?;
 
+        // Shell-escape the exe path using single quotes to prevent
+        // interpretation of $, `, ", and other metacharacters.
+        let exe_str = exe_path.to_string_lossy();
+        let escaped_exe = format!("'{}'", exe_str.replace('\'', "'\\''"));
+
         // Write a wrapper script that launches the binary in the background so
         // the terminal is not blocked waiting for the GUI app to exit.
         let script = format!(
-            "#!/bin/sh\n{}\nnohup \"{}\" \"$@\" >/dev/null 2>&1 &\n",
+            "#!/bin/sh\n{}\nnohup {} \"$@\" >/dev/null 2>&1 &\n",
             SCRATCH_CLI_MARKER,
-            exe_path.to_string_lossy()
+            escaped_exe
         );
         std::fs::write(&target, script.as_bytes())
             .map_err(|e| format!("Failed to write CLI script: {}", e))?;
@@ -2356,9 +2357,7 @@ fn install_cli() -> Result<String, String> {
 #[tauri::command]
 fn uninstall_cli() -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
-    {
-        return Ok(());
-    }
+    return Ok(());
 
     #[cfg(target_os = "macos")]
     {

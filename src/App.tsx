@@ -58,7 +58,7 @@ function AppContent() {
     searchResults,
     reloadCurrentNote,
     currentNote,
-    setNotesFolder,
+    syncNotesFolder,
   } = useNotes();
   const { interfaceZoom, setInterfaceZoom, reloadSettings } = useTheme();
   const interfaceZoomRef = useRef(interfaceZoom);
@@ -80,7 +80,7 @@ function AppContent() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     listen<string>("set-notes-folder", async (event) => {
-      await setNotesFolder(event.payload);
+      await syncNotesFolder(event.payload);
       await reloadSettings();
     }).then((fn) => {
       if (cancelled) fn();
@@ -90,7 +90,7 @@ function AppContent() {
       cancelled = true;
       unlisten?.();
     };
-  }, [setNotesFolder, reloadSettings]);
+  }, [syncNotesFolder, reloadSettings]);
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
