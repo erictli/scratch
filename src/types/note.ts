@@ -32,6 +32,7 @@ export interface EditorFontSettings {
 export interface Settings {
   theme: ThemeSettings;
   editorFont?: EditorFontSettings;
+  editorBackgroundColor?: string;
   gitEnabled?: boolean;
   foldersEnabled?: boolean;
   pinnedNoteIds?: string[];

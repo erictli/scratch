@@ -93,7 +93,17 @@ import {
   MarkdownIcon,
   MarkdownOffIcon,
   FolderPlusIcon,
+  SwatchIcon,
 } from "../icons";
+
+const editorBackgroundOptions = [
+  "#FFF3B2",
+  "#F8D98A",
+  "#D9FCD1",
+  "#D2E8FD",
+  "#E0CCFF",
+  "#F8C6C7",
+] as const;
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -477,11 +487,17 @@ export function Editor({
   const pinNote = notesCtx?.pinNote;
   const unpinNote = notesCtx?.unpinNote;
   const notes = notesCtx?.notes;
-  const { textDirection } = useTheme();
+  const {
+    textDirection,
+    resolvedTheme,
+    editorBackgroundColor,
+    setEditorBackgroundColor,
+  } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
+  const [editorBgMenuOpen, setEditorBgMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   // Delay transition classes until after initial mount to avoid format bar height animation on note load
   const [hasTransitioned, setHasTransitioned] = useState(false);
@@ -1887,8 +1903,14 @@ export function Editor({
     );
   }
 
+  const effectiveEditorBgColor =
+    editorBackgroundColor ?? (resolvedTheme === "dark" ? "rgb(22, 20, 19)" : "#ffffff");
+
   return (
-    <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+    <div
+      className="flex-1 flex flex-col bg-bg overflow-hidden"
+      style={{ backgroundColor: effectiveEditorBgColor }}
+    >
       {/* Drag region with sidebar toggle, date and save status */}
       <div
         className={cn(
@@ -2003,6 +2025,65 @@ export function Editor({
                 )}
               </IconButton>
             </Tooltip>
+          )}
+          {currentNote && (
+            <DropdownMenu.Root
+              open={editorBgMenuOpen}
+              onOpenChange={setEditorBgMenuOpen}
+            >
+              <Tooltip content="Editor background color">
+                <DropdownMenu.Trigger asChild>
+                  <IconButton aria-label="Editor background color">
+                    <SwatchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
+                  </IconButton>
+                </DropdownMenu.Trigger>
+              </Tooltip>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className="w-52 bg-bg border border-border rounded-md shadow-lg p-2 z-50"
+                  sideOffset={5}
+                  align="end"
+                  onCloseAutoFocus={(e) => e.preventDefault()}
+                >
+                  <p className="px-1 pb-2 text-xs text-text-muted font-medium">
+                    Editor Background
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {editorBackgroundOptions.map((color) => {
+                      const isSelected = editorBackgroundColor === color;
+                      return (
+                        <DropdownMenu.Item
+                          key={color}
+                          onSelect={() => setEditorBackgroundColor(color)}
+                          className="outline-none rounded-md"
+                        >
+                          <div
+                            className={cn(
+                              "w-full h-8 rounded-md border transition-all cursor-pointer",
+                              isSelected
+                                ? "border-text shadow-[inset_0_0_0_2px_rgba(28,25,23,0.12)]"
+                                : "border-border hover:border-text/45",
+                            )}
+                            style={{ backgroundColor: color }}
+                            title={color}
+                          />
+                        </DropdownMenu.Item>
+                      );
+                    })}
+                  </div>
+                  <DropdownMenu.Separator className="h-px bg-border my-2" />
+                  <DropdownMenu.Item
+                    className={cn(
+                      "px-2 py-1.5 text-sm rounded-md cursor-pointer outline-none",
+                      "hover:bg-bg-muted focus:bg-bg-muted",
+                    )}
+                    onSelect={() => setEditorBackgroundColor(null)}
+                  >
+                    Use theme default
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           )}
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
             <Tooltip

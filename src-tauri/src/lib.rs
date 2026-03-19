@@ -108,6 +108,8 @@ pub struct Settings {
     pub theme: ThemeSettings,
     #[serde(rename = "editorFont")]
     pub editor_font: Option<EditorFontSettings>,
+    #[serde(rename = "editorBackgroundColor")]
+    pub editor_background_color: Option<String>,
     #[serde(rename = "gitEnabled")]
     pub git_enabled: Option<bool>,
     #[serde(rename = "pinnedNoteIds")]

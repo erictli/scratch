@@ -16,6 +16,29 @@ import type {
 } from "../types/note";
 
 type ThemeMode = "light" | "dark" | "system";
+type EditorBackgroundColor =
+  | "#FFF3B2"
+  | "#F8D98A"
+  | "#D9FCD1"
+  | "#D2E8FD"
+  | "#E0CCFF"
+  | "#F8C6C7";
+
+const editorBackgroundColors: readonly EditorBackgroundColor[] = [
+  "#FFF3B2",
+  "#F8D98A",
+  "#D9FCD1",
+  "#D2E8FD",
+  "#E0CCFF",
+  "#F8C6C7",
+];
+
+function isEditorBackgroundColor(value: unknown): value is EditorBackgroundColor {
+  return (
+    typeof value === "string" &&
+    editorBackgroundColors.includes(value as EditorBackgroundColor)
+  );
+}
 
 // Font family CSS values
 const fontFamilyMap: Record<FontFamily, string> = {
@@ -66,6 +89,8 @@ interface ThemeContextType {
   customEditorWidthPx: number;
   setCustomEditorWidthPx: (px: number) => void;
   setEditorMaxWidthLive: (value: string) => void;
+  editorBackgroundColor: EditorBackgroundColor | null;
+  setEditorBackgroundColor: (color: EditorBackgroundColor | null) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -136,6 +161,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [customEditorWidthPx, setCustomEditorWidthPxState] = useState<number>(
     DEFAULT_CUSTOM_WIDTH_PX
   );
+  const [editorBackgroundColor, setEditorBackgroundColorState] = useState<
+    EditorBackgroundColor | null
+  >(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
@@ -188,6 +216,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         settings.customEditorWidthPx >= 480
       ) {
         setCustomEditorWidthPxState(settings.customEditorWidthPx);
+      }
+      if (isEditorBackgroundColor(settings.editorBackgroundColor)) {
+        setEditorBackgroundColorState(settings.editorBackgroundColor);
+      } else {
+        setEditorBackgroundColorState(null);
       }
     } catch {
       // If settings can't be loaded, use defaults
@@ -403,6 +436,22 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     document.documentElement.style.setProperty("--editor-max-width", value);
   }, []);
 
+  const setEditorBackgroundColor = useCallback(
+    async (color: EditorBackgroundColor | null) => {
+      setEditorBackgroundColorState(color);
+      try {
+        const settings = await getSettings();
+        await updateSettings({
+          ...settings,
+          editorBackgroundColor: color ?? undefined,
+        });
+      } catch (error) {
+        console.error("Failed to save editor background color:", error);
+      }
+    },
+    [],
+  );
+
   // Don't render until initialized to prevent flash
   if (!isInitialized) {
     return null;
@@ -428,6 +477,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         customEditorWidthPx,
         setCustomEditorWidthPx,
         setEditorMaxWidthLive,
+        editorBackgroundColor,
+        setEditorBackgroundColor,
       }}
     >
       {children}
