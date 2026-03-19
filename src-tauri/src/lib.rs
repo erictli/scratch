@@ -126,6 +126,8 @@ pub struct Settings {
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
+    #[serde(rename = "defaultNoteFolder")]
+    pub default_note_folder: Option<String>,
 }
 
 // Search result
@@ -1120,14 +1122,19 @@ async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) 
     };
     let folder_path = PathBuf::from(&folder);
 
-    // Get template from settings (default "Untitled")
-    let template = {
+    // Get template and default folder from settings
+    let (template, settings_default_folder) = {
         let settings = state.settings.read().expect("settings read lock");
-        settings
+        let tmpl = settings
             .default_note_name
             .clone()
-            .unwrap_or_else(|| "Untitled".to_string())
+            .unwrap_or_else(|| "Untitled".to_string());
+        let default_folder = settings.default_note_folder.clone();
+        (tmpl, default_folder)
     };
+
+    // Use explicit target_folder, then fall back to settings default
+    let effective_folder = target_folder.or(settings_default_folder);
 
     // Expand template tags
     let expanded = expand_note_name_template(&template);
@@ -1136,7 +1143,7 @@ async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) 
     let sanitized = sanitize_filename(&expanded);
 
     // Prepend folder prefix if specified
-    let sanitized = if let Some(ref folder_prefix) = target_folder {
+    let sanitized = if let Some(ref folder_prefix) = effective_folder {
         if folder_prefix.is_empty() {
             sanitized
         } else {

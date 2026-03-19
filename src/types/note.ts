@@ -39,6 +39,7 @@ export interface Settings {
   editorWidth?: EditorWidth;
   customEditorWidthPx?: number;
   defaultNoteName?: string;
+  defaultNoteFolder?: string;
   interfaceZoom?: number;
   ollamaModel?: string;
 }

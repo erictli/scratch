@@ -25,6 +25,7 @@ import { mod } from "../../lib/platform";
 import type { Settings } from "../../types/note";
 import * as cliService from "../../services/cli";
 import type { CliStatus } from "../../services/cli";
+import * as notesService from "../../services/notes";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -124,6 +125,8 @@ export function GeneralSettingsSection() {
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
+  const [defaultNoteFolder, setDefaultNoteFolder] = useState<string>("");
+  const [availableFolders, setAvailableFolders] = useState<string[]>([]);
   const [cli, dispatchCli] = useReducer(cliReducer, cliInitialState);
   const [aiProviders, setAiProviders] = useState<AiProvider[]>([]);
   const [aiProvidersLoading, setAiProvidersLoading] = useState(true);
@@ -147,22 +150,27 @@ export function GeneralSettingsSection() {
       .finally(() => setAiProvidersLoading(false));
   }, []);
 
-  // Load template from settings on mount
+  // Load settings and available folders on mount
   useEffect(() => {
-    const loadTemplate = async () => {
+    const loadSettings = async () => {
       try {
-        const settings = await invoke<Settings>("get_settings");
+        const [settings, folders] = await Promise.all([
+          invoke<Settings>("get_settings"),
+          notesService.listFolders(),
+        ]);
         const template = settings.defaultNoteName || "Untitled";
         setNoteTemplate(template);
+        setDefaultNoteFolder(settings.defaultNoteFolder || "");
+        setAvailableFolders(folders);
 
         // Update preview
         const preview = await invoke<string>("preview_note_name", { template });
         setPreviewNoteName(preview);
       } catch (error) {
-        console.error("Failed to load template:", error);
+        console.error("Failed to load settings:", error);
       }
     };
-    loadTemplate();
+    loadSettings();
   }, []);
 
   // Update preview when template changes (debounced)
@@ -195,6 +203,22 @@ export function GeneralSettingsSection() {
     } catch (error) {
       console.error("Failed to save default name:", error);
       toast.error("Failed to save default name");
+    }
+  };
+
+  const handleDefaultNoteFolderChange = async (folder: string) => {
+    setDefaultNoteFolder(folder);
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: {
+          ...settings,
+          defaultNoteFolder: folder || undefined,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to save default note folder:", error);
+      toast.error("Failed to save default folder");
     }
   };
 
@@ -354,6 +378,29 @@ export function GeneralSettingsSection() {
             </Button>
           )}
         </div>
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Default Note Folder */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">Default Folder</h2>
+        <p className="text-sm text-text-muted mb-4">
+          New notes will be created in this folder by default
+        </p>
+        <select
+          value={defaultNoteFolder}
+          onChange={(e) => handleDefaultNoteFolderChange(e.target.value)}
+          className="flex h-10 w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text focus-visible:outline-none focus-visible:border-accent cursor-pointer"
+        >
+          <option value="">Root (no folder)</option>
+          {availableFolders.map((folder) => (
+            <option key={folder} value={folder}>
+              {folder}
+            </option>
+          ))}
+        </select>
       </section>
 
       {/* Divider */}
