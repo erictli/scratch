@@ -333,6 +333,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setEditorWidthState("normal");
     setInterfaceZoomState(1.0);
     setCustomEditorWidthPxState(DEFAULT_CUSTOM_WIDTH_PX);
+    setEditorBackgroundColorState(null);
     try {
       const settings = await getSettings();
       await updateSettings({
@@ -342,6 +343,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         editorWidth: "normal",
         interfaceZoom: 1.0,
         customEditorWidthPx: undefined,
+        editorBackgroundColor: undefined,
       });
     } catch (error) {
       console.error("Failed to reset editor settings:", error);
