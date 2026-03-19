@@ -329,13 +329,87 @@ impl SearchIndex {
     }
 }
 
+// Static regex for extracting wikilink targets from markdown content.
+// Matches [[target]] and [[target|alias]], capturing the target (before |).
+static WIKILINK_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"\[\[([^\[\]|]+)(?:\|[^\[\]]*)?\]\]").unwrap()
+});
+
+/// Extract all wikilink target titles from markdown content.
+fn extract_wikilink_targets(content: &str) -> HashSet<String> {
+    WIKILINK_RE
+        .captures_iter(content)
+        .map(|cap| cap[1].trim().to_string())
+        .collect()
+}
+
+// In-memory link index for graph view and rename propagation
+pub struct LinkIndex {
+    // forward: source_id -> set of target_titles this note links to
+    forward: HashMap<String, HashSet<String>>,
+}
+
+impl LinkIndex {
+    fn new() -> Self {
+        Self {
+            forward: HashMap::new(),
+        }
+    }
+
+    fn build(notes_folder: &Path) -> Self {
+        let mut index = Self::new();
+        use walkdir::WalkDir;
+        for entry in WalkDir::new(notes_folder)
+            .max_depth(10)
+            .into_iter()
+            .filter_entry(is_visible_notes_entry)
+            .flatten()
+        {
+            let file_path = entry.path();
+            if !file_path.is_file() {
+                continue;
+            }
+            if let Some(id) = id_from_abs_path(notes_folder, file_path) {
+                if let Ok(content) = std::fs::read_to_string(file_path) {
+                    let targets = extract_wikilink_targets(&content);
+                    index.forward.insert(id, targets);
+                }
+            }
+        }
+        index
+    }
+
+    fn update(&mut self, source_id: &str, new_targets: HashSet<String>) {
+        self.forward.insert(source_id.to_string(), new_targets);
+    }
+
+    fn remove(&mut self, source_id: &str) {
+        self.forward.remove(source_id);
+    }
+
+    /// Rename a source_id key (used when a note is moved but its title doesn't change).
+    fn rename_source(&mut self, old_id: &str, new_id: &str) {
+        if let Some(targets) = self.forward.remove(old_id) {
+            self.forward.insert(new_id.to_string(), targets);
+        }
+    }
+}
+
 // App state with improved structure
+//
+// Lock acquisition order (must always be respected to prevent deadlock):
+//   notes_cache (RwLock) → search_index (Mutex) → link_index (Mutex) → debounce_map (Mutex)
+//
+// Never hold a lower-priority lock while acquiring a higher-priority one.
+// In particular: never hold search_index while acquiring link_index,
+// and never hold link_index while acquiring notes_cache.write().
 pub struct AppState {
     pub app_config: RwLock<AppConfig>,  // notes_folder path (stored in app data)
     pub settings: RwLock<Settings>,      // per-folder settings (stored in .scratch/)
     pub notes_cache: RwLock<HashMap<String, NoteMetadata>>,
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
+    pub link_index: Mutex<Option<LinkIndex>>,
     pub debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
 }
 
@@ -347,6 +421,7 @@ impl Default for AppState {
             notes_cache: RwLock::new(HashMap::new()),
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
+            link_index: Mutex::new(None),
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -751,6 +826,49 @@ fn normalize_notes_folder_path(path: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(trimmed))
 }
 
+/// Single-pass walkdir that populates both the search index and the link index.
+/// Calling this instead of separate rebuild_index + LinkIndex::build halves startup I/O.
+fn rebuild_all_indexes(search_index: &SearchIndex, notes_folder: &PathBuf) -> LinkIndex {
+    use walkdir::WalkDir;
+    let mut link_index = LinkIndex::new();
+    let mut writer = search_index.writer.lock().expect("search writer mutex");
+    let _ = writer.delete_all_documents();
+
+    if notes_folder.exists() {
+        for entry in WalkDir::new(notes_folder)
+            .max_depth(10)
+            .into_iter()
+            .filter_entry(is_visible_notes_entry)
+            .flatten()
+        {
+            let file_path = entry.path();
+            if !file_path.is_file() { continue; }
+            if let Some(id) = id_from_abs_path(notes_folder, file_path) {
+                if let Ok(content) = std::fs::read_to_string(file_path) {
+                    let modified = entry
+                        .metadata().ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    let title = extract_title(&content);
+                    let _ = writer.add_document(tantivy::doc!(
+                        search_index.id_field => id.as_str(),
+                        search_index.title_field => title,
+                        search_index.content_field => content.as_str(),
+                        search_index.modified_field => modified,
+                    ));
+                    // Populate link index in the same pass
+                    let targets = extract_wikilink_targets(&content);
+                    link_index.forward.insert(id, targets);
+                }
+            }
+        }
+    }
+    let _ = writer.commit();
+    link_index
+}
+
 /// Shared initialization logic for setting a notes folder.
 /// Creates required directories, verifies write access, updates config/settings,
 /// adds asset protocol scope, and rebuilds the search index.
@@ -800,12 +918,14 @@ fn initialize_notes_folder(app: &AppHandle, path_buf: &PathBuf, state: &AppState
     // Add notes folder to asset protocol scope so images can be served
     let _ = app.asset_protocol_scope().allow_directory(path_buf, true);
 
-    // Initialize search index
+    // Initialize search index and link index in a single walkdir pass
     if let Ok(index_path) = get_search_index_path(app) {
         if let Ok(search_index) = SearchIndex::new(&index_path) {
-            let _ = search_index.rebuild_index(path_buf);
+            let link_idx = rebuild_all_indexes(&search_index, path_buf);
             let mut index = state.search_index.lock().expect("search index mutex");
             *index = Some(search_index);
+            let mut li = state.link_index.lock().expect("link index mutex");
+            *li = Some(link_idx);
         }
     }
 
@@ -965,6 +1085,7 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
 
 #[tauri::command]
 async fn save_note(
+    app: AppHandle,
     id: Option<String>,
     content: String,
     state: State<'_, AppState>,
@@ -1032,6 +1153,14 @@ async fn save_note(
         (new_id, new_file_path, None)
     };
 
+    // Capture old title from cache before writing (needed for rename rewrite)
+    let old_title_for_rewrite: Option<String> = if let Some((ref old_id_str, _)) = old_id {
+        let cache = state.notes_cache.read().expect("cache read lock");
+        cache.get(old_id_str.as_str()).map(|m| m.title.clone())
+    } else {
+        None
+    };
+
     // Write the file to the new path
     fs::write(&file_path, &content)
         .await
@@ -1065,10 +1194,44 @@ async fn save_note(
         }
     }
 
+    // Update link index for this note
+    {
+        let mut li = state.link_index.lock().expect("link index mutex");
+        if let Some(ref mut link_index) = *li {
+            if let Some((ref old_id_str, _)) = old_id {
+                link_index.remove(old_id_str);
+            }
+            let targets = extract_wikilink_targets(&content);
+            link_index.update(&final_id, targets);
+        }
+    }
+
     // Update cache (remove old entry if renamed)
     if let Some((ref old_id_str, _)) = old_id {
         let mut cache = state.notes_cache.write().expect("cache write lock");
         cache.remove(old_id_str);
+    }
+
+    // If title changed (rename detected), spawn background rewrite of all [[OldTitle]] links
+    if let (Some(old_title), true) = (old_title_for_rewrite, old_id.is_some()) {
+        if old_title != title {
+            let app2 = app.clone();
+            let folder2 = folder.clone();
+            let new_title = title.clone();
+            let skip_id = final_id.clone();
+            tokio::spawn(async move {
+                let result = rewrite_wikilink_references(&folder2, &old_title, &new_title, &skip_id).await;
+                let updated_count = result.unwrap_or(0);
+                // Only emit when something actually changed to avoid spurious graph refreshes
+                if updated_count > 0 {
+                    let _ = app2.emit("link-index-updated", serde_json::json!({
+                        "updatedCount": updated_count,
+                        "oldTitle": old_title,
+                        "newTitle": new_title,
+                    }));
+                }
+            });
+        }
     }
 
     Ok(Note {
@@ -1078,6 +1241,197 @@ async fn save_note(
         path: file_path.to_string_lossy().into_owned(),
         modified,
     })
+}
+
+/// Scan all markdown files in the notes folder and rewrite [[old_title]] → [[new_title]].
+/// Also handles [[old_title|alias]] → [[new_title|alias]] (alias preserved).
+/// Returns the number of files that were modified.
+/// This is a blocking operation and should be called from tokio::spawn or spawn_blocking.
+async fn rewrite_wikilink_references(
+    notes_folder: &str,
+    old_title: &str,
+    new_title: &str,
+    skip_id: &str,
+) -> Result<usize, String> {
+    // Guard against extremely long titles to prevent regex DoS
+    if old_title.len() > 512 {
+        return Err("Title too long for rename rewrite".to_string());
+    }
+
+    let notes_root = PathBuf::from(notes_folder);
+    let canonical_root = notes_root.canonicalize()
+        .map_err(|e| format!("Cannot resolve notes folder: {}", e))?;
+
+    let escaped = regex::escape(old_title);
+    // Capture group 1: optional |alias portion (including the pipe)
+    let pattern = format!(r"\[\[{escaped}(\|[^\]]*?)?\]\]");
+    let re = regex::Regex::new(&pattern).map_err(|e| e.to_string())?;
+
+    // Collect all (path, new_content) pairs before writing (all-or-nothing)
+    let mut rewrites: Vec<(PathBuf, String)> = Vec::new();
+
+    let walk_root = canonical_root.clone();
+    let old_prefix = format!("[[{}", old_title);
+    let skip_id_owned = skip_id.to_string();
+    let collected = tokio::task::spawn_blocking(move || {
+        use walkdir::WalkDir;
+        let mut items: Vec<(PathBuf, String, PathBuf)> = Vec::new();
+        for entry in WalkDir::new(&walk_root)
+            .max_depth(10)
+            .into_iter()
+            .filter_entry(is_visible_notes_entry)
+            .flatten()
+        {
+            let file_path = entry.path().to_path_buf();
+            if !file_path.is_file() { continue; }
+            if file_path.extension().map_or(true, |e| e != "md") { continue; }
+
+            // Security: verify inside notes folder
+            let canonical_file = match file_path.canonicalize() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            if !canonical_file.starts_with(&walk_root) { continue; }
+
+            // Derive note ID for skip check
+            if let Some(note_id) = id_from_abs_path(&walk_root, &canonical_file) {
+                if note_id == skip_id_owned { continue; }
+            }
+
+            // Fast pre-check: only read files that might contain [[old_title
+            let content = match std::fs::read_to_string(&file_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            if !content.contains(&old_prefix) { continue; }
+
+            items.push((file_path, content, canonical_file));
+        }
+        items
+    }).await.map_err(|e| e.to_string())?;
+
+    // Compute replacements
+    for (file_path, content, _) in collected {
+        let new_content = re.replace_all(&content, |caps: &regex::Captures| {
+            match caps.get(1) {
+                // [[OldTitle|alias]] → [[NewTitle|alias]]
+                Some(alias_part) => format!("[[{}{}]]", new_title, alias_part.as_str()),
+                // [[OldTitle]] → [[NewTitle]]
+                None => format!("[[{}]]", new_title),
+            }
+        }).into_owned();
+
+        if new_content != content {
+            rewrites.push((file_path, new_content));
+        }
+    }
+
+    // Write all modified files
+    let count = rewrites.len();
+    for (path, new_content) in rewrites {
+        tokio::fs::write(&path, new_content)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(count)
+}
+
+// Graph data structures for get_link_graph
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphNode {
+    id: String,
+    title: String,
+    folder: String,
+    link_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphEdge {
+    source: String,
+    target: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkGraph {
+    nodes: Vec<GraphNode>,
+    edges: Vec<GraphEdge>,
+}
+
+#[tauri::command]
+fn get_link_graph(state: State<'_, AppState>) -> Result<LinkGraph, String> {
+    // Snapshot both data structures under their respective locks, then release both
+    // before doing the O(N*E) in-degree computation — avoids holding locks during
+    // potentially expensive work and reduces contention with save_note.
+    let (node_meta, forward_snapshot) = {
+        let cache = state.notes_cache.read().expect("cache read lock");
+        let li = state.link_index.lock().expect("link index mutex");
+        let link_index = li.as_ref().ok_or("Link index not ready")?;
+        let node_meta: Vec<(String, String, String)> = cache.values().map(|m| {
+            let folder = m.id.split('/').next().unwrap_or("").to_string();
+            (m.id.clone(), m.title.clone(), folder)
+        }).collect();
+        let forward_snapshot = link_index.forward.clone();
+        (node_meta, forward_snapshot)
+    }; // both locks dropped here
+
+    // Build title -> id reverse map
+    let title_to_id: HashMap<String, String> = node_meta.iter()
+        .map(|(id, title, _)| (title.clone(), id.clone()))
+        .collect();
+
+    // Compute in-degree for node sizing
+    let mut in_degree: HashMap<String, usize> = HashMap::new();
+    for targets in forward_snapshot.values() {
+        for target_title in targets {
+            if let Some(target_id) = title_to_id.get(target_title) {
+                *in_degree.entry(target_id.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let nodes: Vec<GraphNode> = node_meta.iter().map(|(id, title, folder)| {
+        GraphNode {
+            id: id.clone(),
+            title: title.clone(),
+            folder: folder.clone(),
+            link_count: *in_degree.get(id).unwrap_or(&0),
+        }
+    }).collect();
+
+    let mut edges: Vec<GraphEdge> = Vec::new();
+    for (source_id, targets) in &forward_snapshot {
+        for target_title in targets {
+            if let Some(target_id) = title_to_id.get(target_title) {
+                edges.push(GraphEdge {
+                    source: source_id.clone(),
+                    target: target_id.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(LinkGraph { nodes, edges })
+}
+
+#[tauri::command]
+fn get_backlinks(note_id: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    // Find the title for this note ID
+    let note_title = {
+        let cache = state.notes_cache.read().expect("cache read lock");
+        cache.get(&note_id).map(|m| m.title.clone()).unwrap_or_else(|| note_id.clone())
+    };
+    // Find all notes whose forward links contain this note's title
+    let li = state.link_index.lock().expect("link index mutex");
+    let link_index = li.as_ref().ok_or("Link index not ready")?;
+    let backlinks: Vec<String> = link_index.forward.iter()
+        .filter(|(_, targets)| targets.contains(&note_title))
+        .map(|(id, _)| id.clone())
+        .collect();
+    Ok(backlinks)
 }
 
 #[tauri::command]
@@ -1103,6 +1457,14 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
             let _ = search_index.delete_note(&id);
+        }
+    }
+
+    // Remove from link index
+    {
+        let mut li = state.link_index.lock().expect("link index mutex");
+        if let Some(ref mut link_index) = *li {
+            link_index.remove(&id);
         }
     }
 
@@ -1633,6 +1995,14 @@ async fn move_note(
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
             let _ = search_index.rebuild_index(&folder_root);
+        }
+    }
+
+    // Update link index: rename the source_id key (title unchanged, just moved)
+    {
+        let mut li = state.link_index.lock().expect("link index mutex");
+        if let Some(ref mut link_index) = *li {
+            link_index.rename_source(&id, &new_id);
         }
     }
 
@@ -2185,36 +2555,68 @@ fn setup_file_watcher(
                         _ => continue,
                     };
 
-                    // Update search index for external file changes
+                    // Update search index and link index for external file changes.
+                    // Lock ordering: search_index must be released BEFORE acquiring link_index.
+                    // Both are never held simultaneously to prevent potential deadlock.
                     if let Some(state) = app_handle.try_state::<AppState>() {
-                        let index = state.search_index.lock().expect("search index mutex");
-                        if let Some(ref search_index) = *index {
-                            match kind {
-                                "created" | "modified" => {
-                                    match std::fs::read_to_string(path) {
-                                        Ok(content) => {
-                                            let title = extract_title(&content);
-                                            let modified = std::fs::metadata(path)
-                                                .ok()
-                                                .and_then(|m| m.modified().ok())
-                                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                                .map(|d| d.as_secs() as i64)
-                                                .unwrap_or(0);
-                                            let _ = search_index.index_note(&note_id, &title, &content, modified);
-                                        }
-                                        Err(_) => {
-                                            // File gone between event and read — treat as deletion
-                                            if !path.exists() {
-                                                let _ = search_index.delete_note(&note_id);
+                        // Phase 1: search index update. Returns what link index operation is needed.
+                        // The search_index lock is held only within this block and dropped before Phase 2.
+                        enum LinkOp { Update(String), Remove, None }
+                        let link_op = {
+                            let index = state.search_index.lock().expect("search index mutex");
+                            if let Some(ref search_index) = *index {
+                                match kind {
+                                    "created" | "modified" => {
+                                        match std::fs::read_to_string(path) {
+                                            Ok(content) => {
+                                                let title = extract_title(&content);
+                                                let modified = std::fs::metadata(path)
+                                                    .ok()
+                                                    .and_then(|m| m.modified().ok())
+                                                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                    .map(|d| d.as_secs() as i64)
+                                                    .unwrap_or(0);
+                                                let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                                LinkOp::Update(content)
+                                            }
+                                            Err(_) => {
+                                                // File gone between event and read — treat as deletion
+                                                if !path.exists() {
+                                                    let _ = search_index.delete_note(&note_id);
+                                                    LinkOp::Remove
+                                                } else {
+                                                    LinkOp::None
+                                                }
                                             }
                                         }
                                     }
+                                    "deleted" => {
+                                        let _ = search_index.delete_note(&note_id);
+                                        LinkOp::Remove
+                                    }
+                                    _ => LinkOp::None,
                                 }
-                                "deleted" => {
-                                    let _ = search_index.delete_note(&note_id);
-                                }
-                                _ => {}
+                            } else {
+                                LinkOp::None
                             }
+                        }; // search_index lock dropped here
+
+                        // Phase 2: link index update (search_index is no longer held).
+                        match link_op {
+                            LinkOp::Update(content) => {
+                                let mut li = state.link_index.lock().expect("link index mutex");
+                                if let Some(ref mut link_index) = *li {
+                                    let targets = extract_wikilink_targets(&content);
+                                    link_index.update(&note_id, targets);
+                                }
+                            }
+                            LinkOp::Remove => {
+                                let mut li = state.link_index.lock().expect("link index mutex");
+                                if let Some(ref mut link_index) = *li {
+                                    link_index.remove(&note_id);
+                                }
+                            }
+                            LinkOp::None => {}
                         }
                     }
 
@@ -3671,17 +4073,21 @@ pub fn run() {
                 Settings::default()
             };
 
-            // Initialize search index if notes folder is set
-            let search_index = if let Some(ref folder) = app_config.notes_folder {
+            // Initialize search index and link index in a single walkdir pass
+            let (search_index, link_index) = if let Some(ref folder) = app_config.notes_folder {
+                let folder_path = PathBuf::from(folder);
                 if let Ok(index_path) = get_search_index_path(app.handle()) {
-                    SearchIndex::new(&index_path).ok().inspect(|idx| {
-                        let _ = idx.rebuild_index(&PathBuf::from(folder));
-                    })
+                    if let Ok(si) = SearchIndex::new(&index_path) {
+                        let li = rebuild_all_indexes(&si, &folder_path);
+                        (Some(si), Some(li))
+                    } else {
+                        (None, None)
+                    }
                 } else {
-                    None
+                    (None, None)
                 }
             } else {
-                None
+                (None, None)
             };
 
             let state = AppState {
@@ -3690,6 +4096,7 @@ pub fn run() {
                 notes_cache: RwLock::new(HashMap::new()),
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
+                link_index: Mutex::new(link_index),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
             };
             app.manage(state);
@@ -3757,6 +4164,8 @@ pub fn run() {
             get_notes_folder,
             set_notes_folder,
             list_notes,
+            get_link_graph,
+            get_backlinks,
             read_note,
             save_note,
             delete_note,

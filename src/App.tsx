@@ -21,6 +21,7 @@ import {
 } from "./components/icons";
 import { AiEditModal } from "./components/ai/AiEditModal";
 import { AiResponseToast } from "./components/ai/AiResponseToast";
+import { GraphView } from "./components/graph/GraphView";
 import { PreviewApp } from "./components/preview/PreviewApp";
 import {
   check as checkForUpdate,
@@ -73,8 +74,20 @@ function AppContent() {
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [showGraph, setShowGraph] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
+
+  // Show toast when background wikilink rename rewrite completes
+  useEffect(() => {
+    const unlisten = listen<{ updatedCount: number }>("link-index-updated", (event) => {
+      const { updatedCount } = event.payload;
+      if (updatedCount > 0) {
+        toast.success(`Updated wikilinks in ${updatedCount} note${updatedCount !== 1 ? "s" : ""}`);
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   // Listen for set-notes-folder event from CLI (scratch .)
   // Placed here in AppContent where both NotesContext and ThemeContext are available
@@ -233,6 +246,13 @@ function AppContent() {
         e.preventDefault();
         setInterfaceZoom(1.0);
         toast("Zoom 100%", { id: "zoom", duration: 1500 });
+        return;
+      }
+
+      // Cmd+G - Toggle graph view
+      if ((e.metaKey || e.ctrlKey) && e.key === "g" && !e.shiftKey) {
+        e.preventDefault();
+        setShowGraph((prev) => !prev);
         return;
       }
 
@@ -438,6 +458,7 @@ function AppContent() {
     focusMode,
     view,
     setInterfaceZoom,
+    setShowGraph,
   ]);
 
   const handleClosePalette = useCallback(() => {
@@ -483,6 +504,11 @@ function AppContent() {
         )}
       </div>
 
+      {/* Graph View - full-pane overlay */}
+      {showGraph && (
+        <GraphView onClose={() => setShowGraph(false)} />
+      )}
+
       {/* Shared backdrop for command palette, template picker, and AI modal */}
       {(paletteOpen || templatePickerOpen || aiModalOpen) && (
         <div
@@ -503,6 +529,7 @@ function AppContent() {
         open={paletteOpen}
         onClose={handleClosePalette}
         onOpenSettings={toggleSettings}
+        onOpenGraph={() => setShowGraph(true)}
         onOpenAiModal={(provider) => {
           setAiProvider(provider);
           setAiModalOpen(true);

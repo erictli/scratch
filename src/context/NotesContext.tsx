@@ -653,7 +653,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
       // Only refresh if there are external changes
       if (externalChanges.length > 0) {
-        refreshNotes();
+        scheduleRefresh();
 
         // If the currently selected note was changed externally, set flag (don't auto-reload)
         const currentId = selectedNoteIdRef.current;
@@ -676,7 +676,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         unlisten();
       }
     };
-  }, [refreshNotes]);
+  }, [refreshNotes, scheduleRefresh]);
 
   // Listen for "select-note" events from the backend (CLI, drag-drop, Open With, import from preview)
   useEffect(() => {
@@ -689,6 +689,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       unlisten.then((fn) => fn());
     };
   }, [selectNote, refreshNotes]);
+
+  // Listen for link-index-updated events (refresh sidebar; toast is shown in App.tsx)
+  useEffect(() => {
+    const unlisten = listen<{ updatedCount: number }>(
+      "link-index-updated",
+      () => { scheduleRefresh(); }
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [scheduleRefresh]);
 
   // Refresh notes when folder changes
   useEffect(() => {

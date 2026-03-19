@@ -52,3 +52,21 @@ export interface FolderNode {
   children: FolderNode[];
   notes: NoteMetadata[];
 }
+
+// Graph view types (mirrors Rust structs in lib.rs)
+export interface GraphNode {
+  id: string;
+  title: string;
+  folder: string;
+  linkCount: number;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface LinkGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}

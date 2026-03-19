@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Note, NoteMetadata, Settings } from "../types/note";
+import type { Note, NoteMetadata, Settings, LinkGraph } from "../types/note";
 
 export async function getNotesFolder(): Promise<string | null> {
   return invoke("get_notes_folder");
@@ -106,4 +106,12 @@ export async function searchNotes(query: string): Promise<SearchResult[]> {
 
 export async function startFileWatcher(): Promise<void> {
   return invoke("start_file_watcher");
+}
+
+export async function getLinkGraph(): Promise<LinkGraph> {
+  return invoke("get_link_graph");
+}
+
+export async function getBacklinks(noteId: string): Promise<string[]> {
+  return invoke("get_backlinks", { noteId });
 }

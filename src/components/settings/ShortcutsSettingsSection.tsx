@@ -88,6 +88,11 @@ const shortcuts: Shortcut[] = [
     category: "Editor",
   },
   {
+    keys: [mod, "G"],
+    description: "Open Graph View",
+    category: "Navigation",
+  },
+  {
     keys: [mod, "Shift", "F"],
     description: "Search notes",
     category: "Navigation",
