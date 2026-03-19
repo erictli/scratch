@@ -1,10 +1,24 @@
 .graph-view-overlay {
   position: fixed;
   inset: 0;
+  /* Push content below the macOS overlay titlebar (traffic lights at y:24, button ~28px tall) */
+  padding-top: 44px;
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
   z-index: 100;
+  /* Allow traffic lights to show through at the top */
+  -webkit-app-region: no-drag;
+}
+
+/* Invisible drag region at top for macOS traffic lights */
+.graph-drag-region {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  -webkit-app-region: drag;
 }
 
 .graph-view-header {
@@ -98,25 +112,26 @@
   overflow: hidden;
 }
 
-.graph-svg {
+.graph-canvas {
   width: 100%;
   height: 100%;
   display: block;
+  /* cursor changes to pointer on hover are handled in JS */
 }
 
-.graph-loading,
-.graph-error {
+.graph-overlay-message {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  color: var(--color-text-muted);
+  color: #888;
+  pointer-events: none;
 }
 
-.graph-error {
-  color: var(--color-text);
+.graph-overlay-error {
+  color: #c00;
 }
 
 /* Edge styles */

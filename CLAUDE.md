@@ -12,6 +12,16 @@ Scratch is a cross-platform markdown note-taking app for macOS, Windows, and Lin
 - **Search**: Tantivy full-text search engine
 - **File watching**: notify crate with custom debouncing
 
+## Prerequisites
+
+**Node.js 20.19+ or 22.12+** is required (Vite won't start on Node 18). If using nvm:
+
+```bash
+nvm install 22
+nvm use 22
+nvm alias default 22  # optional: make it the default
+```
+
 ## Commands
 
 ```bash

@@ -78,6 +78,17 @@ function AppContent() {
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
 
+  // Show toast when background wikilink rename rewrite completes
+  useEffect(() => {
+    const unlisten = listen<{ updatedCount: number }>("link-index-updated", (event) => {
+      const { updatedCount } = event.payload;
+      if (updatedCount > 0) {
+        toast.success(`Updated wikilinks in ${updatedCount} note${updatedCount !== 1 ? "s" : ""}`);
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
   // Listen for set-notes-folder event from CLI (scratch .)
   // Placed here in AppContent where both NotesContext and ThemeContext are available
   useEffect(() => {

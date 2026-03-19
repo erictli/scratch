@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { toast } from "sonner";
 import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
@@ -691,19 +690,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     };
   }, [selectNote, refreshNotes]);
 
-  // Listen for link-index-updated events (from background wikilink rename rewrite)
+  // Listen for link-index-updated events (refresh sidebar; toast is shown in App.tsx)
   useEffect(() => {
-    const unlisten = listen<{ updatedCount: number; oldTitle: string; newTitle: string }>(
+    const unlisten = listen<{ updatedCount: number }>(
       "link-index-updated",
-      (event) => {
-        const { updatedCount } = event.payload;
-        scheduleRefresh();
-        if (updatedCount > 0) {
-          toast.success(
-            `Updated wikilinks in ${updatedCount} note${updatedCount !== 1 ? "s" : ""}`
-          );
-        }
-      }
+      () => { scheduleRefresh(); }
     );
     return () => {
       unlisten.then((fn) => fn());
