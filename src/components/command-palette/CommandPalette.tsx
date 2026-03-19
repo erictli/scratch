@@ -49,6 +49,7 @@ import {
   OllamaIcon,
   FolderIcon,
   FolderPlusIcon,
+  LinkIcon,
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
@@ -66,6 +67,7 @@ interface CommandPaletteProps {
   onClose: () => void;
   onOpenSettings?: () => void;
   onOpenAiModal?: (provider: AiProvider) => void;
+  onOpenGraph?: () => void;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
   editorRef?: React.RefObject<Editor | null>;
@@ -76,6 +78,7 @@ export function CommandPalette({
   onClose,
   onOpenSettings,
   onOpenAiModal,
+  onOpenGraph,
   focusMode,
   onToggleFocusMode,
   editorRef,
@@ -427,6 +430,18 @@ export function CommandPalette({
         });
       }
     }
+
+    // Graph view
+    baseCommands.push({
+      id: "open-graph",
+      label: "Open Graph View",
+      shortcut: `${mod} G`,
+      icon: <LinkIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+      action: () => {
+        onOpenGraph?.();
+        onClose();
+      },
+    });
 
     // Focus mode and source toggle
     baseCommands.push(

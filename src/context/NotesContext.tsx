@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { toast } from "sonner";
 import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
@@ -653,7 +654,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
       // Only refresh if there are external changes
       if (externalChanges.length > 0) {
-        refreshNotes();
+        scheduleRefresh();
 
         // If the currently selected note was changed externally, set flag (don't auto-reload)
         const currentId = selectedNoteIdRef.current;
@@ -676,7 +677,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         unlisten();
       }
     };
-  }, [refreshNotes]);
+  }, [refreshNotes, scheduleRefresh]);
 
   // Listen for "select-note" events from the backend (CLI, drag-drop, Open With, import from preview)
   useEffect(() => {
@@ -689,6 +690,25 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       unlisten.then((fn) => fn());
     };
   }, [selectNote, refreshNotes]);
+
+  // Listen for link-index-updated events (from background wikilink rename rewrite)
+  useEffect(() => {
+    const unlisten = listen<{ updatedCount: number; oldTitle: string; newTitle: string }>(
+      "link-index-updated",
+      (event) => {
+        const { updatedCount } = event.payload;
+        scheduleRefresh();
+        if (updatedCount > 0) {
+          toast.success(
+            `Updated wikilinks in ${updatedCount} note${updatedCount !== 1 ? "s" : ""}`
+          );
+        }
+      }
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [scheduleRefresh]);
 
   // Refresh notes when folder changes
   useEffect(() => {
