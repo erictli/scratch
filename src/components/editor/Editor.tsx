@@ -57,7 +57,11 @@ import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
-import { editorBackgroundColors } from "../../lib/editorBackgroundColors";
+import {
+  getEditorBackgroundColorIndex,
+  getEditorBackgroundColorsForTheme,
+  getThemeAdjustedEditorBackgroundColor,
+} from "../../lib/editorBackgroundColors";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
@@ -479,8 +483,12 @@ export function Editor({
   const pinNote = notesCtx?.pinNote;
   const unpinNote = notesCtx?.unpinNote;
   const notes = notesCtx?.notes;
-  const { textDirection, editorBackgroundColor, setEditorBackgroundColor } =
-    useTheme();
+  const {
+    textDirection,
+    resolvedTheme,
+    editorBackgroundColor,
+    setEditorBackgroundColor,
+  } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
@@ -1891,8 +1899,17 @@ export function Editor({
     );
   }
 
-  const editorBackgroundStyle = editorBackgroundColor
-    ? { backgroundColor: editorBackgroundColor }
+  const effectiveEditorBackgroundColor = getThemeAdjustedEditorBackgroundColor(
+    editorBackgroundColor,
+    resolvedTheme,
+  );
+  const activeEditorBackgroundColors =
+    getEditorBackgroundColorsForTheme(resolvedTheme);
+  const selectedEditorBackgroundIndex =
+    getEditorBackgroundColorIndex(editorBackgroundColor);
+
+  const editorBackgroundStyle = effectiveEditorBackgroundColor
+    ? { backgroundColor: effectiveEditorBackgroundColor }
     : undefined;
 
   return (
@@ -2038,8 +2055,8 @@ export function Editor({
                     Editor Background
                   </p>
                   <div className="grid grid-cols-3 gap-2">
-                    {editorBackgroundColors.map((color) => {
-                      const isSelected = editorBackgroundColor === color;
+                    {activeEditorBackgroundColors.map((color, index) => {
+                      const isSelected = selectedEditorBackgroundIndex === index;
                       return (
                         <DropdownMenu.Item
                           key={color}

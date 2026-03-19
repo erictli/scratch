@@ -10,6 +10,7 @@ use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy};
+use tauri::menu::{Menu, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use tauri::webview::WebviewWindowBuilder;
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -17,6 +18,10 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 mod git;
+
+const MENU_THEME_LIGHT: &str = "menu_theme_light";
+const MENU_THEME_DARK: &str = "menu_theme_dark";
+const MENU_THEME_SYSTEM: &str = "menu_theme_system";
 
 // Note metadata for list display
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -346,6 +351,19 @@ impl Default for AppState {
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+}
+
+fn install_theme_menu<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
+    let menu = Menu::default(app_handle).map_err(|e| e.to_string())?;
+    let theme_menu = SubmenuBuilder::new(app_handle, "Theme")
+        .text(MENU_THEME_LIGHT, "Light")
+        .text(MENU_THEME_DARK, "Dark")
+        .text(MENU_THEME_SYSTEM, "System")
+        .build()
+        .map_err(|e| e.to_string())?;
+    menu.append(&theme_menu).map_err(|e| e.to_string())?;
+    app_handle.set_menu(menu).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // Utility: Sanitize filename from title
@@ -3541,12 +3559,27 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             handle_cli_args(app, &args, &cwd);
         }))
+        .on_menu_event(|app, event| {
+            let mode = match event.id().as_ref() {
+                MENU_THEME_LIGHT => Some("light"),
+                MENU_THEME_DARK => Some("dark"),
+                MENU_THEME_SYSTEM => Some("system"),
+                _ => None,
+            };
+
+            if let Some(mode) = mode {
+                let _ = app.emit("menu-set-theme", mode);
+            }
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // Add a native Theme menu to the top menubar.
+            install_theme_menu(app.handle())?;
+
             // Load app config on startup (contains notes folder path)
             let mut app_config = load_app_config(app.handle());
 

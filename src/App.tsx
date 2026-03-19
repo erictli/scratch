@@ -60,7 +60,7 @@ function AppContent() {
     currentNote,
     syncNotesFolder,
   } = useNotes();
-  const { interfaceZoom, setInterfaceZoom, reloadSettings } = useTheme();
+  const { interfaceZoom, setInterfaceZoom, reloadSettings, setTheme } = useTheme();
   const interfaceZoomRef = useRef(interfaceZoom);
   interfaceZoomRef.current = interfaceZoom;
   const currentNoteRef = useRef(currentNote);
@@ -91,6 +91,25 @@ function AppContent() {
       unlisten?.();
     };
   }, [syncNotesFolder, reloadSettings]);
+
+  // Listen for native menu bar theme changes.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<string>("menu-set-theme", (event) => {
+      const mode = event.payload;
+      if (mode === "light" || mode === "dark" || mode === "system") {
+        setTheme(mode);
+      }
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [setTheme]);
 
   const toggleSidebar = useCallback(() => {
     setSidebarVisible((prev) => !prev);
