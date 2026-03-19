@@ -17,7 +17,7 @@ import { Markdown } from "@tiptap/markdown";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { lowlight } from "./lowlight";
 import { CodeBlockView } from "./CodeBlockView";
-import { Extension } from "@tiptap/core";
+import { Extension, InputRule } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   NodeSelection,
@@ -1002,7 +1002,40 @@ export function Editor({
         allowBase64: false,
       }),
       TaskList,
-      TaskItem.configure({
+      TaskItem.extend({
+        addInputRules() {
+          return [
+            ...this.parent?.() || [],
+            // Match "[ ] " or "[x] " at the start of a top-level paragraph to create a task list
+            new InputRule({
+              find: /^\[([x ])?\]\s$/,
+              handler: ({ state, range, match }) => {
+                const $from = state.doc.resolve(range.from);
+                // $from.depth is 1 for doc > paragraph > text
+                // $from.parent is the paragraph, $from.node(0) is doc
+                if ($from.parent.type.name !== 'paragraph') return;
+                if ($from.depth !== 1) return; // only top-level paragraphs
+
+                const checked = match[1] === 'x';
+                const { tr } = state;
+                const taskItemType = state.schema.nodes.taskItem;
+                const taskListType = state.schema.nodes.taskList;
+                if (!taskItemType || !taskListType) return;
+
+                const paraStart = $from.before(1); // position before the paragraph
+                const paraEnd = $from.after(1);     // position after the paragraph
+
+                // Build: taskList > taskItem > paragraph (with [ ] text removed)
+                tr.delete(range.from, range.to);
+                const paragraph = state.schema.nodes.paragraph.create(null, tr.doc.resolve(tr.mapping.map(range.from)).parent.content);
+                const taskItem = taskItemType.create({ checked }, paragraph);
+                const taskList = taskListType.create(null, taskItem);
+                tr.replaceWith(tr.mapping.map(paraStart), tr.mapping.map(paraEnd), taskList);
+              },
+            }),
+          ];
+        },
+      }).configure({
         nested: true,
       }),
       TableKit.configure({
