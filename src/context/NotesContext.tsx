@@ -46,6 +46,7 @@ interface NotesActionsContextValue {
   pinNote: (id: string) => Promise<void>;
   unpinNote: (id: string) => Promise<void>;
   createNoteInFolder: (folderPath: string) => Promise<void>;
+  createNoteFromTemplate: (templateName: string) => Promise<void>;
   createFolder: (parentPath: string, name: string) => Promise<void>;
   deleteFolder: (path: string) => Promise<void>;
   renameFolder: (oldPath: string, newName: string) => Promise<void>;
@@ -149,15 +150,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const createNote = useCallback(async () => {
     try {
-      // Derive target folder from the selected note's parent path
-      let targetFolder: string | undefined;
-      if (selectedNoteIdRef.current) {
-        const lastSlash = selectedNoteIdRef.current.lastIndexOf("/");
-        if (lastSlash > 0) {
-          targetFolder = selectedNoteIdRef.current.substring(0, lastSlash);
-        }
-      }
-      const note = await notesService.createNote(targetFolder);
+      // Pass no folder — backend applies defaultNoteFolder from settings, then root
+      const note = await notesService.createNote();
       selectRequestIdRef.current += 1;
       pendingNewNoteIdRef.current = note.id;
       // Mark as recently saved to ignore file-change events from our own creation
@@ -362,6 +356,29 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         setError(
           err instanceof Error ? err.message : "Failed to create note"
         );
+      }
+    },
+    [refreshNotes]
+  );
+
+  const createNoteFromTemplate = useCallback(
+    async (templateName: string) => {
+      try {
+        // Pass no folder — backend applies defaultNoteFolder from settings, then root
+        const note = await notesService.createNote(undefined, templateName);
+        selectRequestIdRef.current += 1;
+        pendingNewNoteIdRef.current = note.id;
+        recentlySavedRef.current.add(note.id);
+        await refreshNotes();
+        setCurrentNote(note);
+        setSelectedNoteId(note.id);
+        setSearchQuery("");
+        setSearchResults([]);
+        setTimeout(() => {
+          recentlySavedRef.current.delete(note.id);
+        }, 1000);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to create note");
       }
     },
     [refreshNotes]
@@ -728,6 +745,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       pinNote,
       unpinNote,
       createNoteInFolder,
+      createNoteFromTemplate,
       createFolder: createFolderAction,
       deleteFolder: deleteFolderAction,
       renameFolder: renameFolderAction,
@@ -750,6 +768,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       pinNote,
       unpinNote,
       createNoteInFolder,
+      createNoteFromTemplate,
       createFolderAction,
       deleteFolderAction,
       renameFolderAction,

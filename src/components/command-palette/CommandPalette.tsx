@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../ui";
-import { cleanTitle } from "../../lib/utils";
+import { cleanTitle, formatTemplateName } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { duplicateNote } from "../../services/notes";
 import {
@@ -84,6 +84,7 @@ export function CommandPalette({
     notes,
     selectNote,
     createNote,
+    createNoteFromTemplate,
     deleteNote,
     currentNote,
     refreshNotes,
@@ -104,15 +105,26 @@ export function CommandPalette({
   const [availableAiProviders, setAvailableAiProviders] = useState<
     AiProvider[]
   >([]);
+  const [templates, setTemplates] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Load settings when palette opens or current note changes
+  // Load settings when palette opens or current note changes (pin state may differ)
   useEffect(() => {
     if (open) {
       notesService.getSettings().then(setSettings);
     }
   }, [open, currentNote?.id]);
+
+  // Load templates when palette opens (independent of current note)
+  useEffect(() => {
+    if (open) {
+      notesService
+        .listTemplates()
+        .then(setTemplates)
+        .catch(() => setTemplates([]));
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open || !currentNote) {
@@ -164,6 +176,17 @@ export function CommandPalette({
         },
       },
     ];
+
+    // Template commands appear right after "New Note" and "New Folder"
+    const templateCommands: Command[] = templates.map((filename) => ({
+      id: `new-note-from-template-${filename}`,
+      label: `New Note from ${formatTemplateName(filename)}`,
+      icon: <AddNoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+      action: () => {
+        createNoteFromTemplate(filename);
+        onClose();
+      },
+    }));
 
     // Add note-specific commands if a note is selected
     if (currentNote) {
@@ -488,9 +511,16 @@ export function CommandPalette({
       },
     );
 
-    return baseCommands;
+    // Place templates after "New Note" and "New Folder", before note/git/settings commands
+    return [
+      ...baseCommands.slice(0, 2),
+      ...templateCommands,
+      ...baseCommands.slice(2),
+    ];
   }, [
     createNote,
+    createNoteFromTemplate,
+    templates,
     currentNote,
     deleteNote,
     onClose,

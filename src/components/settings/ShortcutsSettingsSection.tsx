@@ -1,4 +1,4 @@
-import { mod } from "../../lib/platform";
+import { mod, shift } from "../../lib/platform";
 
 interface Shortcut {
   keys: string[];
@@ -20,6 +20,11 @@ const shortcuts: Shortcut[] = [
   {
     keys: [mod, "N"],
     description: "Create new note",
+    category: "Notes",
+  },
+  {
+    keys: [mod, shift, "T"],
+    description: "New note from template",
     category: "Notes",
   },
   {

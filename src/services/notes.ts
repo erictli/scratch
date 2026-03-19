@@ -25,12 +25,22 @@ export async function deleteNote(id: string): Promise<void> {
   return invoke("delete_note", { id });
 }
 
-export async function createNote(targetFolder?: string): Promise<Note> {
-  return invoke("create_note", { targetFolder: targetFolder ?? null });
+export async function createNote(
+  targetFolder?: string,
+  templateName?: string,
+): Promise<Note> {
+  return invoke("create_note", {
+    targetFolder: targetFolder ?? null,
+    templateName: templateName ?? null,
+  });
 }
 
 export async function listFolders(): Promise<string[]> {
   return invoke("list_folders");
+}
+
+export async function listTemplates(): Promise<string[]> {
+  return invoke("list_templates");
 }
 
 export async function createFolder(path: string): Promise<void> {

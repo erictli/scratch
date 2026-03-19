@@ -8,6 +8,13 @@ export function cn(...inputs: ClassValue[]) {
 /**
  * Clean title - remove markdown syntax and invisible characters
  */
+export function formatTemplateName(filename: string): string {
+  return filename
+    .replace(/\.md$/i, "")
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function cleanTitle(title: string | undefined): string {
   if (!title) return "Untitled";
   const cleaned = title

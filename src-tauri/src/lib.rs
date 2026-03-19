@@ -128,6 +128,10 @@ pub struct Settings {
     pub folders_enabled: Option<bool>,
     #[serde(rename = "defaultNoteFolder")]
     pub default_note_folder: Option<String>,
+    #[serde(rename = "templateFolder")]
+    pub template_folder: Option<String>,
+    #[serde(rename = "defaultTemplate")]
+    pub default_template: Option<String>,
 }
 
 // Search result
@@ -1111,8 +1115,71 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
     Ok(())
 }
 
+fn apply_template(template_content: &str, title: &str) -> String {
+    let trimmed = template_content.trim();
+    if trimmed.is_empty() {
+        return format!("# {}\n\n", title);
+    }
+
+    let mut result = String::new();
+    let mut replaced_h1 = false;
+
+    for line in template_content.lines() {
+        if !replaced_h1 && line.starts_with("# ") {
+            result.push_str(&format!("# {}\n", title));
+            replaced_h1 = true;
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    if !replaced_h1 {
+        format!("# {}\n\n{}", title, template_content)
+    } else {
+        result
+    }
+}
+
 #[tauri::command]
-async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) -> Result<Note, String> {
+async fn list_templates(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let template_folder = {
+        let settings = state.settings.read().expect("settings read lock");
+        settings.template_folder.clone()
+    };
+
+    let Some(folder) = template_folder else {
+        return Ok(vec![]);
+    };
+
+    let folder_path = PathBuf::from(&folder);
+    if !folder_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut templates = Vec::new();
+    let mut entries = fs::read_dir(&folder_path)
+        .await
+        .map_err(|e| e.to_string())?;
+    while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
+        let file_type = entry.file_type().await.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if file_type.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
+            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                templates.push(name.to_string());
+            }
+        }
+    }
+    templates.sort();
+    Ok(templates)
+}
+
+#[tauri::command]
+async fn create_note(
+    target_folder: Option<String>,
+    template_name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Note, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config
@@ -1122,15 +1189,18 @@ async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) 
     };
     let folder_path = PathBuf::from(&folder);
 
-    // Get template and default folder from settings
-    let (template, settings_default_folder) = {
+    // Get name template, default folder, and note template info from settings in one lock
+    let (template, settings_default_folder, default_template, template_folder) = {
         let settings = state.settings.read().expect("settings read lock");
-        let tmpl = settings
-            .default_note_name
-            .clone()
-            .unwrap_or_else(|| "Untitled".to_string());
-        let default_folder = settings.default_note_folder.clone();
-        (tmpl, default_folder)
+        (
+            settings
+                .default_note_name
+                .clone()
+                .unwrap_or_else(|| "Untitled".to_string()),
+            settings.default_note_folder.clone(),
+            settings.default_template.clone(),
+            settings.template_folder.clone(),
+        )
     };
 
     // Use explicit target_folder, then fall back to settings default
@@ -1180,7 +1250,24 @@ async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) 
     // Extract display title from filename
     let display_title = extract_title_from_id(&final_id);
 
-    let content = format!("# {}\n\n", display_title);
+    // Build note content: use explicit template, fall back to default, then plain heading
+    let effective_template = template_name.or(default_template);
+    let content = if let (Some(name), Some(tf)) = (&effective_template, &template_folder) {
+        // Guard against path traversal: template name must be a plain filename
+        let is_safe = !name.contains('/') && !name.contains('\\') && !name.starts_with('.');
+        if !is_safe {
+            format!("# {}\n\n", display_title)
+        } else {
+            let template_path = PathBuf::from(tf).join(name);
+            match fs::read_to_string(&template_path).await {
+                Ok(tc) => apply_template(&tc, &display_title),
+                Err(_) => format!("# {}\n\n", display_title),
+            }
+        }
+    } else {
+        format!("# {}\n\n", display_title)
+    };
+
     let file_path = abs_path_from_id(&folder_path, &final_id)?;
 
     // Create parent directories (for templates like {year}/{month}/{day})
@@ -3675,6 +3762,7 @@ pub fn run() {
             delete_note,
             create_note,
             list_folders,
+            list_templates,
             create_folder,
             delete_folder,
             rename_folder,

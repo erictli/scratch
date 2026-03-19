@@ -40,6 +40,8 @@ export interface Settings {
   customEditorWidthPx?: number;
   defaultNoteName?: string;
   defaultNoteFolder?: string;
+  templateFolder?: string;
+  defaultTemplate?: string;
   interfaceZoom?: number;
   ollamaModel?: string;
 }

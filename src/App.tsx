@@ -10,6 +10,7 @@ import { Editor } from "./components/editor/Editor";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
+import { TemplatePicker } from "./components/command-palette/TemplatePicker";
 import { SettingsPage } from "./components/settings";
 import {
   SpinnerIcon,
@@ -66,6 +67,7 @@ function AppContent() {
   const currentNoteRef = useRef(currentNote);
   currentNoteRef.current = currentNote;
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -254,6 +256,17 @@ function AppContent() {
       ) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent("toggle-source-mode"));
+        return;
+      }
+
+      // Cmd+Shift+T - Open template picker
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "t"
+      ) {
+        e.preventDefault();
+        setTemplatePickerOpen(true);
         return;
       }
 
@@ -470,17 +483,22 @@ function AppContent() {
         )}
       </div>
 
-      {/* Shared backdrop for command palette and AI modal */}
-      {(paletteOpen || aiModalOpen) && (
+      {/* Shared backdrop for command palette, template picker, and AI modal */}
+      {(paletteOpen || templatePickerOpen || aiModalOpen) && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 animate-fade-in"
           onClick={() => {
             if (paletteOpen) handleClosePalette();
+            if (templatePickerOpen) setTemplatePickerOpen(false);
             if (aiModalOpen) setAiModalOpen(false);
           }}
         />
       )}
 
+      <TemplatePicker
+        open={templatePickerOpen}
+        onClose={() => setTemplatePickerOpen(false)}
+      />
       <CommandPalette
         open={paletteOpen}
         onClose={handleClosePalette}

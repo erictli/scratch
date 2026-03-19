@@ -22,6 +22,7 @@ import {
 import { AI_PROVIDER_ORDER, type AiProvider } from "../../services/ai";
 import * as aiService from "../../services/ai";
 import { mod } from "../../lib/platform";
+import { formatTemplateName } from "../../lib/utils";
 import type { Settings } from "../../types/note";
 import * as cliService from "../../services/cli";
 import type { CliStatus } from "../../services/cli";
@@ -127,6 +128,9 @@ export function GeneralSettingsSection() {
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
   const [defaultNoteFolder, setDefaultNoteFolder] = useState<string>("");
   const [availableFolders, setAvailableFolders] = useState<string[]>([]);
+  const [templateFolder, setTemplateFolder] = useState<string>("");
+  const [availableTemplates, setAvailableTemplates] = useState<string[]>([]);
+  const [defaultTemplate, setDefaultTemplate] = useState<string>("");
   const [cli, dispatchCli] = useReducer(cliReducer, cliInitialState);
   const [aiProviders, setAiProviders] = useState<AiProvider[]>([]);
   const [aiProvidersLoading, setAiProvidersLoading] = useState(true);
@@ -154,14 +158,18 @@ export function GeneralSettingsSection() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const [settings, folders] = await Promise.all([
+        const [settings, folders, templates] = await Promise.all([
           invoke<Settings>("get_settings"),
           notesService.listFolders(),
+          notesService.listTemplates(),
         ]);
         const template = settings.defaultNoteName || "Untitled";
         setNoteTemplate(template);
         setDefaultNoteFolder(settings.defaultNoteFolder || "");
         setAvailableFolders(folders);
+        setTemplateFolder(settings.templateFolder || "");
+        setAvailableTemplates(templates);
+        setDefaultTemplate(settings.defaultTemplate || "");
 
         // Update preview
         const preview = await invoke<string>("preview_note_name", { template });
@@ -219,6 +227,66 @@ export function GeneralSettingsSection() {
     } catch (error) {
       console.error("Failed to save default note folder:", error);
       toast.error("Failed to save default folder");
+    }
+  };
+
+  const handleChangeTemplateFolder = async () => {
+    try {
+      const selected = await invoke<string | null>("open_folder_dialog", {
+        defaultPath: templateFolder || null,
+      });
+      if (selected) {
+        const settings = await invoke<Settings>("get_settings");
+        await invoke("update_settings", {
+          newSettings: {
+            ...settings,
+            templateFolder: selected,
+            defaultTemplate: undefined,
+          },
+        });
+        setTemplateFolder(selected);
+        setDefaultTemplate("");
+        const templates = await notesService.listTemplates();
+        setAvailableTemplates(templates);
+      }
+    } catch (err) {
+      console.error("Failed to select template folder:", err);
+      toast.error("Failed to select template folder");
+    }
+  };
+
+  const handleClearTemplateFolder = async () => {
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: {
+          ...settings,
+          templateFolder: undefined,
+          defaultTemplate: undefined,
+        },
+      });
+      setTemplateFolder("");
+      setDefaultTemplate("");
+      setAvailableTemplates([]);
+    } catch (err) {
+      console.error("Failed to clear template folder:", err);
+      toast.error("Failed to clear template folder");
+    }
+  };
+
+  const handleDefaultTemplateChange = async (template: string) => {
+    setDefaultTemplate(template);
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: {
+          ...settings,
+          defaultTemplate: template || undefined,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to save default template:", error);
+      toast.error("Failed to save default template");
     }
   };
 
@@ -762,6 +830,80 @@ export function GeneralSettingsSection() {
               </p>
             </div>
           </details>
+        </div>
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Note Templates */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">Note Templates</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Choose a folder of markdown files to use as templates for new notes.
+          Templates appear as commands in the command palette.
+        </p>
+
+        {templateFolder ? (
+          <>
+            <div className="flex items-center gap-2.5 p-2.5 rounded-[10px] border border-border mb-2.5">
+              <div className="p-2 rounded-md bg-bg-muted">
+                <FolderIcon className="w-4.5 h-4.5 stroke-[1.5] text-text-muted" />
+              </div>
+              <p
+                className="text-sm text-text-muted truncate"
+                title={templateFolder}
+              >
+                {formatPath(templateFolder)}
+              </p>
+            </div>
+
+            {availableTemplates.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-medium mb-2">Default Template</p>
+                <select
+                  value={defaultTemplate}
+                  onChange={(e) => handleDefaultTemplateChange(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-text focus-visible:outline-none focus-visible:border-accent cursor-pointer"
+                >
+                  <option value="">None (blank note)</option>
+                  {availableTemplates.map((filename) => (
+                    <option key={filename} value={filename}>
+                      {formatTemplateName(filename)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {availableTemplates.length === 0 && (
+              <p className="text-sm text-text-muted mb-4">
+                No .md files found in this folder.
+              </p>
+            )}
+          </>
+        ) : null}
+
+        <div className="flex items-center gap-1">
+          <Button
+            onClick={handleChangeTemplateFolder}
+            variant="outline"
+            size="md"
+            className="gap-1.25"
+          >
+            <FoldersIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+            {templateFolder ? "Change Folder" : "Set Template Folder"}
+          </Button>
+          {templateFolder && (
+            <Button
+              onClick={handleClearTemplateFolder}
+              variant="ghost"
+              size="md"
+              className="text-text"
+            >
+              Clear
+            </Button>
+          )}
         </div>
       </section>
 
