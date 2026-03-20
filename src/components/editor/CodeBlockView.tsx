@@ -4,6 +4,7 @@ import type { ReactNodeViewProps } from "@tiptap/react";
 import { SUPPORTED_LANGUAGES } from "./lowlight";
 import { MermaidRenderer } from "./MermaidRenderer";
 import { ChevronDownIcon, PencilIcon, EyeIcon } from "../icons";
+import { CodeCopyButton } from "../ui";
 
 const btnClass =
   "code-block-mermaid-btn inline-flex items-center gap-1 text-xs h-6 px-1.5 text-text-muted rounded cursor-pointer transition-colors hover:text-text hover:bg-bg-emphasis";
@@ -57,6 +58,7 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
         </select>
         <ChevronDownIcon className="w-3.25 h-3.25 stroke-[1.7] absolute right-1.25 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted" />
       </div>
+      <CodeCopyButton text={codeContent} className={btnClass} copyLabel="Copy" copiedLabel="Copied" />
     </div>
   );
 

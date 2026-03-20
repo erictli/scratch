@@ -13,6 +13,7 @@ export {
   TooltipContent,
 } from "./Tooltip";
 export { Button } from "./Button";
+export { CodeCopyButton } from "./CodeCopyButton";
 export { Input } from "./Input";
 export { Select } from "./Select";
 export { Toaster } from "./Toaster";
