@@ -173,7 +173,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-bg text-text">
+    <div className="h-full min-h-0 flex flex-col bg-bg text-text">
       <Editor
         focusMode={focusMode}
         previewMode={previewData}

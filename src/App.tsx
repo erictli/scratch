@@ -433,7 +433,7 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-bg-secondary">
+      <div className="h-full min-h-0 flex items-center justify-center bg-bg-secondary">
         <div className="text-text-muted/70 text-sm flex items-center gap-1.5 font-medium">
           <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
           Initializing Scratch...
@@ -448,7 +448,7 @@ function AppContent() {
 
   return (
     <>
-      <div className="h-screen flex bg-bg overflow-hidden">
+      <div className="h-full min-h-0 flex bg-bg overflow-hidden">
         {view === "settings" ? (
           <SettingsPage onBack={closeSettings} />
         ) : (
