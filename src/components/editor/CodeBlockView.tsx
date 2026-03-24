@@ -1,9 +1,15 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/react";
 import type { ReactNodeViewProps } from "@tiptap/react";
 import { SUPPORTED_LANGUAGES } from "./lowlight";
 import { MermaidRenderer } from "./MermaidRenderer";
-import { ChevronDownIcon, PencilIcon, EyeIcon } from "../icons";
+import {
+  ChevronDownIcon,
+  PencilIcon,
+  EyeIcon,
+  CopyIcon,
+  CheckIcon,
+} from "../icons";
 
 const btnClass =
   "code-block-mermaid-btn inline-flex items-center gap-1 text-xs h-6 px-1.5 text-text-muted rounded cursor-pointer transition-colors hover:text-text hover:bg-bg-emphasis";
@@ -13,6 +19,17 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
   const isMermaid = language === "mermaid";
   const [showSource, setShowSource] = useState(!node.textContent.trim());
   const codeContent = node.textContent;
+
+  const [copied, setCopied] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(codeContent).then(() => {
+      setCopied(true);
+      clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 1500);
+    });
+  }, [codeContent]);
 
   const handleLanguageChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -43,6 +60,19 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
           )}
         </button>
       )}
+      <button
+        contentEditable={false}
+        onClick={handleCopy}
+        className={btnClass}
+        type="button"
+        title="Copy code"
+      >
+        {copied ? (
+          <CheckIcon className="w-3.5 h-3.5 stroke-[1.7]" />
+        ) : (
+          <CopyIcon className="w-3.5 h-3.5 stroke-[1.7]" />
+        )}
+      </button>
       <div className="relative flex items-center h-6">
         <select
           value={language}
