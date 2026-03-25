@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/react";
 import type { ReactNodeViewProps } from "@tiptap/react";
 import { SUPPORTED_LANGUAGES } from "./lowlight";
@@ -23,12 +23,21 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
   const [copied, setCopied] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  useEffect(() => {
+    return () => clearTimeout(copyTimeoutRef.current);
+  }, []);
+
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(codeContent).then(() => {
-      setCopied(true);
-      clearTimeout(copyTimeoutRef.current);
-      copyTimeoutRef.current = setTimeout(() => setCopied(false), 1500);
-    });
+    navigator.clipboard.writeText(codeContent).then(
+      () => {
+        setCopied(true);
+        clearTimeout(copyTimeoutRef.current);
+        copyTimeoutRef.current = setTimeout(() => setCopied(false), 1500);
+      },
+      () => {
+        /* clipboard write rejected — silently ignore */
+      },
+    );
   }, [codeContent]);
 
   const handleLanguageChange = useCallback(
