@@ -1038,6 +1038,19 @@ export function Editor({
         class:
           "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
       },
+      // Serialize copied text as markdown instead of plain text
+      clipboardTextSerializer: (slice) => {
+        const currentEditor = editorRef.current;
+        const manager = currentEditor?.storage.markdown?.manager;
+        if (manager) {
+          const doc = currentEditor!.schema.topNodeType.create(
+            null,
+            slice.content,
+          );
+          return manager.serialize(doc.toJSON());
+        }
+        return slice.content.textBetween(0, slice.content.size, "\n\n");
+      },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
         if (event.key === "Tab") {
