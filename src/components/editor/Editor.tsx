@@ -1040,16 +1040,16 @@ export function Editor({
       },
       // Serialize copied text as markdown instead of plain text
       clipboardTextSerializer: (slice) => {
+        const fallback = slice.content.textBetween(0, slice.content.size, "\n\n");
         const currentEditor = editorRef.current;
         const manager = currentEditor?.storage.markdown?.manager;
-        if (manager) {
-          const doc = currentEditor!.schema.topNodeType.create(
-            null,
-            slice.content,
-          );
+        if (!currentEditor || !manager) return fallback;
+        try {
+          const doc = currentEditor.schema.topNodeType.create(null, slice.content);
           return manager.serialize(doc.toJSON());
+        } catch {
+          return fallback;
         }
-        return slice.content.textBetween(0, slice.content.size, "\n\n");
       },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
