@@ -49,6 +49,24 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
 
   const toolbar = (
     <div className="code-block-language-selector" contentEditable={false}>
+      <button
+        contentEditable={false}
+        onClick={handleCopy}
+        className={btnClass}
+        type="button"
+      >
+        {copied ? (
+          <>
+            <CheckIcon className="w-3.5 h-3.5 stroke-[1.7]" />
+            Copied
+          </>
+        ) : (
+          <>
+            <CopyIcon className="w-3.5 h-3.5 stroke-[1.7]" />
+            Copy
+          </>
+        )}
+      </button>
       {isMermaid && (
         <button
           contentEditable={false}
@@ -69,19 +87,6 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
           )}
         </button>
       )}
-      <button
-        contentEditable={false}
-        onClick={handleCopy}
-        className={btnClass}
-        type="button"
-        title="Copy code"
-      >
-        {copied ? (
-          <CheckIcon className="w-3.5 h-3.5 stroke-[1.7]" />
-        ) : (
-          <CopyIcon className="w-3.5 h-3.5 stroke-[1.7]" />
-        )}
-      </button>
       <div className="relative flex items-center h-6">
         <select
           value={language}
