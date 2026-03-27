@@ -1494,7 +1494,9 @@ async fn rename_folder(
                 }
             }
         }
-        let _ = save_local_settings(&folder, &local);
+        if let Err(e) = save_local_settings(&folder, &local) {
+            eprintln!("Warning: failed to persist pinned note IDs: {}", e);
+        }
     }
 
     // Update cache
@@ -1588,7 +1590,9 @@ async fn move_note(
                 }
             }
         }
-        let _ = save_local_settings(&folder, &local);
+        if let Err(e) = save_local_settings(&folder, &local) {
+            eprintln!("Warning: failed to persist pinned note IDs: {}", e);
+        }
     }
 
     // Update cache
@@ -1689,7 +1693,9 @@ async fn move_folder(
                 }
             }
         }
-        let _ = save_local_settings(&folder, &local);
+        if let Err(e) = save_local_settings(&folder, &local) {
+            eprintln!("Warning: failed to persist pinned note IDs: {}", e);
+        }
     }
 
     // Update cache
