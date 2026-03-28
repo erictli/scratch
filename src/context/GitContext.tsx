@@ -477,3 +477,7 @@ export function useGit() {
   }
   return context;
 }
+
+export function useOptionalGit() {
+  return useContext(GitContext);
+}

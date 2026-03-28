@@ -53,3 +53,24 @@ export async function addRemote(url: string): Promise<GitResult> {
 export async function pushWithUpstream(): Promise<GitResult> {
   return invoke("git_push_with_upstream");
 }
+
+export interface FileVersion {
+  commit: string;
+  author: string;
+  date: number;
+  message: string;
+  filePath: string;
+}
+
+export async function getFileHistory(
+  filePath: string,
+): Promise<FileVersion[]> {
+  return invoke("git_get_file_history", { filePath });
+}
+
+export async function getFileAtCommit(
+  commit: string,
+  filePath: string,
+): Promise<string> {
+  return invoke("git_get_file_at_commit", { commit, filePath });
+}

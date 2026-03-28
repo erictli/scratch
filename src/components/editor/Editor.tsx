@@ -93,7 +93,10 @@ import {
   MarkdownIcon,
   MarkdownOffIcon,
   FolderPlusIcon,
+  HistoryIcon,
 } from "../icons";
+import { useOptionalGit } from "../../context/GitContext";
+import { VersionHistoryPanel } from "../history/VersionHistoryPanel";
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -483,6 +486,12 @@ export function Editor({
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyPreviewContent, setHistoryPreviewContent] = useState<
+    string | null
+  >(null);
+  const historyPreviewRef = useRef<string | null>(null);
+  const gitCtx = useOptionalGit();
   // Delay transition classes until after initial mount to avoid format bar height animation on note load
   const [hasTransitioned, setHasTransitioned] = useState(false);
   useEffect(() => {
@@ -694,6 +703,8 @@ export function Editor({
     needsSaveRef.current = true;
 
     saveTimeoutRef.current = window.setTimeout(async () => {
+      // Never save while previewing a historical version
+      if (historyPreviewRef.current != null) return;
       if (currentNoteIdRef.current !== savingNoteId || !needsSaveRef.current) {
         return;
       }
@@ -1158,6 +1169,51 @@ export function Editor({
   useEffect(() => {
     onEditorReady?.(editor);
   }, [editor, onEditorReady]);
+
+  // Keep ref in sync for scheduleSave guard
+  useEffect(() => {
+    historyPreviewRef.current = historyPreviewContent;
+  }, [historyPreviewContent]);
+
+  // Show version preview in editor (read-only)
+  useEffect(() => {
+    if (!editor) return;
+    if (historyPreviewContent != null) {
+      isLoadingRef.current = true;
+      editor.setEditable(false);
+      const manager = editor.storage.markdown?.manager;
+      if (manager) {
+        try {
+          editor.commands.setContent(manager.parse(historyPreviewContent));
+        } catch {
+          editor.commands.setContent(historyPreviewContent);
+        }
+      } else {
+        editor.commands.setContent(historyPreviewContent);
+      }
+      requestAnimationFrame(() => {
+        isLoadingRef.current = false;
+      });
+    } else if (!editor.isEditable) {
+      isLoadingRef.current = true;
+      editor.setEditable(true);
+      if (currentNote) {
+        const manager = editor.storage.markdown?.manager;
+        if (manager) {
+          try {
+            editor.commands.setContent(manager.parse(currentNote.content));
+          } catch {
+            editor.commands.setContent(currentNote.content);
+          }
+        } else {
+          editor.commands.setContent(currentNote.content);
+        }
+      }
+      requestAnimationFrame(() => {
+        isLoadingRef.current = false;
+      });
+    }
+  }, [editor, historyPreviewContent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync notes list into editor storage for wikilink autocomplete
   useEffect(() => {
@@ -1888,6 +1944,7 @@ export function Editor({
   }
 
   return (
+    <>
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
       {/* Drag region with sidebar toggle, date and save status */}
       <div
@@ -2001,6 +2058,16 @@ export function Editor({
                 ) : (
                   <MarkdownIcon className="w-4.75 h-4.75 stroke-[1.4]" />
                 )}
+              </IconButton>
+            </Tooltip>
+          )}
+          {currentNote && gitCtx?.gitEnabled && !previewMode && (
+            <Tooltip content="Version history">
+              <IconButton
+                onClick={() => setHistoryOpen((v) => !v)}
+                className={cn(historyOpen && "bg-bg-emphasis")}
+              >
+                <HistoryIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>
           )}
@@ -2341,5 +2408,36 @@ export function Editor({
         </div>
       </div>
     </div>
+    {historyOpen && currentNote && (
+      <VersionHistoryPanel
+        noteId={currentNote.id}
+        currentContent={currentNote.content}
+        onPreview={setHistoryPreviewContent}
+        onRestore={async (content) => {
+          setHistoryPreviewContent(null);
+          editor?.setEditable(true);
+          await saveNote(content, currentNote.id);
+          if (editor) {
+            const manager = editor.storage.markdown?.manager;
+            if (manager) {
+              try {
+                editor.commands.setContent(manager.parse(content));
+              } catch {
+                editor.commands.setContent(content);
+              }
+            } else {
+              editor.commands.setContent(content);
+            }
+          }
+          setHistoryOpen(false);
+          toast.success("Version restored");
+        }}
+        onClose={() => {
+          setHistoryPreviewContent(null);
+          setHistoryOpen(false);
+        }}
+      />
+    )}
+    </>
   );
 }

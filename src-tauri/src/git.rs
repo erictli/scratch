@@ -436,6 +436,207 @@ pub fn push_with_upstream(path: &Path, branch: &str) -> GitResult {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileVersion {
+    pub commit: String,
+    pub author: String,
+    pub date: i64,
+    pub message: String,
+    pub file_path: String,
+}
+
+/// Get the git commit history for a specific file.
+/// If the file has no history under its current name (e.g. it was renamed),
+/// we detect the original name via git's rename detection and retry.
+pub fn get_file_history(path: &Path, file_relative_path: &str) -> Result<Vec<FileVersion>, String> {
+    if !is_git_repo(path) {
+        return Ok(vec![]);
+    }
+
+    // Try with the current path first
+    let versions = git_log_follow(path, file_relative_path)?;
+    if !versions.is_empty() {
+        return Ok(versions);
+    }
+
+    // No history found — the file may have been renamed on disk but not yet committed.
+    // Use git's rename detection to find the original tracked name.
+    if let Some(original) = detect_original_path(path, file_relative_path) {
+        return git_log_follow(path, &original);
+    }
+
+    Ok(vec![])
+}
+
+/// Run `git log --follow --name-only` and parse the output into FileVersions.
+fn git_log_follow(path: &Path, file_relative_path: &str) -> Result<Vec<FileVersion>, String> {
+    let output = git_cmd()
+        .args([
+            "-c", "core.quotepath=false",
+            "log",
+            "-50",
+            "--pretty=format:COMMIT:%H|%an|%at|%s",
+            "--follow",
+            "--name-only",
+            "--",
+            file_relative_path,
+        ])
+        .current_dir(path)
+        .output()
+        .map_err(|e| format!("Failed to run git log: {e}"))?;
+
+    if !output.status.success() {
+        return Ok(vec![]);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut versions = Vec::new();
+    let mut current_version: Option<(String, String, i64, String)> = None;
+
+    for line in stdout.lines() {
+        if let Some(commit_line) = line.strip_prefix("COMMIT:") {
+            if let Some((commit, author, date, message)) = current_version.take() {
+                versions.push(FileVersion {
+                    commit,
+                    author,
+                    date,
+                    message,
+                    file_path: file_relative_path.to_string(),
+                });
+            }
+            let parts: Vec<&str> = commit_line.splitn(4, '|').collect();
+            if parts.len() == 4 {
+                current_version = Some((
+                    parts[0].to_string(),
+                    parts[1].to_string(),
+                    parts[2].parse().unwrap_or(0),
+                    parts[3].to_string(),
+                ));
+            }
+        } else if !line.is_empty() {
+            if let Some((commit, author, date, message)) = current_version.take() {
+                versions.push(FileVersion {
+                    commit,
+                    author,
+                    date,
+                    message,
+                    file_path: line.to_string(),
+                });
+            }
+        }
+    }
+
+    if let Some((commit, author, date, message)) = current_version.take() {
+        versions.push(FileVersion {
+            commit,
+            author,
+            date,
+            message,
+            file_path: file_relative_path.to_string(),
+        });
+    }
+
+    Ok(versions)
+}
+
+/// Detect if a file on disk is a rename of a tracked file.
+/// Temporarily stages the new file and all deletions from HEAD so git can
+/// perform rename detection via `git diff --cached -M`.
+fn detect_original_path(path: &Path, file_relative_path: &str) -> Option<String> {
+    // Find files tracked in HEAD that are missing on disk (potential rename sources)
+    let ls_output = git_cmd()
+        .args(["-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=D", "HEAD"])
+        .current_dir(path)
+        .output()
+        .ok()?;
+
+    let deleted_stdout = String::from_utf8_lossy(&ls_output.stdout).to_string();
+    let deleted_paths: Vec<&str> = deleted_stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    if deleted_paths.is_empty() {
+        return None;
+    }
+
+    // Stage the new file
+    let add_ok = git_cmd()
+        .args(["add", file_relative_path])
+        .current_dir(path)
+        .output()
+        .ok()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !add_ok {
+        return None;
+    }
+
+    // Stage deletions of missing tracked files so git sees them as paired with the add
+    for deleted in &deleted_paths {
+        let _ = git_cmd()
+            .args(["rm", "--cached", "--quiet", deleted])
+            .current_dir(path)
+            .output();
+    }
+
+    // Run rename detection
+    let diff_output = git_cmd()
+        .args([
+            "-c", "core.quotepath=false",
+            "diff", "--cached", "--name-status", "-M", "HEAD",
+        ])
+        .current_dir(path)
+        .output()
+        .ok()?;
+
+    // Reset the index back to HEAD (undo all staging)
+    let _ = git_cmd()
+        .args(["reset", "HEAD", "--quiet"])
+        .current_dir(path)
+        .output();
+
+    if !diff_output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&diff_output.stdout);
+    for line in stdout.lines() {
+        // Format: R<score>\t<old_path>\t<new_path>
+        if line.starts_with('R') {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() == 3 && parts[2] == file_relative_path {
+                return Some(parts[1].to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Get the content of a file at a specific commit
+pub fn get_file_at_commit(path: &Path, commit: &str, file_relative_path: &str) -> Result<String, String> {
+    // Validate commit hash (only hex chars, 7-40 length)
+    if !commit.chars().all(|c| c.is_ascii_hexdigit()) || commit.len() < 7 || commit.len() > 40 {
+        return Err("Invalid commit hash".to_string());
+    }
+
+    let file_spec = format!("{commit}:{file_relative_path}");
+    let output = git_cmd()
+        .args(["show", &file_spec])
+        .current_dir(path)
+        .output()
+        .map_err(|e| format!("Failed to run git show: {e}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 /// Basic validation for git remote URLs
 fn is_valid_remote_url(url: &str) -> bool {
     let url = url.trim();
