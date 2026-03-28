@@ -454,6 +454,7 @@ function AppContent() {
         ) : (
           <>
             <div
+              data-sidebar
               className={`transition-all duration-500 ease-out overflow-hidden ${!sidebarVisible || focusMode ? "opacity-0 -translate-x-4 w-0 pointer-events-none" : "opacity-100 translate-x-0 w-64"}`}
             >
               <Sidebar onOpenSettings={toggleSettings} />

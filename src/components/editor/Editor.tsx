@@ -2100,11 +2100,12 @@ export function Editor({
       </div>
 
       {/* Editor content area with resize handles overlay */}
-      <div className="flex-1 relative overflow-hidden">
+      <div data-editor-content-area className="flex-1 relative overflow-hidden">
         {!focusMode && !sourceMode && (
           <EditorWidthHandles containerRef={scrollContainerRef} />
         )}
         <div
+          data-editor-scroll
           ref={scrollContainerRef}
           className="absolute inset-0 overflow-y-auto overflow-x-hidden"
           dir={textDirection}

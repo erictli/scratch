@@ -1060,8 +1060,8 @@ table.not-prose th {
     padding: 0 !important;
   }
 
-  /* Hide sidebar - target the first flex child that contains Sidebar */
-  #root > div > div:first-child {
+  /* Hide sidebar when printing */
+  [data-sidebar] {
     display: none !important;
   }
 
@@ -1105,6 +1105,20 @@ table.not-prose th {
 
   /* Make editor container expand for printing */
   .flex-1 {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* The editor content area and scroll container use absolute positioning
+     which collapses to zero height in print. Switch to static flow. */
+  [data-editor-content-area] {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  [data-editor-scroll] {
+    position: static !important;
     overflow: visible !important;
     height: auto !important;
   }
