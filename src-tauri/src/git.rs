@@ -161,8 +161,88 @@ pub fn get_status(path: &Path) -> GitStatus {
     status
 }
 
+/// Build a descriptive commit message from the changed files.
+/// Returns something like "Update API Credentials, Clé API" or "Add Meeting Notes".
+pub fn build_commit_message(path: &Path) -> String {
+    // Get staged + unstaged changes (before staging)
+    let output = git_cmd()
+        .args(["-c", "core.quotepath=false", "status", "--porcelain"])
+        .current_dir(path)
+        .output();
+
+    let stdout = match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
+        _ => return "Quick commit from Scratch".to_string(),
+    };
+
+    let mut added: Vec<String> = Vec::new();
+    let mut modified: Vec<String> = Vec::new();
+    let mut deleted: Vec<String> = Vec::new();
+
+    for line in stdout.lines() {
+        if line.len() < 4 { continue; }
+        let status = &line[..2];
+        let file = line[3..].trim_matches('"').to_string();
+
+        // Only care about .md files for the message
+        if !file.ends_with(".md") { continue; }
+
+        // Extract note name from path (remove folder prefix + .md suffix)
+        let name = file
+            .rsplit('/')
+            .next()
+            .unwrap_or(&file)
+            .trim_end_matches(".md")
+            .to_string();
+
+        match status.trim() {
+            "?" | "??" | "A" => added.push(name),
+            "D" => deleted.push(name),
+            _ => modified.push(name),
+        }
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+
+    if !modified.is_empty() {
+        let names = truncate_names(&modified, 3);
+        parts.push(format!("Update {names}"));
+    }
+    if !added.is_empty() {
+        let names = truncate_names(&added, 3);
+        parts.push(format!("Add {names}"));
+    }
+    if !deleted.is_empty() {
+        let names = truncate_names(&deleted, 3);
+        parts.push(format!("Delete {names}"));
+    }
+
+    if parts.is_empty() {
+        "Quick commit from Scratch".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+/// Join names with a limit, adding "+N more" if truncated.
+fn truncate_names(names: &[String], max: usize) -> String {
+    if names.len() <= max {
+        names.join(", ")
+    } else {
+        let shown: Vec<&str> = names[..max].iter().map(|s| s.as_str()).collect();
+        format!("{} +{} more", shown.join(", "), names.len() - max)
+    }
+}
+
 /// Stage all changes and commit
 pub fn commit_all(path: &Path, message: &str) -> GitResult {
+    // Build descriptive message BEFORE staging (needs unstaged status)
+    let final_message = if message == "Quick commit from Scratch" {
+        build_commit_message(path)
+    } else {
+        message.to_string()
+    };
+
     // Stage all changes
     let stage_output = match git_cmd()
         .args(["add", "-A"])
@@ -196,7 +276,7 @@ pub fn commit_all(path: &Path, message: &str) -> GitResult {
 
     // Commit
     let commit_output = git_cmd()
-        .args(["commit", "-m", message])
+        .args(["commit", "-m", &final_message])
         .current_dir(path)
         .output();
 

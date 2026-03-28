@@ -1181,37 +1181,40 @@ export function Editor({
     if (historyPreviewContent != null) {
       isLoadingRef.current = true;
       editor.setEditable(false);
-      const manager = editor.storage.markdown?.manager;
-      if (manager) {
-        try {
-          editor.commands.setContent(manager.parse(historyPreviewContent));
-        } catch {
+      // Defer setContent to avoid flushSync warning from TipTap during React render
+      queueMicrotask(() => {
+        const manager = editor.storage.markdown?.manager;
+        if (manager) {
+          try {
+            editor.commands.setContent(manager.parse(historyPreviewContent));
+          } catch {
+            editor.commands.setContent(historyPreviewContent);
+          }
+        } else {
           editor.commands.setContent(historyPreviewContent);
         }
-      } else {
-        editor.commands.setContent(historyPreviewContent);
-      }
-      requestAnimationFrame(() => {
         isLoadingRef.current = false;
       });
     } else if (!editor.isEditable) {
       isLoadingRef.current = true;
       editor.setEditable(true);
       if (currentNote) {
-        const manager = editor.storage.markdown?.manager;
-        if (manager) {
-          try {
-            editor.commands.setContent(manager.parse(currentNote.content));
-          } catch {
+        queueMicrotask(() => {
+          const manager = editor.storage.markdown?.manager;
+          if (manager) {
+            try {
+              editor.commands.setContent(manager.parse(currentNote.content));
+            } catch {
+              editor.commands.setContent(currentNote.content);
+            }
+          } else {
             editor.commands.setContent(currentNote.content);
           }
-        } else {
-          editor.commands.setContent(currentNote.content);
-        }
-      }
-      requestAnimationFrame(() => {
+          isLoadingRef.current = false;
+        });
+      } else {
         isLoadingRef.current = false;
-      });
+      }
     }
   }, [editor, historyPreviewContent]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1734,6 +1737,20 @@ export function Editor({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editor, currentNote, openEditorSearch]);
+
+  // Close history panel on Escape when editor is not focused
+  useEffect(() => {
+    if (!historyOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !editor?.isFocused) {
+        e.preventDefault();
+        setHistoryPreviewContent(null);
+        setHistoryOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [historyOpen, editor]);
 
   // Clear search on note switch
   useEffect(() => {
@@ -2412,6 +2429,7 @@ export function Editor({
       <VersionHistoryPanel
         noteId={currentNote.id}
         currentContent={currentNote.content}
+        refreshKey={gitCtx?.status?.changedCount}
         onPreview={setHistoryPreviewContent}
         onRestore={async (content) => {
           setHistoryPreviewContent(null);
