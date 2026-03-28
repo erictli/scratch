@@ -694,11 +694,19 @@ fn get_app_config_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(app_data.join("config.json"))
 }
 
-// Get global settings file path (in app config directory, shared across all folders)
-fn get_global_settings_path(app: &AppHandle) -> Result<PathBuf> {
-    let app_data = app.path().app_data_dir()?;
-    std::fs::create_dir_all(&app_data)?;
-    Ok(app_data.join("settings.json"))
+// Get global settings directory (~/.config/scratch/), survives app uninstall/reinstall
+fn get_global_settings_dir() -> Result<PathBuf> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| anyhow::anyhow!("Cannot determine home directory"))?;
+    let dir = PathBuf::from(home).join(".config").join("scratch");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+// Get global settings file path (~/.config/scratch/settings.json, shared across all folders)
+fn get_global_settings_path() -> Result<PathBuf> {
+    Ok(get_global_settings_dir()?.join("settings.json"))
 }
 
 // Get per-folder settings file path (in .scratch/ within notes folder)
@@ -741,8 +749,8 @@ fn save_app_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
 }
 
 // Load global settings from disk (shared across all notes folders)
-fn load_global_settings(app: &AppHandle) -> GlobalSettings {
-    let path = match get_global_settings_path(app) {
+fn load_global_settings() -> GlobalSettings {
+    let path = match get_global_settings_path() {
         Ok(p) => p,
         Err(_) => return GlobalSettings::default(),
     };
@@ -758,11 +766,37 @@ fn load_global_settings(app: &AppHandle) -> GlobalSettings {
 }
 
 // Save global settings to disk
-fn save_global_settings(app: &AppHandle, settings: &GlobalSettings) -> Result<()> {
-    let path = get_global_settings_path(app)?;
+fn save_global_settings(settings: &GlobalSettings) -> Result<()> {
+    let path = get_global_settings_path()?;
     let content = serde_json::to_string_pretty(settings)?;
     std::fs::write(path, content)?;
     Ok(())
+}
+
+// Migrate global settings from old Tauri app_data location to ~/.config/scratch/
+fn migrate_global_settings(app: &AppHandle) {
+    let new_path = match get_global_settings_path() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+
+    // Already migrated or fresh install
+    if new_path.exists() {
+        return;
+    }
+
+    // Check old location (Tauri app_data_dir)
+    let old_path = match app.path().app_data_dir() {
+        Ok(dir) => dir.join("settings.json"),
+        Err(_) => return,
+    };
+
+    if old_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&old_path) {
+            let _ = std::fs::write(&new_path, content);
+            eprintln!("Migrated global settings from {:?} to {:?}", old_path, new_path);
+        }
+    }
 }
 
 // Load per-folder settings from disk
@@ -1751,7 +1785,6 @@ fn get_settings(state: State<AppState>) -> Settings {
 fn update_settings(
     new_settings: Settings,
     state: State<AppState>,
-    app: AppHandle,
 ) -> Result<(), String> {
     let new_global = GlobalSettings {
         theme: new_settings.theme,
@@ -1775,7 +1808,7 @@ fn update_settings(
         let mut global = state.global_settings.write().expect("global_settings write lock");
         *global = new_global.clone();
     }
-    save_global_settings(&app, &new_global).map_err(|e| e.to_string())?;
+    save_global_settings(&new_global).map_err(|e| e.to_string())?;
 
     // Save local settings only if a notes folder is active
     let folder = {
@@ -3681,8 +3714,11 @@ pub fn run() {
                 }
             }
 
+            // Migrate global settings from old app_data location to ~/.config/scratch/
+            migrate_global_settings(app.handle());
+
             // Load global settings (shared across all notes folders)
-            let global_settings = load_global_settings(app.handle());
+            let global_settings = load_global_settings();
 
             // Load per-folder settings if notes folder is set
             let local_settings = if let Some(ref folder) = app_config.notes_folder {
