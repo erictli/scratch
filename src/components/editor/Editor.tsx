@@ -499,6 +499,7 @@ export function Editor({
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceContent, setSourceContent] = useState("");
   const sourceTimeoutRef = useRef<number | null>(null);
+  const sourceTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1766,6 +1767,7 @@ export function Editor({
       const md = getMarkdown(editor);
       setSourceContent(md);
       setSourceMode(true);
+      requestAnimationFrame(() => sourceTextareaRef.current?.focus());
     } else {
       // Exiting source mode: parse markdown back to TipTap JSON, then set content
       const manager = editor.storage.markdown?.manager;
@@ -1780,6 +1782,7 @@ export function Editor({
         editor.commands.setContent(sourceContent);
       }
       setSourceMode(false);
+      requestAnimationFrame(() => editor.commands.focus());
     }
   }, [editor, sourceMode, sourceContent, getMarkdown]);
 
@@ -2113,6 +2116,7 @@ export function Editor({
             /* Markdown source textarea */
             <div className="h-full">
               <textarea
+                ref={sourceTextareaRef}
                 value={sourceContent}
                 onChange={(e) => handleSourceChange(e.target.value)}
                 dir={textDirection}
