@@ -109,7 +109,6 @@ export function KeyboardShortcutsModal({
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        e.stopPropagation();
         onClose();
       }
     },
@@ -118,14 +117,19 @@ export function KeyboardShortcutsModal({
 
   useEffect(() => {
     if (!open) return;
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, handleKeyDown]);
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="keyboard-shortcuts-title"
+    >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
@@ -136,7 +140,7 @@ export function KeyboardShortcutsModal({
       <div className="relative w-full max-w-4xl max-h-[85vh] mx-4 bg-bg rounded-xl shadow-2xl border border-border animate-slide-down overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border flex-none">
-          <h2 className="text-lg font-semibold text-text">
+          <h2 id="keyboard-shortcuts-title" className="text-lg font-semibold text-text">
             Keyboard Shortcuts
           </h2>
           <button
