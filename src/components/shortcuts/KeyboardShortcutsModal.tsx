@@ -24,6 +24,7 @@ const categories: ShortcutCategory[] = [
       { keys: [mod, "="], description: "Zoom in" },
       { keys: [mod, "-"], description: "Zoom out" },
       { keys: [mod, "0"], description: "Reset zoom" },
+      { keys: [mod, "/"], description: "Keyboard shortcuts" },
     ],
   },
   {
@@ -140,6 +141,7 @@ export function KeyboardShortcutsModal({
           </h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1 rounded-md text-text-muted hover:text-text hover:bg-bg-muted transition-colors"
           >
             <XIcon className="w-4.5 h-4.5" />

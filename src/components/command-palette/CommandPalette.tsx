@@ -525,6 +525,7 @@ export function CommandPalette({
     focusMode,
     onToggleFocusMode,
     notesFolder,
+    onOpenShortcuts,
   ]);
 
   // Debounced search using Tantivy (local state, doesn't affect sidebar)
