@@ -88,6 +88,11 @@ const shortcuts: Shortcut[] = [
     category: "Navigation",
   },
   {
+    keys: [mod, "/"],
+    description: "Keyboard shortcuts",
+    category: "Navigation",
+  },
+  {
     keys: [mod, "1"],
     description: "Go to General settings",
     category: "Settings",
