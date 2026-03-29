@@ -1767,7 +1767,6 @@ export function Editor({
       const md = getMarkdown(editor);
       setSourceContent(md);
       setSourceMode(true);
-      requestAnimationFrame(() => sourceTextareaRef.current?.focus());
     } else {
       // Exiting source mode: parse markdown back to TipTap JSON, then set content
       const manager = editor.storage.markdown?.manager;
@@ -1782,9 +1781,17 @@ export function Editor({
         editor.commands.setContent(sourceContent);
       }
       setSourceMode(false);
-      requestAnimationFrame(() => editor.commands.focus());
     }
   }, [editor, sourceMode, sourceContent, getMarkdown]);
+
+  // Autofocus after source mode toggle — runs after React has committed the DOM
+  useEffect(() => {
+    if (sourceMode) {
+      sourceTextareaRef.current?.focus();
+    } else {
+      editor?.commands.focus();
+    }
+  }, [sourceMode, editor]);
 
   // Listen for toggle-source-mode custom event (from App.tsx shortcut / command palette)
   useEffect(() => {
