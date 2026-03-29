@@ -63,6 +63,11 @@ const shortcuts: Shortcut[] = [
     category: "Editor",
   },
   {
+    keys: [mod, "Shift", "P"],
+    description: "Print / Export as PDF",
+    category: "Editor",
+  },
+  {
     keys: [mod, "F"],
     description: "Find in current note",
     category: "Editor",

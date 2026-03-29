@@ -113,10 +113,16 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
         return;
       }
 
-      // Cmd+P: Print
-      if (modKey && !e.shiftKey && e.key === "p") {
+      // Cmd+Shift+P: Print
+      if (modKey && e.shiftKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent("print-note"));
+        return;
+      }
+
+      // Cmd+P: Block browser print dialog
+      if (modKey && !e.shiftKey && e.key === "p") {
+        e.preventDefault();
         return;
       }
 
