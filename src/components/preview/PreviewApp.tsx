@@ -113,6 +113,13 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
         return;
       }
 
+      // Cmd+P: Print
+      if (modKey && !e.shiftKey && e.key === "p") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("print-note"));
+        return;
+      }
+
       // Cmd+R: Reload file from disk
       if (modKey && e.key === "r") {
         e.preventDefault();

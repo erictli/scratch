@@ -1018,6 +1018,10 @@ table.not-prose th {
 }
 
 /* Print styles for clean PDF export */
+@page {
+  margin: 0.75in;
+}
+
 @media print {
   /* Disable all transitions to prevent color flashing after print */
   *,
@@ -1050,6 +1054,8 @@ table.not-prose th {
     height: auto !important;
     overflow: visible !important;
     max-height: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
     border: none !important;
     border-top: none !important;
     border-bottom: none !important;
@@ -1081,26 +1087,10 @@ table.not-prose th {
     display: none !important;
   }
 
-  /* Hide the toolbar div with drag region */
-  [data-tauri-drag-region] {
+  /* Hide toolbar and format bar when printing */
+  [data-tauri-drag-region],
+  [data-format-bar] {
     display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    height: 0 !important;
-    max-height: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    position: absolute !important;
-    pointer-events: none !important;
-    overflow: hidden !important;
-  }
-
-  /* Hide format bar by targeting its wrapper */
-  .flex-1 > div:has(> div[class*="border-b"]) {
-    display: none !important;
-    height: 0 !important;
-    max-height: 0 !important;
-    overflow: hidden !important;
   }
 
   /* Make editor container expand for printing */
@@ -1123,20 +1113,23 @@ table.not-prose th {
     height: auto !important;
   }
 
-  /* Make editor full width for printing */
+  /* Make editor full width for printing and remove editor padding */
   .ProseMirror {
     max-width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
     overflow: visible !important;
     height: auto !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
   }
 
-  /* Add padding to prose content for proper margins */
   .prose {
     max-width: 100% !important;
-    padding: 0.75in 1in !important;
+    padding: 0 !important;
     margin: 0 !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
   }
 
   /* Ensure page breaks work well */
@@ -1153,8 +1146,6 @@ table.not-prose th {
   p,
   blockquote,
   pre,
-  ul,
-  ol,
   table {
     page-break-inside: avoid;
     break-inside: avoid;
@@ -1210,6 +1201,11 @@ table.not-prose th {
   table {
     border: 1px solid #d0d0d0 !important;
     border-collapse: collapse !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
   }
 
   th,

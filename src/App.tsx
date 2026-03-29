@@ -276,10 +276,17 @@ function AppContent() {
         return;
       }
 
-      // Cmd+P - Open command palette
-      if ((e.metaKey || e.ctrlKey) && e.key === "p") {
+      // Cmd+Shift+P - Open command palette
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "p") {
         e.preventDefault();
         setPaletteOpen(true);
+        return;
+      }
+
+      // Cmd+P - Print
+      if ((e.metaKey || e.ctrlKey) && e.key === "p") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("print-note"));
         return;
       }
 
