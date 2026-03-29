@@ -97,6 +97,12 @@ import {
 } from "../icons";
 import { useOptionalGit } from "../../context/GitContext";
 import { VersionHistoryPanel } from "../history/VersionHistoryPanel";
+import {
+  DiffHighlight,
+  applyVersionDiffDecorations,
+  clearDiffDecorations,
+} from "./DiffHighlight";
+import { computeVersionDiff, parseSnapshot } from "../../lib/diff";
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -487,9 +493,6 @@ export function Editor({
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyPreviewContent, setHistoryPreviewContent] = useState<
-    string | null
-  >(null);
   const historyPreviewRef = useRef<string | null>(null);
   const gitCtx = useOptionalGit();
   // Delay transition classes until after initial mount to avoid format bar height animation on note load
@@ -1030,6 +1033,7 @@ export function Editor({
         matches: [],
         currentIndex: 0,
       }),
+      DiffHighlight,
       SlashCommand,
       Wikilink,
       WikilinkSuggestion,
@@ -1171,52 +1175,76 @@ export function Editor({
   }, [editor, onEditorReady]);
 
   // Keep ref in sync for scheduleSave guard
-  useEffect(() => {
-    historyPreviewRef.current = historyPreviewContent;
-  }, [historyPreviewContent]);
+  // Compare: load current content, compute diff with old version, apply decorations
+  const handleCompare = useCallback(
+    (oldContent: string) => {
+      if (!editor || !currentNote) return;
 
-  // Show version preview in editor (read-only)
-  useEffect(() => {
-    if (!editor) return;
-    if (historyPreviewContent != null) {
+      const manager = editor.storage.markdown?.manager;
+      if (!manager) return;
+
+      historyPreviewRef.current = oldContent;
       isLoadingRef.current = true;
       editor.setEditable(false);
-      // Defer setContent to avoid flushSync warning from TipTap during React render
-      queueMicrotask(() => {
-        const manager = editor.storage.markdown?.manager;
-        if (manager) {
-          try {
-            editor.commands.setContent(manager.parse(historyPreviewContent));
-          } catch {
-            editor.commands.setContent(historyPreviewContent);
-          }
-        } else {
-          editor.commands.setContent(historyPreviewContent);
+
+      // Step 1: Load old content to capture its JSON snapshot
+      try {
+        editor.commands.setContent(manager.parse(oldContent));
+      } catch {
+        editor.commands.setContent(oldContent);
+      }
+      const beforeJSON = editor.getJSON();
+
+      // Step 2: Load current content (this is what the user sees)
+      try {
+        editor.commands.setContent(manager.parse(currentNote.content));
+      } catch {
+        editor.commands.setContent(currentNote.content);
+      }
+      const afterJSON = editor.getJSON();
+
+      // Step 3: Compute diff using prosemirror-changeset
+      try {
+        const beforeDoc = parseSnapshot(editor.schema, beforeJSON);
+        const afterDoc = parseSnapshot(editor.schema, afterJSON);
+        const result = computeVersionDiff(beforeDoc, afterDoc);
+
+        if (result && result.changes.length > 0) {
+          applyVersionDiffDecorations(result.changes, editor);
         }
-        isLoadingRef.current = false;
-      });
-    } else if (!editor.isEditable) {
-      isLoadingRef.current = true;
-      editor.setEditable(true);
-      if (currentNote) {
-        queueMicrotask(() => {
-          const manager = editor.storage.markdown?.manager;
-          if (manager) {
-            try {
-              editor.commands.setContent(manager.parse(currentNote.content));
-            } catch {
-              editor.commands.setContent(currentNote.content);
-            }
-          } else {
-            editor.commands.setContent(currentNote.content);
-          }
-          isLoadingRef.current = false;
-        });
+      } catch (err) {
+        console.error("Failed to compute version diff:", err);
+      }
+
+      isLoadingRef.current = false;
+    },
+    [editor, currentNote],
+  );
+
+  // Restore editor to normal state when exiting history
+  const handleHistoryClose = useCallback(() => {
+    historyPreviewRef.current = null;
+    setHistoryOpen(false);
+
+    if (!editor) return;
+    clearDiffDecorations(editor);
+    isLoadingRef.current = true;
+    editor.setEditable(true);
+
+    if (currentNote) {
+      const manager = editor.storage.markdown?.manager;
+      if (manager) {
+        try {
+          editor.commands.setContent(manager.parse(currentNote.content));
+        } catch {
+          editor.commands.setContent(currentNote.content);
+        }
       } else {
-        isLoadingRef.current = false;
+        editor.commands.setContent(currentNote.content);
       }
     }
-  }, [editor, historyPreviewContent]); // eslint-disable-line react-hooks/exhaustive-deps
+    isLoadingRef.current = false;
+  }, [editor, currentNote]);
 
   // Sync notes list into editor storage for wikilink autocomplete
   useEffect(() => {
@@ -1744,8 +1772,7 @@ export function Editor({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !editor?.isFocused) {
         e.preventDefault();
-        setHistoryPreviewContent(null);
-        setHistoryOpen(false);
+        handleHistoryClose();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -2430,9 +2457,10 @@ export function Editor({
         noteId={currentNote.id}
         currentContent={currentNote.content}
         refreshKey={gitCtx?.status?.changedCount}
-        onPreview={setHistoryPreviewContent}
+        onCompare={handleCompare}
         onRestore={async (content) => {
-          setHistoryPreviewContent(null);
+          historyPreviewRef.current = null;
+          if (editor) clearDiffDecorations(editor);
           editor?.setEditable(true);
           await saveNote(content, currentNote.id);
           if (editor) {
@@ -2450,10 +2478,7 @@ export function Editor({
           setHistoryOpen(false);
           toast.success("Version restored");
         }}
-        onClose={() => {
-          setHistoryPreviewContent(null);
-          setHistoryOpen(false);
-        }}
+        onClose={handleHistoryClose}
       />
     )}
     </>

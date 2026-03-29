@@ -150,6 +150,29 @@ body {
   background-color: var(--color-selection);
 }
 
+/* Diff highlighting — version history compare mode */
+.diff-insert {
+  background-color: rgba(34, 197, 94, 0.2);
+  border-radius: 2px;
+}
+
+.diff-delete {
+  background-color: rgba(239, 68, 68, 0.2);
+  text-decoration: line-through;
+  text-decoration-color: rgba(239, 68, 68, 0.6);
+  border-radius: 2px;
+  font: inherit;
+}
+
+.dark .diff-insert {
+  background-color: rgba(34, 197, 94, 0.15);
+}
+
+.dark .diff-delete {
+  background-color: rgba(239, 68, 68, 0.15);
+  text-decoration-color: rgba(239, 68, 68, 0.5);
+}
+
 /* Hide scrollbar while allowing scroll */
 .scrollbar-none {
   scrollbar-width: none; /* Firefox */

@@ -13,7 +13,7 @@ interface VersionHistoryPanelProps {
   noteId: string;
   currentContent: string;
   refreshKey?: number;
-  onPreview: (content: string | null) => void;
+  onCompare: (oldContent: string) => void;
   onRestore: (content: string) => void;
   onClose: () => void;
 }
@@ -24,11 +24,16 @@ interface DiffStats {
   changed: number;
 }
 
-function computeDiffStats(oldText: string, newText: string): DiffStats {
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
+function normalizeMarkdown(text: string): string {
+  // Trim trailing whitespace per line and remove trailing blank lines
+  // to match what TipTap's markdown parser produces
+  return text.replace(/[ \t]+$/gm, "").replace(/\n+$/, "");
+}
 
-  // Simple LCS-based diff to count added/removed/changed lines
+function computeDiffStats(oldText: string, newText: string): DiffStats {
+  const oldLines = normalizeMarkdown(oldText).split("\n");
+  const newLines = normalizeMarkdown(newText).split("\n");
+
   const oldSet = new Map<string, number[]>();
   oldLines.forEach((line, i) => {
     const arr = oldSet.get(line) || [];
@@ -43,7 +48,6 @@ function computeDiffStats(oldText: string, newText: string): DiffStats {
     newSet.set(line, arr);
   });
 
-  // Count lines unique to each side
   let matchedOld = 0;
   let matchedNew = 0;
 
@@ -131,7 +135,7 @@ export function VersionHistoryPanel({
   noteId,
   currentContent,
   refreshKey,
-  onPreview,
+  onCompare,
   onRestore,
   onClose,
 }: VersionHistoryPanelProps) {
@@ -149,13 +153,11 @@ export function VersionHistoryPanel({
     setSelectedIndex(null);
     setSelectedContent(null);
     setVersionContents(new Map());
-    onPreview(null);
 
     getFileHistory(`${noteId}.md`)
       .then((result) => {
         if (!cancelled) {
           setVersions(result);
-          // Prefetch all version contents for diff stats
           for (const version of result) {
             getFileAtCommit(version.commit, version.filePath)
               .then((content) => {
@@ -167,9 +169,7 @@ export function VersionHistoryPanel({
                   });
                 }
               })
-              .catch(() => {
-                // Ignore — diff stats just won't show for this version
-              });
+              .catch(() => {});
           }
         }
       })
@@ -184,26 +184,21 @@ export function VersionHistoryPanel({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteId, refreshKey]);
 
-  // Compute diff stats: for each past version, compare it against the current (newest) version
+  // Compare each past version against the actual current file content (not the latest commit)
   const diffStats = useMemo(() => {
     const stats = new Map<string, DiffStats>();
     if (versions.length < 2) return stats;
-
-    const currentContent = versionContents.get(versions[0].commit);
-    if (currentContent == null) return stats;
 
     for (let i = 1; i < versions.length; i++) {
       const version = versions[i];
       const content = versionContents.get(version.commit);
       if (content == null) continue;
-      // Show what changed FROM this old version TO the current version
       stats.set(version.commit, computeDiffStats(content, currentContent));
     }
     return stats;
-  }, [versions, versionContents]);
+  }, [versions, versionContents, currentContent]);
 
   const handleSelectVersion = useCallback(
     async (index: number) => {
@@ -212,18 +207,17 @@ export function VersionHistoryPanel({
 
       setSelectedIndex(index);
 
-      // Use cached content if available
       const cached = versionContents.get(version.commit);
       if (cached != null) {
         setSelectedContent(cached);
-        onPreview(cached);
+        onCompare(cached);
         return;
       }
 
       try {
         const content = await getFileAtCommit(version.commit, version.filePath);
         setSelectedContent(content);
-        onPreview(content);
+        onCompare(content);
         setVersionContents((prev) => {
           const next = new Map(prev);
           next.set(version.commit, content);
@@ -232,10 +226,9 @@ export function VersionHistoryPanel({
       } catch (err) {
         console.error("Failed to load version content:", err);
         setSelectedContent(null);
-        onPreview(null);
       }
     },
-    [versions, versionContents, onPreview],
+    [versions, versionContents, onCompare],
   );
 
   const handleRestore = useCallback(() => {
@@ -288,7 +281,7 @@ export function VersionHistoryPanel({
         ) : (
           <div className="flex flex-col gap-0.5">
             {versions.slice(1).map((version, sliceIndex) => {
-              const index = sliceIndex + 1; // offset for the skipped current version
+              const index = sliceIndex + 1;
               const stats = diffStats.get(version.commit);
               return (
                 <button
