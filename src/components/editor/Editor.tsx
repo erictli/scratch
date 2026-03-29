@@ -1383,16 +1383,13 @@ export function Editor({
         return;
       }
 
-      // For brand new empty notes, focus and select all so user can start typing
-      // Skip if the note list has focus (e.g. keyboard navigation with arrow keys)
+      // Focus editor so the user can start typing immediately
       if ((isNewNote || wasEmpty) && currentNote.content.trim() === "") {
-        const noteListFocused = document.activeElement?.closest("[data-note-list]");
-        if (!noteListFocused) {
-          editor.commands.focus("start");
-          editor.commands.selectAll();
-        }
+        editor.commands.focus("start");
+        editor.commands.selectAll();
+      } else {
+        editor.commands.focus("start");
       }
-      // For existing notes, don't auto-focus - let user click where they want
     });
   }, [
     currentNote,
