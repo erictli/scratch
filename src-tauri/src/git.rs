@@ -180,25 +180,12 @@ pub fn build_commit_message(path: &Path) -> String {
     let mut deleted: Vec<String> = Vec::new();
 
     for line in stdout.lines() {
-        if line.len() < 4 { continue; }
-        let status = &line[..2];
-        let file = line[3..].trim_matches('"').to_string();
-
-        // Only care about .md files for the message
-        if !file.ends_with(".md") { continue; }
-
-        // Extract note name from path (remove folder prefix + .md suffix)
-        let name = file
-            .rsplit('/')
-            .next()
-            .unwrap_or(&file)
-            .trim_end_matches(".md")
-            .to_string();
-
-        match status.trim() {
-            "?" | "??" | "A" => added.push(name),
-            "D" => deleted.push(name),
-            _ => modified.push(name),
+        if let Some((kind, name)) = parse_commit_message_status_line(line) {
+            match kind {
+                CommitMessageChangeKind::Added => added.push(name),
+                CommitMessageChangeKind::Deleted => deleted.push(name),
+                CommitMessageChangeKind::Modified => modified.push(name),
+            }
         }
     }
 
@@ -222,6 +209,42 @@ pub fn build_commit_message(path: &Path) -> String {
     } else {
         parts.join(", ")
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommitMessageChangeKind {
+    Added,
+    Modified,
+    Deleted,
+}
+
+fn parse_commit_message_status_line(line: &str) -> Option<(CommitMessageChangeKind, String)> {
+    if line.len() < 4 {
+        return None;
+    }
+
+    let status = &line[..2];
+    let raw_file = line[3..].trim_matches('"');
+    let file = raw_file.rsplit(" -> ").next().unwrap_or(raw_file);
+
+    if !file.ends_with(".md") {
+        return None;
+    }
+
+    let name = file
+        .rsplit('/')
+        .next()
+        .unwrap_or(file)
+        .trim_end_matches(".md")
+        .to_string();
+
+    let kind = match status.trim() {
+        "?" | "??" | "A" => CommitMessageChangeKind::Added,
+        "D" => CommitMessageChangeKind::Deleted,
+        _ => CommitMessageChangeKind::Modified,
+    };
+
+    Some((kind, name))
 }
 
 /// Join names with a limit, adding "+N more" if truncated.
@@ -814,7 +837,9 @@ fn parse_push_error(stderr: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_git_log_follow_output;
+    use super::{
+        parse_commit_message_status_line, parse_git_log_follow_output, CommitMessageChangeKind,
+    };
 
     #[test]
     fn parse_git_log_follow_output_handles_pipes_and_rename_paths() {
@@ -863,5 +888,22 @@ mod tests {
         assert_eq!(versions.len(), 2);
         assert_eq!(versions[0].file_path, "current.md");
         assert_eq!(versions[1].file_path, "old name.md");
+    }
+
+    #[test]
+    fn parse_commit_message_status_line_uses_new_path_for_renames() {
+        let parsed = parse_commit_message_status_line("R  old/alpha.md -> new/beta.md");
+
+        assert_eq!(
+            parsed,
+            Some((CommitMessageChangeKind::Modified, "beta".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_commit_message_status_line_skips_non_markdown_files() {
+        let parsed = parse_commit_message_status_line("M  src/main.rs");
+
+        assert_eq!(parsed, None);
     }
 }

@@ -108,6 +108,7 @@ import {
   parseSnapshot,
   type VersionDiffStats,
 } from "../../lib/diff";
+import { applyHistoryCompareBase } from "./historyCompare";
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -1270,25 +1271,38 @@ export function Editor({
       historyPreviewRef.current = oldContent;
       historyLiveContentRef.current = liveMarkdown;
       isLoadingRef.current = true;
-      editor.setEditable(false);
 
       const beforeJSON = getDiffSnapshot(oldContent);
       const afterJSON = getDiffSnapshot(liveMarkdown);
 
-      if (afterJSON) {
-        editor.commands.setContent(afterJSON);
+      if (!applyHistoryCompareBase(editor, afterJSON)) {
+        historyPreviewRef.current = null;
+        historyLiveContentRef.current = null;
+        clearDiffDecorations(editor);
+        isLoadingRef.current = false;
+        toast.error("Failed to preview version diff");
+        return;
+      }
+
+      if (!beforeJSON) {
+        historyPreviewRef.current = null;
+        historyLiveContentRef.current = null;
+        clearDiffDecorations(editor);
+        editor.setEditable(true);
+        isLoadingRef.current = false;
+        toast.error("Failed to preview version diff");
+        return;
       }
 
       // Compute diff using the same cached snapshots as the panel stats.
       clearDiffDecorations(editor);
-      if (beforeJSON && afterJSON) {
-        const beforeDoc = parseSnapshot(editor.schema, beforeJSON);
-        const afterDoc = parseSnapshot(editor.schema, afterJSON);
-        const result = computeVersionDiff(beforeDoc, afterDoc);
+      const afterSnapshot = afterJSON as Record<string, unknown>;
+      const beforeDoc = parseSnapshot(editor.schema, beforeJSON);
+      const afterDoc = parseSnapshot(editor.schema, afterSnapshot);
+      const result = computeVersionDiff(beforeDoc, afterDoc);
 
-        if (result && result.changes.length > 0) {
-          applyVersionDiffDecorations(result.changes, editor);
-        }
+      if (result && result.changes.length > 0) {
+        applyVersionDiffDecorations(result.changes, editor);
       }
 
       isLoadingRef.current = false;
