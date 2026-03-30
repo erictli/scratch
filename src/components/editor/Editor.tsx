@@ -1180,6 +1180,9 @@ export function Editor({
     (oldContent: string) => {
       if (!editor || !currentNote) return;
 
+      // Flush unsaved edits before entering compare mode
+      flushPendingSave();
+
       const manager = editor.storage.markdown?.manager;
       if (!manager) return;
 

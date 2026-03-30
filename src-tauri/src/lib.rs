@@ -3667,9 +3667,6 @@ pub fn run() {
             };
 
             if let Some(main_window) = app.get_webview_window("main") {
-                #[cfg(debug_assertions)]
-                main_window.open_devtools();
-
                 let has_notes_folder = app
                     .state::<AppState>()
                     .app_config
