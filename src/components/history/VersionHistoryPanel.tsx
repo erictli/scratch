@@ -34,34 +34,29 @@ function computeDiffStats(oldText: string, newText: string): DiffStats {
   const oldLines = normalizeMarkdown(oldText).split("\n");
   const newLines = normalizeMarkdown(newText).split("\n");
 
-  const oldSet = new Map<string, number[]>();
-  oldLines.forEach((line, i) => {
-    const arr = oldSet.get(line) || [];
-    arr.push(i);
-    oldSet.set(line, arr);
-  });
+  // Compute LCS length using O(n*m) DP to detect positional changes
+  const n = oldLines.length;
+  const m = newLines.length;
 
-  const newSet = new Map<string, number[]>();
-  newLines.forEach((line, i) => {
-    const arr = newSet.get(line) || [];
-    arr.push(i);
-    newSet.set(line, arr);
-  });
+  // Use two rows instead of full matrix to save memory
+  let prev = new Uint32Array(m + 1);
+  let curr = new Uint32Array(m + 1);
 
-  let matchedOld = 0;
-  let matchedNew = 0;
-
-  for (const [line, oldPositions] of oldSet) {
-    const newPositions = newSet.get(line);
-    if (newPositions) {
-      const matched = Math.min(oldPositions.length, newPositions.length);
-      matchedOld += matched;
-      matchedNew += matched;
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        curr[j] = prev[j - 1] + 1;
+      } else {
+        curr[j] = Math.max(prev[j], curr[j - 1]);
+      }
     }
+    [prev, curr] = [curr, prev];
+    curr.fill(0);
   }
 
-  const removed = oldLines.length - matchedOld;
-  const added = newLines.length - matchedNew;
+  const lcsLength = prev[m];
+  const removed = n - lcsLength;
+  const added = m - lcsLength;
   const changed = Math.min(removed, added);
 
   return {

@@ -556,7 +556,8 @@ fn git_log_follow(path: &Path, file_relative_path: &str) -> Result<Vec<FileVersi
             "-c", "core.quotepath=false",
             "log",
             "-50",
-            "--pretty=format:COMMIT:%H|%an|%at|%s",
+            "-z",
+            "--pretty=tformat:COMMIT%x00%H%x00%an%x00%at%x00%s%x00",
             "--follow",
             "--name-only",
             "--",
@@ -570,59 +571,65 @@ fn git_log_follow(path: &Path, file_relative_path: &str) -> Result<Vec<FileVersi
         return Ok(vec![]);
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_git_log_follow_output(&output.stdout, file_relative_path))
+}
+
+fn parse_git_log_follow_output(stdout: &[u8], fallback_path: &str) -> Vec<FileVersion> {
+    let stdout = String::from_utf8_lossy(stdout);
     let mut versions = Vec::new();
-    let mut current_version: Option<(String, String, i64, String)> = None;
+    let tokens: Vec<&str> = stdout.split('\0').collect();
+    let mut i = 0;
 
-    for line in stdout.lines() {
-        if let Some(commit_line) = line.strip_prefix("COMMIT:") {
-            if let Some((commit, author, date, message)) = current_version.take() {
-                versions.push(FileVersion {
-                    commit,
-                    author,
-                    date,
-                    message,
-                    file_path: file_relative_path.to_string(),
-                });
-            }
-            let parts: Vec<&str> = commit_line.splitn(4, '|').collect();
-            if parts.len() == 4 {
-                current_version = Some((
-                    parts[0].to_string(),
-                    parts[1].to_string(),
-                    parts[2].parse().unwrap_or(0),
-                    parts[3].to_string(),
-                ));
-            }
-        } else if !line.is_empty() {
-            if let Some((commit, author, date, message)) = current_version.take() {
-                versions.push(FileVersion {
-                    commit,
-                    author,
-                    date,
-                    message,
-                    file_path: line.to_string(),
-                });
-            }
+    while i < tokens.len() {
+        let token = tokens[i].trim_start_matches('\n');
+        if token.is_empty() {
+            i += 1;
+            continue;
         }
-    }
+        if token != "COMMIT" {
+            i += 1;
+            continue;
+        }
+        if i + 4 >= tokens.len() {
+            break;
+        }
 
-    if let Some((commit, author, date, message)) = current_version.take() {
+        let commit = tokens[i + 1].to_string();
+        let author = tokens[i + 2].to_string();
+        let date = tokens[i + 3].parse().unwrap_or(0);
+        let message = tokens[i + 4].to_string();
+        i += 5;
+
+        let mut file_path = fallback_path.to_string();
+        while i < tokens.len() {
+            let token = tokens[i].trim_start_matches('\n');
+            if token.is_empty() {
+                i += 1;
+                continue;
+            }
+            if token == "COMMIT" {
+                break;
+            }
+            file_path = token.to_string();
+            i += 1;
+            break;
+        }
+
         versions.push(FileVersion {
             commit,
             author,
             date,
             message,
-            file_path: file_relative_path.to_string(),
+            file_path,
         });
     }
 
-    Ok(versions)
+    versions
 }
 
 /// Detect if a file on disk is a rename of a tracked file.
-/// Temporarily stages the new file and all deletions from HEAD so git can
-/// perform rename detection via `git diff --cached -M`.
+/// Uses a temporary index (via GIT_INDEX_FILE) so the user's real staging area
+/// is never modified.
 fn detect_original_path(path: &Path, file_relative_path: &str) -> Option<String> {
     // Find files tracked in HEAD that are missing on disk (potential rename sources)
     let ls_output = git_cmd()
@@ -641,59 +648,100 @@ fn detect_original_path(path: &Path, file_relative_path: &str) -> Option<String>
         return None;
     }
 
-    // Stage the new file
-    let add_ok = git_cmd()
-        .args(["add", file_relative_path])
+    // Resolve the actual git dir (supports linked worktrees where .git is a file)
+    let git_dir_output = git_cmd()
+        .args(["rev-parse", "--git-dir"])
+        .current_dir(path)
+        .output()
+        .ok()?;
+    if !git_dir_output.status.success() {
+        return None;
+    }
+    let git_dir = Path::new(
+        String::from_utf8_lossy(&git_dir_output.stdout).trim(),
+    ).to_path_buf();
+    // Resolve relative paths (git rev-parse may return relative like ".git")
+    let git_dir = if git_dir.is_relative() { path.join(&git_dir) } else { git_dir };
+
+    // Create a temporary index seeded from HEAD so we never touch the real index.
+    // Use a unique name to avoid corruption from concurrent calls.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let tmp_index = git_dir.join(format!("index.detect_rename.{nonce}.tmp"));
+    let seed_ok = git_cmd()
+        .args(["read-tree", "HEAD"])
+        .env("GIT_INDEX_FILE", &tmp_index)
         .current_dir(path)
         .output()
         .ok()
         .map(|o| o.status.success())
         .unwrap_or(false);
 
-    if !add_ok {
+    if !seed_ok {
+        let _ = std::fs::remove_file(&tmp_index);
         return None;
     }
 
-    // Stage deletions of missing tracked files so git sees them as paired with the add
-    for deleted in &deleted_paths {
-        let _ = git_cmd()
-            .args(["rm", "--cached", "--quiet", deleted])
+    // Helper closure: all remaining git commands use the temp index
+    let result = (|| -> Option<String> {
+        // Stage the new file in the temp index
+        let add_ok = git_cmd()
+            .args(["add", file_relative_path])
+            .env("GIT_INDEX_FILE", &tmp_index)
             .current_dir(path)
-            .output();
-    }
+            .output()
+            .ok()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
 
-    // Run rename detection
-    let diff_output = git_cmd()
-        .args([
-            "-c", "core.quotepath=false",
-            "diff", "--cached", "--name-status", "-M", "HEAD",
-        ])
-        .current_dir(path)
-        .output()
-        .ok()?;
+        if !add_ok {
+            return None;
+        }
 
-    // Reset the index back to HEAD (undo all staging)
-    let _ = git_cmd()
-        .args(["reset", "HEAD", "--quiet"])
-        .current_dir(path)
-        .output();
+        // Stage deletions of missing tracked files so git sees them as paired with the add
+        for deleted in &deleted_paths {
+            let _ = git_cmd()
+                .args(["rm", "--cached", "--quiet", deleted])
+                .env("GIT_INDEX_FILE", &tmp_index)
+                .current_dir(path)
+                .output();
+        }
 
-    if !diff_output.status.success() {
-        return None;
-    }
+        // Run rename detection against HEAD using the temp index
+        let diff_output = git_cmd()
+            .args([
+                "-c", "core.quotepath=false",
+                "diff", "--cached", "--name-status", "-M", "HEAD",
+            ])
+            .env("GIT_INDEX_FILE", &tmp_index)
+            .current_dir(path)
+            .output()
+            .ok()?;
 
-    let stdout = String::from_utf8_lossy(&diff_output.stdout);
-    for line in stdout.lines() {
-        // Format: R<score>\t<old_path>\t<new_path>
-        if line.starts_with('R') {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() == 3 && parts[2] == file_relative_path {
-                return Some(parts[1].to_string());
+        if !diff_output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&diff_output.stdout);
+        for line in stdout.lines() {
+            // Format: R<score>\t<old_path>\t<new_path>
+            if line.starts_with('R') {
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() == 3 && parts[2] == file_relative_path {
+                    return Some(parts[1].to_string());
+                }
             }
         }
-    }
 
-    None
+        None
+    })();
+
+    // Always clean up the temp index
+    let _ = std::fs::remove_file(&tmp_index);
+
+    result
 }
 
 /// Get the content of a file at a specific commit
@@ -761,5 +809,59 @@ fn parse_push_error(stderr: &str) -> String {
         "Remote repository not found. Check the URL.".to_string()
     } else {
         stderr.trim().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_git_log_follow_output;
+
+    #[test]
+    fn parse_git_log_follow_output_handles_pipes_and_rename_paths() {
+        let output = concat!(
+            "COMMIT\0",
+            "newcommit\0",
+            "A|B\0",
+            "123\0",
+            "rename | commit\0",
+            "\0\nnew name.md\0",
+            "COMMIT\0",
+            "oldcommit\0",
+            "A|B\0",
+            "122\0",
+            "initial | commit\0",
+            "\0\nold name.md\0",
+        );
+
+        let versions = parse_git_log_follow_output(output.as_bytes(), "new name.md");
+
+        assert_eq!(versions.len(), 2);
+        assert_eq!(versions[0].author, "A|B");
+        assert_eq!(versions[0].message, "rename | commit");
+        assert_eq!(versions[0].file_path, "new name.md");
+        assert_eq!(versions[1].file_path, "old name.md");
+    }
+
+    #[test]
+    fn parse_git_log_follow_output_falls_back_without_losing_sync() {
+        let output = concat!(
+            "COMMIT\0",
+            "commit1\0",
+            "tester\0",
+            "123\0",
+            "no path emitted\0",
+            "COMMIT\0",
+            "commit2\0",
+            "tester\0",
+            "124\0",
+            "with path\0",
+            "\0\nold name.md\0",
+        );
+
+        let versions = parse_git_log_follow_output(output.as_bytes(), "current.md");
+
+        assert_eq!(versions.len(), 2);
+        assert_eq!(versions[0].file_path, "current.md");
+        assert_eq!(versions[1].file_path, "old name.md");
     }
 }

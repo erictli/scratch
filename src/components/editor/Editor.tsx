@@ -1204,6 +1204,7 @@ export function Editor({
       const afterJSON = editor.getJSON();
 
       // Step 3: Compute diff using prosemirror-changeset
+      clearDiffDecorations(editor);
       try {
         const beforeDoc = parseSnapshot(editor.schema, beforeJSON);
         const afterDoc = parseSnapshot(editor.schema, afterJSON);
@@ -1390,6 +1391,13 @@ export function Editor({
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
         sourceTimeoutRef.current = null;
+      }
+      // Exit history compare mode if active — prevents stale diff & read-only state
+      if (historyPreviewRef.current != null) {
+        historyPreviewRef.current = null;
+        setHistoryOpen(false);
+        clearDiffDecorations(editor);
+        editor.setEditable(true);
       }
     }
     // Check if this is a manual reload (user clicked Refresh button or pressed Cmd+R)
@@ -1777,7 +1785,7 @@ export function Editor({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [historyOpen, editor]);
+  }, [historyOpen, editor, handleHistoryClose]);
 
   // Clear search on note switch
   useEffect(() => {
