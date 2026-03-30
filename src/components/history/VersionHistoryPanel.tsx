@@ -13,6 +13,7 @@ interface VersionHistoryPanelProps {
   noteId: string;
   currentContent: string;
   refreshKey?: number;
+  getDiffStats?: (oldText: string, newText: string) => DiffStats;
   onCompare: (oldContent: string) => void;
   onRestore: (content: string) => void;
   onClose: () => void;
@@ -30,9 +31,14 @@ function normalizeMarkdown(text: string): string {
   return text.replace(/[ \t]+$/gm, "").replace(/\n+$/, "");
 }
 
+function splitLines(text: string): string[] {
+  const normalized = normalizeMarkdown(text);
+  return normalized === "" ? [] : normalized.split("\n");
+}
+
 function computeDiffStats(oldText: string, newText: string): DiffStats {
-  const oldLines = normalizeMarkdown(oldText).split("\n");
-  const newLines = normalizeMarkdown(newText).split("\n");
+  const oldLines = splitLines(oldText);
+  const newLines = splitLines(newText);
 
   // Compute LCS length using O(n*m) DP to detect positional changes
   const n = oldLines.length;
@@ -130,6 +136,7 @@ export function VersionHistoryPanel({
   noteId,
   currentContent,
   refreshKey,
+  getDiffStats,
   onCompare,
   onRestore,
   onClose,
@@ -181,19 +188,19 @@ export function VersionHistoryPanel({
     };
   }, [noteId, refreshKey]);
 
-  // Compare each past version against the actual current file content (not the latest commit)
+  // Compare each committed version against the actual current file content.
+  // When provided, use the editor's ProseMirror-based diff stats so the panel
+  // matches the preview decorations exactly.
   const diffStats = useMemo(() => {
     const stats = new Map<string, DiffStats>();
-    if (versions.length < 2) return stats;
-
-    for (let i = 1; i < versions.length; i++) {
-      const version = versions[i];
+    const computeStats = getDiffStats ?? computeDiffStats;
+    for (const version of versions) {
       const content = versionContents.get(version.commit);
       if (content == null) continue;
-      stats.set(version.commit, computeDiffStats(content, currentContent));
+      stats.set(version.commit, computeStats(content, currentContent));
     }
     return stats;
-  }, [versions, versionContents, currentContent]);
+  }, [versions, versionContents, currentContent, getDiffStats]);
 
   const handleSelectVersion = useCallback(
     async (index: number) => {
@@ -246,7 +253,7 @@ export function VersionHistoryPanel({
           History
           {!loading && (
             <span className="text-text-muted font-normal ml-1">
-              ({Math.max(0, versions.length - 1)})
+              ({versions.length})
             </span>
           )}
         </span>
@@ -264,7 +271,7 @@ export function VersionHistoryPanel({
           <div className="flex items-center justify-center py-8">
             <SpinnerIcon className="w-5 h-5 text-text-muted animate-spin" />
           </div>
-        ) : versions.length <= 1 ? (
+        ) : versions.length === 0 ? (
           <div className="py-2 flex flex-col items-center text-center text-sm text-text-muted">
             <img
               src={noHistoryCat}
@@ -275,8 +282,7 @@ export function VersionHistoryPanel({
           </div>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {versions.slice(1).map((version, sliceIndex) => {
-              const index = sliceIndex + 1;
+            {versions.map((version, index) => {
               const stats = diffStats.get(version.commit);
               return (
                 <button
@@ -284,7 +290,7 @@ export function VersionHistoryPanel({
                   onClick={() => handleSelectVersion(index)}
                   className={cn(
                     "w-full text-left px-4 py-2.5 transition-colors rounded-md",
-                    "hover:bg-bg-muted",
+                    "hover:bg-bg-muted cursor-pointer",
                     selectedIndex === index
                       ? "bg-bg-muted ring-accent/50"
                       : "bg-transparent",

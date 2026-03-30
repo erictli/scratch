@@ -102,7 +102,12 @@ import {
   applyVersionDiffDecorations,
   clearDiffDecorations,
 } from "./DiffHighlight";
-import { computeVersionDiff, parseSnapshot } from "../../lib/diff";
+import {
+  computeVersionDiff,
+  computeVersionDiffStats,
+  parseSnapshot,
+  type VersionDiffStats,
+} from "../../lib/diff";
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -494,6 +499,7 @@ export function Editor({
   const [settings, setSettings] = useState<Settings | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyPreviewRef = useRef<string | null>(null);
+  const historyLiveContentRef = useRef<string | null>(null);
   const gitCtx = useOptionalGit();
   // Delay transition classes until after initial mount to avoid format bar height animation on note load
   const [hasTransitioned, setHasTransitioned] = useState(false);
@@ -1168,6 +1174,74 @@ export function Editor({
   const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
   // Track reloadVersion to detect manual refreshes
   const lastReloadVersionRef = useRef(0);
+  const diffSnapshotCacheRef = useRef<Map<string, Record<string, unknown>>>(
+    new Map(),
+  );
+  const diffStatsCacheRef = useRef<Map<string, VersionDiffStats>>(new Map());
+
+  useEffect(() => {
+    diffSnapshotCacheRef.current.clear();
+    diffStatsCacheRef.current.clear();
+  }, [editor, currentNote?.id]);
+
+  const getDiffSnapshot = useCallback(
+    (markdown: string): Record<string, unknown> | null => {
+      const cached = diffSnapshotCacheRef.current.get(markdown);
+      if (cached) return cached;
+      if (!editor) return null;
+
+      const manager = editor.storage.markdown?.manager;
+      if (!manager) return null;
+
+      try {
+        const parsed = manager.parse(markdown);
+        const json =
+          typeof parsed?.toJSON === "function" ? parsed.toJSON() : parsed;
+        if (!json || typeof json !== "object") {
+          return null;
+        }
+        const snapshot = json as Record<string, unknown>;
+        diffSnapshotCacheRef.current.set(markdown, snapshot);
+        return snapshot;
+      } catch {
+        return null;
+      }
+    },
+    [editor],
+  );
+
+  const getDiffStatsForContent = useCallback(
+    (oldMarkdown: string, newMarkdown: string): VersionDiffStats => {
+      const cacheKey = `${oldMarkdown}\u0000${newMarkdown}`;
+      const cached = diffStatsCacheRef.current.get(cacheKey);
+      if (cached) return cached;
+
+      if (!editor) {
+        return { added: 0, removed: 0, changed: 0 };
+      }
+
+      const beforeJSON = getDiffSnapshot(oldMarkdown);
+      const afterJSON = getDiffSnapshot(newMarkdown);
+      if (!beforeJSON || !afterJSON) {
+        return { added: 0, removed: 0, changed: 0 };
+      }
+
+      try {
+        const beforeDoc = parseSnapshot(editor.schema, beforeJSON);
+        const afterDoc = parseSnapshot(editor.schema, afterJSON);
+        const stats = computeVersionDiffStats(beforeDoc, afterDoc) ?? {
+          added: 0,
+          removed: 0,
+          changed: 0,
+        };
+        diffStatsCacheRef.current.set(cacheKey, stats);
+        return stats;
+      } catch {
+        return { added: 0, removed: 0, changed: 0 };
+      }
+    },
+    [editor, getDiffSnapshot],
+  );
 
   // Notify parent component when editor is ready
   useEffect(() => {
@@ -1180,35 +1254,34 @@ export function Editor({
     (oldContent: string) => {
       if (!editor || !currentNote) return;
 
-      // Flush unsaved edits before entering compare mode
-      flushPendingSave();
-
-      const manager = editor.storage.markdown?.manager;
-      if (!manager) return;
+      // Capture live editor content before overwriting (may differ from currentNote.content
+      // if the user typed within the auto-save debounce window)
+      const liveMarkdown = getMarkdown(editor);
+      // Synchronously flush: cancel pending timer, mark as not needing save
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      if (needsSaveRef.current && loadedNoteIdRef.current) {
+        needsSaveRef.current = false;
+        saveImmediately(loadedNoteIdRef.current, liveMarkdown);
+      }
 
       historyPreviewRef.current = oldContent;
+      historyLiveContentRef.current = liveMarkdown;
       isLoadingRef.current = true;
       editor.setEditable(false);
 
-      // Step 1: Load old content to capture its JSON snapshot
-      try {
-        editor.commands.setContent(manager.parse(oldContent));
-      } catch {
-        editor.commands.setContent(oldContent);
-      }
-      const beforeJSON = editor.getJSON();
+      const beforeJSON = getDiffSnapshot(oldContent);
+      const afterJSON = getDiffSnapshot(liveMarkdown);
 
-      // Step 2: Load current content (this is what the user sees)
-      try {
-        editor.commands.setContent(manager.parse(currentNote.content));
-      } catch {
-        editor.commands.setContent(currentNote.content);
+      if (afterJSON) {
+        editor.commands.setContent(afterJSON);
       }
-      const afterJSON = editor.getJSON();
 
-      // Step 3: Compute diff using prosemirror-changeset
+      // Compute diff using the same cached snapshots as the panel stats.
       clearDiffDecorations(editor);
-      try {
+      if (beforeJSON && afterJSON) {
         const beforeDoc = parseSnapshot(editor.schema, beforeJSON);
         const afterDoc = parseSnapshot(editor.schema, afterJSON);
         const result = computeVersionDiff(beforeDoc, afterDoc);
@@ -1216,18 +1289,18 @@ export function Editor({
         if (result && result.changes.length > 0) {
           applyVersionDiffDecorations(result.changes, editor);
         }
-      } catch (err) {
-        console.error("Failed to compute version diff:", err);
       }
 
       isLoadingRef.current = false;
     },
-    [editor, currentNote],
+    [editor, currentNote, getMarkdown, getDiffSnapshot, saveImmediately],
   );
 
   // Restore editor to normal state when exiting history
   const handleHistoryClose = useCallback(() => {
+    const restoreContent = historyLiveContentRef.current ?? currentNote?.content;
     historyPreviewRef.current = null;
+    historyLiveContentRef.current = null;
     setHistoryOpen(false);
 
     if (!editor) return;
@@ -1235,16 +1308,16 @@ export function Editor({
     isLoadingRef.current = true;
     editor.setEditable(true);
 
-    if (currentNote) {
+    if (restoreContent != null) {
       const manager = editor.storage.markdown?.manager;
       if (manager) {
         try {
-          editor.commands.setContent(manager.parse(currentNote.content));
+          editor.commands.setContent(manager.parse(restoreContent));
         } catch {
-          editor.commands.setContent(currentNote.content);
+          editor.commands.setContent(restoreContent);
         }
       } else {
-        editor.commands.setContent(currentNote.content);
+        editor.commands.setContent(restoreContent);
       }
     }
     isLoadingRef.current = false;
@@ -1395,10 +1468,12 @@ export function Editor({
         clearTimeout(sourceTimeoutRef.current);
         sourceTimeoutRef.current = null;
       }
-      // Exit history compare mode if active — prevents stale diff & read-only state
+      // Close history panel on note switch
+      setHistoryOpen(false);
+      // Clean up compare mode if it was active
       if (historyPreviewRef.current != null) {
         historyPreviewRef.current = null;
-        setHistoryOpen(false);
+        historyLiveContentRef.current = null;
         clearDiffDecorations(editor);
         editor.setEditable(true);
       }
@@ -2116,7 +2191,7 @@ export function Editor({
               </IconButton>
             </Tooltip>
           )}
-          {currentNote && gitCtx?.gitEnabled && !previewMode && (
+          {currentNote && gitCtx?.gitEnabled && !previewMode && !sourceMode && (
             <Tooltip content="Version history">
               <IconButton
                 onClick={() => setHistoryOpen((v) => !v)}
@@ -2468,9 +2543,11 @@ export function Editor({
         noteId={currentNote.id}
         currentContent={currentNote.content}
         refreshKey={gitCtx?.status?.changedCount}
+        getDiffStats={getDiffStatsForContent}
         onCompare={handleCompare}
         onRestore={async (content) => {
           historyPreviewRef.current = null;
+          historyLiveContentRef.current = null;
           if (editor) clearDiffDecorations(editor);
           editor?.setEditable(true);
           await saveNote(content, currentNote.id);

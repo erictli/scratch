@@ -14,6 +14,41 @@ export interface VersionDiffResult {
   changes: VersionDiffChange[];
 }
 
+export interface VersionDiffStats {
+  added: number;
+  removed: number;
+  changed: number;
+}
+
+function splitVisibleLines(text: string): string[] {
+  const normalized = text.replace(/[ \t]+$/gm, "").replace(/\n+$/, "");
+  return normalized === "" ? [] : normalized.split("\n");
+}
+
+function extractVisibleText(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+): string {
+  if (to <= from) return "";
+
+  const text = doc.textBetween(from, to, "\n", "\n");
+  if (text.trim().length > 0) {
+    return text;
+  }
+
+  const labels: string[] = [];
+  doc.nodesBetween(from, to, (node) => {
+    if (node.isBlock && !node.isTextblock && node.type.name !== "doc") {
+      labels.push(
+        node.type.name === "horizontalRule" ? "───" : `[${node.type.name}]`,
+      );
+    }
+    return true;
+  });
+  return labels.join(" ");
+}
+
 /**
  * Compute changes between two ProseMirror documents using prosemirror-changeset.
  * Returns change ranges in both old (A) and new (B) document coordinate spaces.
@@ -78,6 +113,32 @@ export function computeVersionDiff(
     console.error("computeVersionDiff failed:", err);
     return null;
   }
+}
+
+export function computeVersionDiffStats(
+  beforeDoc: ProseMirrorNode,
+  afterDoc: ProseMirrorNode,
+): VersionDiffStats | null {
+  const result = computeVersionDiff(beforeDoc, afterDoc);
+  if (!result) return null;
+
+  let added = 0;
+  let removed = 0;
+  let changed = 0;
+
+  for (const change of result.changes) {
+    const deletedLines = splitVisibleLines(change.deletedText);
+    const insertedLines = splitVisibleLines(
+      extractVisibleText(afterDoc, change.fromB, change.toB),
+    );
+
+    const changedLines = Math.min(deletedLines.length, insertedLines.length);
+    changed += changedLines;
+    removed += deletedLines.length - changedLines;
+    added += insertedLines.length - changedLines;
+  }
+
+  return { added, removed, changed };
 }
 
 /**
