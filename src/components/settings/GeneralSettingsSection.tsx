@@ -693,9 +693,10 @@ function IgnoredFoldersEditor() {
   const [defaults, setDefaults] = useState<string[]>([]);
   const [newPattern, setNewPattern] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const { refreshNotes } = useNotes();
+  const { notesFolder, refreshNotes } = useNotes();
 
   useEffect(() => {
+    setPatterns(null);
     Promise.all([
       invoke<Settings>("get_settings"),
       invoke<string[]>("get_default_ignored_patterns"),
@@ -708,7 +709,7 @@ function IgnoredFoldersEditor() {
         console.error("Failed to load ignored patterns:", error);
         setPatterns([]);
       });
-  }, []);
+  }, [notesFolder]);
 
   const save = async (updated: string[] | null) => {
     setIsSaving(true);
@@ -725,7 +726,7 @@ function IgnoredFoldersEditor() {
       try {
         await invoke("rebuild_search_index");
       } catch {
-        console.error("Failed to rebuild search index");
+        toast.error("Search index rebuild failed — search results may be stale");
       }
     } catch {
       toast.error("Failed to save ignored folders");
@@ -778,6 +779,7 @@ function IgnoredFoldersEditor() {
             {pattern}
             <button
               type="button"
+              aria-label={`Remove ${pattern}`}
               onClick={() => handleRemove(pattern)}
               disabled={isSaving}
               className="p-0.5 rounded hover:bg-bg-hover text-text-muted hover:text-text cursor-pointer"
