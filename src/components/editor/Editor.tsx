@@ -449,7 +449,8 @@ interface EditorProps {
 
 /**
  * Get character offsets where each top-level block starts in markdown.
- * Blocks are separated by blank lines, ignoring blank lines inside code fences.
+ * Blocks are separated by blank lines, with awareness of code fences
+ * and ATX headings.
  */
 function getMarkdownBlockOffsets(md: string): number[] {
   const offsets: number[] = [];
@@ -459,13 +460,22 @@ function getMarkdownBlockOffsets(md: string): number[] {
   let inCodeFence = false;
 
   for (const line of lines) {
-    if (line.trimStart().startsWith("```")) {
-      inCodeFence = !inCodeFence;
-    }
+    const trimmed = line.trimStart();
 
-    if (!inCodeFence) {
-      const isBlank = line.trim() === "";
-      if (!isBlank && prevBlank) {
+    if (inCodeFence) {
+      // Only look for closing fence; don't start new blocks inside code
+      if (trimmed.startsWith("```")) {
+        inCodeFence = false;
+      }
+    } else if (trimmed.startsWith("```")) {
+      // Opening fence is always a block start
+      offsets.push(pos);
+      inCodeFence = true;
+      prevBlank = false;
+    } else {
+      const isBlank = trimmed === "";
+      // Start a new block after a blank line, or for ATX headings
+      if (!isBlank && (prevBlank || trimmed.startsWith("#"))) {
         offsets.push(pos);
       }
       prevBlank = isBlank;
@@ -475,6 +485,19 @@ function getMarkdownBlockOffsets(md: string): number[] {
   }
 
   return offsets;
+}
+
+/** ProseMirror position at the start of the Nth top-level block. */
+function blockIndexToPos(
+  doc: { childCount: number; child: (i: number) => { nodeSize: number } },
+  blockIndex: number,
+): number {
+  const idx = Math.min(blockIndex, doc.childCount - 1);
+  let pos = 1; // 1 for doc opening token
+  for (let i = 0; i < idx; i++) {
+    pos += doc.child(i).nodeSize;
+  }
+  return pos;
 }
 
 export function Editor({
@@ -1900,9 +1923,11 @@ export function Editor({
         "textarea",
       ) as HTMLTextAreaElement | null;
 
-      // Find which block is at the top of the textarea
+      // Find which block is at the top of the textarea and which has the cursor
       let topBlockIndex = 0;
+      let cursorBlockIndex = 0;
       if (textarea) {
+        const blockOffsets = getMarkdownBlockOffsets(sourceContent);
         const lineHeight =
           parseFloat(getComputedStyle(textarea).lineHeight) || 20;
         const topLine = Math.floor(textarea.scrollTop / lineHeight);
@@ -1911,20 +1936,9 @@ export function Editor({
         for (let i = 0; i < Math.min(topLine, lines.length); i++) {
           charOffset += lines[i].length + 1;
         }
-        const blockOffsets = getMarkdownBlockOffsets(sourceContent);
         for (let i = 0; i < blockOffsets.length; i++) {
           if (blockOffsets[i] <= charOffset) topBlockIndex = i;
-          else break;
-        }
-      }
-
-      // Find which markdown block the cursor is in
-      let cursorBlockIndex = 0;
-      if (textarea) {
-        const blockOffsets = getMarkdownBlockOffsets(sourceContent);
-        for (let i = 0; i < blockOffsets.length; i++) {
           if (blockOffsets[i] <= textarea.selectionStart) cursorBlockIndex = i;
-          else break;
         }
       }
 
@@ -1986,33 +2000,18 @@ export function Editor({
       // Use rAF because EditorContent reattaches the ProseMirror view in
       // its own useEffect, which hasn't run yet during useLayoutEffect.
       requestAnimationFrame(() => {
-        // Place cursor at the start of the same block in TipTap
         const doc = editor.state.doc;
-        const cursorBlockIdx = Math.min(
-          transition.cursorBlockIndex,
-          doc.childCount - 1,
+        editor.commands.focus(
+          blockIndexToPos(doc, transition.cursorBlockIndex),
         );
-        let cursorPos = 1; // 1 for doc opening token
-        for (let i = 0; i < cursorBlockIdx; i++) {
-          cursorPos += doc.child(i).nodeSize;
-        }
-        editor.commands.focus(cursorPos);
 
         // Scroll to anchor block
         if (container) {
-          const doc = editor.state.doc;
-          const blockIdx = Math.min(
-            transition.topBlockIndex,
-            doc.childCount - 1,
-          );
-          let nodePos = 1; // 1 for doc opening token
-          for (let i = 0; i < blockIdx; i++) {
-            nodePos += doc.child(i).nodeSize;
-          }
           try {
-            // Reset scroll so coordsAtPos returns absolute content offsets
             container.scrollTop = 0;
-            const coords = editor.view.coordsAtPos(nodePos);
+            const coords = editor.view.coordsAtPos(
+              blockIndexToPos(doc, transition.topBlockIndex),
+            );
             const containerRect = container.getBoundingClientRect();
             container.scrollTop = coords.top - containerRect.top;
           } catch {
@@ -2355,6 +2354,7 @@ export function Editor({
               <textarea
                 value={sourceContent}
                 onChange={(e) => handleSourceChange(e.target.value)}
+                wrap="off"
                 dir={textDirection}
                 className="w-full h-full bg-transparent text-text focus:outline-none resize-none px-6 pt-8 pb-24 mx-auto block"
                 style={{
