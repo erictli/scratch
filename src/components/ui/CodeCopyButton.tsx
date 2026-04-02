@@ -21,6 +21,8 @@ export function CodeCopyButton({
   const [copied, setCopied] = useState(false);
   const copyResetTimerRef = useRef<number | null>(null);
   const isDisabled = !text.trim();
+  const copyA11yLabel = copyLabel.trim() || "Copy code";
+  const copiedA11yLabel = copiedLabel.trim() || "Copied";
 
   useEffect(() => {
     return () => {
@@ -57,8 +59,8 @@ export function CodeCopyButton({
         className,
       )}
       type="button"
-      title={copied ? copiedLabel : copyLabel}
-      aria-label={copied ? copiedLabel : copyLabel}
+      title={copied ? copiedA11yLabel : copyA11yLabel}
+      aria-label={copied ? copiedA11yLabel : copyA11yLabel}
       disabled={isDisabled}
     >
       {copied ? (
