@@ -1012,14 +1012,17 @@ export function Editor({
           return [
             new InputRule({
               find: /\[([^\]]+)\]\(([^)]+)\)$/,
-              handler: ({ state, range, match }) => {
+              handler: ({ state, range, match, commands }) => {
                 const [, text, rawUrl] = match;
                 const url = normalizeUrl(rawUrl);
-                const linkMark = state.schema.marks.link.create({
-                  href: url,
+                commands.command(({ tr }) => {
+                  const linkMark = state.schema.marks.link.create({
+                    href: url,
+                  });
+                  const textNode = state.schema.text(text, [linkMark]);
+                  tr.replaceWith(range.from, range.to, textNode);
+                  return true;
                 });
-                const textNode = state.schema.text(text, [linkMark]);
-                state.tr.replaceWith(range.from, range.to, textNode);
               },
             }),
           ];
@@ -1287,7 +1290,7 @@ export function Editor({
         e.preventDefault();
         if ((e.metaKey || e.ctrlKey) && link.href) {
           // Use raw href attribute and normalize to handle protocol-less URLs
-          const rawHref = link.getAttribute("href") || link.href;
+          const rawHref = link.getAttribute("href") ?? "";
           const normalizedHref = normalizeUrl(rawHref);
           if (isAllowedUrlScheme(normalizedHref)) {
             openUrl(normalizedHref).catch((error) =>
