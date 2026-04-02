@@ -1964,8 +1964,11 @@ export function Editor({
   // useLayoutEffect runs synchronously after React commits DOM changes,
   // guaranteeing the new textarea / EditorContent is mounted.
   useLayoutEffect(() => {
+    let rafId: number | undefined;
     const transition = sourceModeTransitionRef.current;
-    if (!transition) return;
+    if (!transition) {
+      return () => {};
+    }
     sourceModeTransitionRef.current = null;
 
     const container = scrollContainerRef.current;
@@ -1999,27 +2002,33 @@ export function Editor({
       // Just exited source mode — focus editor and scroll to anchor block.
       // Use rAF because EditorContent reattaches the ProseMirror view in
       // its own useEffect, which hasn't run yet during useLayoutEffect.
-      requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        if (!editor.view?.dom?.isConnected) return;
         const doc = editor.state.doc;
         editor.commands.focus(
           blockIndexToPos(doc, transition.cursorBlockIndex),
         );
 
         // Scroll to anchor block
-        if (container) {
+        const el = scrollContainerRef.current;
+        if (el) {
           try {
-            container.scrollTop = 0;
+            el.scrollTop = 0;
             const coords = editor.view.coordsAtPos(
               blockIndexToPos(doc, transition.topBlockIndex),
             );
-            const containerRect = container.getBoundingClientRect();
-            container.scrollTop = coords.top - containerRect.top;
+            const containerRect = el.getBoundingClientRect();
+            el.scrollTop = coords.top - containerRect.top;
           } catch {
             // coordsAtPos can fail if view isn't fully rendered
           }
         }
       });
     }
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [sourceMode, editor]);
 
   // Listen for toggle-source-mode custom event (from App.tsx shortcut / command palette)
