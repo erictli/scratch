@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -55,6 +55,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const [lastClickedNoteId, setLastClickedNoteId] = useState<string | null>(null);
   const debounceRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const multiSelectedRef = useRef(multiSelectedNoteIds) as RefObject<Set<string>>;
+  multiSelectedRef.current = multiSelectedNoteIds;
 
   // dnd-kit
   const sensors = useSensors(
@@ -71,8 +73,9 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       setDragLabel(leaf);
 
       // Multi-select: if dragged note is in selection, drag all; otherwise reset
-      if (multiSelectedNoteIds.has(noteId) && multiSelectedNoteIds.size > 1) {
-        setDragCount(multiSelectedNoteIds.size);
+      const selected = multiSelectedRef.current!;
+      if (selected.has(noteId) && selected.size > 1) {
+        setDragCount(selected.size);
       } else {
         setMultiSelectedNoteIds(new Set([noteId]));
         setDragCount(1);
@@ -85,7 +88,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       setDragLabel(name);
       setDragCount(1);
     }
-  }, [multiSelectedNoteIds]);
+  }, []);
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
@@ -103,22 +106,27 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       try {
         if (activeData.type === "note") {
           const noteId = activeData.id as string;
+          const selected = multiSelectedRef.current!;
 
           // Batch move if multi-selected
-          if (multiSelectedNoteIds.has(noteId) && multiSelectedNoteIds.size > 1) {
-            const noteIds = Array.from(multiSelectedNoteIds).filter((id) => {
+          if (selected.has(noteId) && selected.size > 1) {
+            const noteIds = Array.from(selected).filter((id) => {
               const parent = id.includes("/")
                 ? id.substring(0, id.lastIndexOf("/"))
                 : "";
               return parent !== targetFolder;
             });
             if (noteIds.length === 0) return;
-            const results = await Promise.allSettled(
-              noteIds.map((id) => moveNote(id, targetFolder)),
-            );
-            const failures = results.filter((r) => r.status === "rejected");
-            if (failures.length > 0) {
-              toast.error(`Failed to move ${failures.length} note(s)`);
+            let failures = 0;
+            for (const id of noteIds) {
+              try {
+                await moveNote(id, targetFolder);
+              } catch {
+                failures++;
+              }
+            }
+            if (failures > 0) {
+              toast.error(`Failed to move ${failures} note(s)`);
             }
             setMultiSelectedNoteIds(new Set());
           } else {
@@ -154,7 +162,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         toast.error("Failed to move item");
       }
     },
-    [moveNote, moveFolder, multiSelectedNoteIds],
+    [moveNote, moveFolder],
   );
 
   // Load folders setting
