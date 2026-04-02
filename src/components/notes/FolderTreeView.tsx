@@ -517,6 +517,7 @@ export function FolderTreeView({
   const [subfolderParent, setSubfolderParent] = useState("");
   const [noteDeleteDialogOpen, setNoteDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [knownFolders, setKnownFolders] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -594,7 +595,8 @@ export function FolderTreeView({
   }, []);
 
   const handleDeleteConfirm = useCallback(async () => {
-    if (folderToDelete) {
+    if (folderToDelete && !isDeleting) {
+      setIsDeleting(true);
       try {
         await deleteFolder(folderToDelete);
         setFolderToDelete(null);
@@ -602,9 +604,11 @@ export function FolderTreeView({
       } catch (error) {
         console.error("Failed to delete folder:", error);
         toast.error("Failed to delete folder");
+      } finally {
+        setIsDeleting(false);
       }
     }
-  }, [folderToDelete, deleteFolder]);
+  }, [folderToDelete, deleteFolder, isDeleting]);
 
   const openDeleteNoteDialog = useCallback((noteId: string) => {
     setNoteToDelete(noteId);
@@ -612,7 +616,8 @@ export function FolderTreeView({
   }, []);
 
   const handleNoteDeleteConfirm = useCallback(async () => {
-    if (noteToDelete) {
+    if (noteToDelete && !isDeleting) {
+      setIsDeleting(true);
       try {
         await deleteNote(noteToDelete);
         setNoteToDelete(null);
@@ -620,9 +625,11 @@ export function FolderTreeView({
       } catch (error) {
         console.error("Failed to delete note:", error);
         toast.error("Failed to delete note");
+      } finally {
+        setIsDeleting(false);
       }
     }
-  }, [noteToDelete, deleteNote]);
+  }, [noteToDelete, deleteNote, isDeleting]);
 
   const handleRenameConfirm = useCallback(
     async (newName: string) => {
@@ -756,8 +763,9 @@ export function FolderTreeView({
 
       if (e.key === "Escape") {
         if (multiSelectedNoteIds.size > 1) {
-          // First Escape: clear multi-selection
+          // First Escape: clear multi-selection and reset range anchor
           setMultiSelectedNoteIds(new Set());
+          setLastClickedNoteId(null);
         } else {
           // Second Escape: blur and let App.tsx handle
           containerRef.current?.blur();
@@ -806,6 +814,7 @@ export function FolderTreeView({
       handleToggleCollapse,
       multiSelectedNoteIds,
       setMultiSelectedNoteIds,
+      setLastClickedNoteId,
     ],
   );
 
@@ -923,12 +932,13 @@ export function FolderTreeView({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={isDeleting}
               onClick={(e) => {
                 e.preventDefault();
                 handleDeleteConfirm();
               }}
             >
-              Delete
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -971,12 +981,13 @@ export function FolderTreeView({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={isDeleting}
               onClick={(e) => {
                 e.preventDefault();
                 handleNoteDeleteConfirm();
               }}
             >
-              Delete
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
