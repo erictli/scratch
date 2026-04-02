@@ -41,6 +41,7 @@ export interface Settings {
   defaultNoteName?: string;
   interfaceZoom?: number;
   ollamaModel?: string;
+  ignoredPatterns?: string[];
 }
 
 export interface FolderNode {

@@ -126,6 +126,8 @@ pub struct Settings {
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
+    #[serde(rename = "ignoredPatterns")]
+    pub ignored_patterns: Option<Vec<String>>,
 }
 
 // Search result
@@ -279,7 +281,7 @@ impl SearchIndex {
         Ok(results)
     }
 
-    fn rebuild_index(&self, notes_folder: &PathBuf) -> Result<()> {
+    fn rebuild_index(&self, notes_folder: &PathBuf, ignored_dirs: &[String]) -> Result<()> {
         let mut writer = self.writer.lock().expect("search writer mutex");
         writer.delete_all_documents()?;
 
@@ -288,14 +290,14 @@ impl SearchIndex {
             for entry in WalkDir::new(notes_folder)
                 .max_depth(10)
                 .into_iter()
-                .filter_entry(is_visible_notes_entry)
+                .filter_entry(|e| is_visible_notes_entry(e, ignored_dirs))
                 .flatten()
             {
                 let file_path = entry.path();
                 if !file_path.is_file() {
                     continue;
                 }
-                if let Some(id) = id_from_abs_path(notes_folder, file_path) {
+                if let Some(id) = id_from_abs_path(notes_folder, file_path, ignored_dirs) {
                     if let Ok(content) = std::fs::read_to_string(file_path) {
                         let modified = entry
                             .metadata()
@@ -569,29 +571,58 @@ fn strip_markdown(text: &str) -> String {
     result.trim().to_string()
 }
 
-/// Directories to exclude from note discovery and ID resolution.
+/// Directories to exclude from note discovery and ID resolution (app-internal, always excluded).
 const EXCLUDED_DIRS: &[&str] = &[".git", ".scratch", ".obsidian", ".trash", "assets"];
 
-/// Filter for WalkDir: skips excluded directories.
-fn is_visible_notes_entry(entry: &walkdir::DirEntry) -> bool {
+/// Default user-configurable directories to ignore (common build/dependency folders).
+const DEFAULT_IGNORED_DIRS: &[&str] = &[
+    "node_modules",
+    ".next",
+    ".nuxt",
+    "dist",
+    "build",
+    "out",
+    "target",
+    "vendor",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".cache",
+    "coverage",
+    ".svn",
+    ".hg",
+    "bower_components",
+    ".turbo",
+    ".parcel-cache",
+];
+
+/// Get the effective ignored directories from settings (or defaults if not customized).
+fn get_effective_ignored_dirs(settings: &Settings) -> Vec<String> {
+    settings.ignored_patterns.clone().unwrap_or_else(|| {
+        DEFAULT_IGNORED_DIRS.iter().map(|s| s.to_string()).collect()
+    })
+}
+
+/// Filter for WalkDir: skips excluded and user-ignored directories.
+fn is_visible_notes_entry(entry: &walkdir::DirEntry, ignored_dirs: &[String]) -> bool {
     if entry.file_type().is_dir() {
         let name = entry.file_name().to_str().unwrap_or("");
-        return !EXCLUDED_DIRS.contains(&name);
+        return !EXCLUDED_DIRS.contains(&name) && !ignored_dirs.iter().any(|d| d == name);
     }
     true
 }
 
 /// Convert an absolute file path to a note ID (relative path from notes root, no .md extension, POSIX separators).
-/// Returns None if the path is outside the root, not a .md file, or in an excluded directory.
-fn id_from_abs_path(notes_root: &Path, file_path: &Path) -> Option<String> {
+/// Returns None if the path is outside the root, not a .md file, or in an excluded/ignored directory.
+fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]) -> Option<String> {
     let rel = file_path.strip_prefix(notes_root).ok()?;
 
-    // Skip files inside excluded directories (.git, .scratch, assets, etc.)
+    // Skip files inside excluded or ignored directories.
     // Only block specific known dirs so that dot-prefixed *files* like ".foo.md" are still visible.
     for component in rel.parent().unwrap_or(Path::new("")).components() {
         if let std::path::Component::Normal(name) = component {
             let name_str = name.to_str()?;
-            if EXCLUDED_DIRS.contains(&name_str) {
+            if EXCLUDED_DIRS.contains(&name_str) || ignored_dirs.iter().any(|d| d == name_str) {
                 return None;
             }
         }
@@ -797,7 +828,11 @@ fn initialize_notes_folder(app: &AppHandle, path_buf: &PathBuf, state: &AppState
     // Initialize search index
     if let Ok(index_path) = get_search_index_path(app) {
         if let Ok(search_index) = SearchIndex::new(&index_path) {
-            let _ = search_index.rebuild_index(path_buf);
+            let ignored_dirs = {
+                let settings = state.settings.read().expect("settings read lock");
+                get_effective_ignored_dirs(&settings)
+            };
+            let _ = search_index.rebuild_index(path_buf, &ignored_dirs);
             let mut index = state.search_index.lock().expect("search index mutex");
             *index = Some(search_index);
         }
@@ -840,6 +875,11 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         return Ok(vec![]);
     }
 
+    let ignored_dirs = {
+        let settings = state.settings.read().expect("settings read lock");
+        get_effective_ignored_dirs(&settings)
+    };
+
     let path_clone = path.clone();
     let discovered = tokio::task::spawn_blocking(move || {
         use walkdir::WalkDir;
@@ -847,14 +887,14 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         for entry in WalkDir::new(&path_clone)
             .max_depth(10)
             .into_iter()
-            .filter_entry(is_visible_notes_entry)
+            .filter_entry(|e| is_visible_notes_entry(e, &ignored_dirs))
             .flatten()
         {
             let file_path = entry.path();
             if !file_path.is_file() {
                 continue;
             }
-            if let Some(id) = id_from_abs_path(&path_clone, file_path) {
+            if let Some(id) = id_from_abs_path(&path_clone, file_path, &ignored_dirs) {
                 if let Ok(content) = std::fs::read_to_string(file_path) {
                     let modified = entry
                         .metadata()
@@ -1254,6 +1294,11 @@ async fn list_folders(state: State<'_, AppState>) -> Result<Vec<String>, String>
     };
     let folder_path = PathBuf::from(&folder);
 
+    let ignored_dirs = {
+        let settings = state.settings.read().expect("settings read lock");
+        get_effective_ignored_dirs(&settings)
+    };
+
     let fp = folder_path.clone();
     tokio::task::spawn_blocking(move || {
         let mut folders = Vec::new();
@@ -1261,7 +1306,7 @@ async fn list_folders(state: State<'_, AppState>) -> Result<Vec<String>, String>
         for entry in WalkDir::new(&fp)
             .max_depth(10)
             .into_iter()
-            .filter_entry(is_visible_notes_entry)
+            .filter_entry(|e| is_visible_notes_entry(e, &ignored_dirs))
             .flatten()
         {
             if entry.file_type().is_dir() && entry.path() != fp {
@@ -1454,7 +1499,11 @@ async fn rename_folder(
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.rebuild_index(&folder_root);
+            let ignored_dirs = {
+                let settings = state.settings.read().expect("settings read lock");
+                get_effective_ignored_dirs(&settings)
+            };
+            let _ = search_index.rebuild_index(&folder_root, &ignored_dirs);
         }
     }
 
@@ -1538,7 +1587,11 @@ async fn move_note(
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.rebuild_index(&folder_root);
+            let ignored_dirs = {
+                let settings = state.settings.read().expect("settings read lock");
+                get_effective_ignored_dirs(&settings)
+            };
+            let _ = search_index.rebuild_index(&folder_root, &ignored_dirs);
         }
     }
 
@@ -1649,7 +1702,11 @@ async fn move_folder(
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.rebuild_index(&folder_root);
+            let ignored_dirs = {
+                let settings = state.settings.read().expect("settings read lock");
+                get_effective_ignored_dirs(&settings)
+            };
+            let _ = search_index.rebuild_index(&folder_root, &ignored_dirs);
         }
     }
 
@@ -2060,7 +2117,15 @@ fn setup_file_watcher(
         move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 for path in event.paths.iter() {
-                    let note_id = match id_from_abs_path(&notes_root, path) {
+                    // Read current ignored patterns from settings
+                    let ignored_dirs = if let Some(state) = app_handle.try_state::<AppState>() {
+                        let settings = state.settings.read().expect("settings read lock");
+                        get_effective_ignored_dirs(&settings)
+                    } else {
+                        DEFAULT_IGNORED_DIRS.iter().map(|s| s.to_string()).collect()
+                    };
+
+                    let note_id = match id_from_abs_path(&notes_root, path, &ignored_dirs) {
                         Some(id) => id,
                         None => continue,
                     };
@@ -2326,15 +2391,24 @@ fn rebuild_search_index(app: AppHandle, state: State<AppState>) -> Result<(), St
     let index_path = get_search_index_path(&app).map_err(|e| e.to_string())?;
 
     // Create new index
+    let ignored_dirs = {
+        let settings = state.settings.read().expect("settings read lock");
+        get_effective_ignored_dirs(&settings)
+    };
     let search_index = SearchIndex::new(&index_path).map_err(|e| e.to_string())?;
     search_index
-        .rebuild_index(&PathBuf::from(&folder))
+        .rebuild_index(&PathBuf::from(&folder), &ignored_dirs)
         .map_err(|e| e.to_string())?;
 
     let mut index = state.search_index.lock().expect("search index mutex");
     *index = Some(search_index);
 
     Ok(())
+}
+
+#[tauri::command]
+fn get_default_ignored_patterns() -> Vec<String> {
+    DEFAULT_IGNORED_DIRS.iter().map(|s| s.to_string()).collect()
 }
 
 // UI helper commands - wrap Tauri plugins for consistent invoke-based API
@@ -3385,7 +3459,12 @@ fn try_select_in_notes_folder(app: &AppHandle, path: &Path) -> bool {
         return false;
     }
 
-    let note_id = match id_from_abs_path(&canonical_folder, &canonical_file) {
+    let ignored_dirs = {
+        let settings = state.settings.read().expect("settings read lock");
+        get_effective_ignored_dirs(&settings)
+    };
+
+    let note_id = match id_from_abs_path(&canonical_folder, &canonical_file, &ignored_dirs) {
         Some(id) => id,
         None => return false,
     };
@@ -3578,10 +3657,11 @@ pub fn run() {
             };
 
             // Initialize search index if notes folder is set
+            let ignored_dirs = get_effective_ignored_dirs(&settings);
             let search_index = if let Some(ref folder) = app_config.notes_folder {
                 if let Ok(index_path) = get_search_index_path(app.handle()) {
                     SearchIndex::new(&index_path).ok().inspect(|idx| {
-                        let _ = idx.rebuild_index(&PathBuf::from(folder));
+                        let _ = idx.rebuild_index(&PathBuf::from(folder), &ignored_dirs);
                     })
                 } else {
                     None
@@ -3681,6 +3761,7 @@ pub fn run() {
             search_notes,
             start_file_watcher,
             rebuild_search_index,
+            get_default_ignored_patterns,
             copy_to_clipboard,
             copy_image_to_assets,
             save_clipboard_image,

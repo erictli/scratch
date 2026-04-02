@@ -14,6 +14,8 @@ import {
   CloudPlusIcon,
   ChevronRightIcon,
   CheckIcon,
+  XIcon,
+  PlusIcon,
   ClaudeIcon,
   CodexIcon,
   OpenCodeIcon,
@@ -721,6 +723,19 @@ export function GeneralSettingsSection() {
       {/* Divider */}
       <div className="border-t border-border border-dashed" />
 
+      {/* Ignored Folders */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">Ignored Folders</h2>
+        <p className="text-sm text-text-muted mb-4">
+          Folders matching these names are excluded from note discovery and
+          search indexing
+        </p>
+        <IgnoredFoldersEditor />
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
       {/* AI Providers */}
       <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">AI Providers</h2>
@@ -971,6 +986,140 @@ function FoldersToggle() {
       >
         On
       </Button>
+    </div>
+  );
+}
+
+function IgnoredFoldersEditor() {
+  const [patterns, setPatterns] = useState<string[] | null>(null);
+  const [defaults, setDefaults] = useState<string[]>([]);
+  const [newPattern, setNewPattern] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const { refreshNotes } = useNotes();
+
+  useEffect(() => {
+    Promise.all([
+      invoke<Settings>("get_settings"),
+      invoke<string[]>("get_default_ignored_patterns"),
+    ])
+      .then(([settings, defaultPatterns]) => {
+        setDefaults(defaultPatterns);
+        setPatterns(settings.ignoredPatterns ?? defaultPatterns);
+      })
+      .catch((error) => {
+        console.error("Failed to load ignored patterns:", error);
+        setPatterns([]);
+      });
+  }, []);
+
+  const save = async (updated: string[]) => {
+    setIsSaving(true);
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: { ...settings, ignoredPatterns: updated },
+      });
+      setPatterns(updated);
+      await invoke("rebuild_search_index");
+      refreshNotes();
+    } catch {
+      toast.error("Failed to save ignored folders");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAdd = () => {
+    const trimmed = newPattern.trim();
+    if (!trimmed || !patterns) return;
+    if (patterns.includes(trimmed)) {
+      toast.error("Already in the list");
+      return;
+    }
+    setNewPattern("");
+    save([...patterns, trimmed]);
+  };
+
+  const handleRemove = (pattern: string) => {
+    if (!patterns) return;
+    save(patterns.filter((p) => p !== pattern));
+  };
+
+  const handleReset = () => {
+    save([...defaults]);
+  };
+
+  const isDefault =
+    patterns !== null &&
+    patterns.length === defaults.length &&
+    patterns.every((p, i) => p === defaults[i]);
+
+  if (patterns === null) {
+    return (
+      <div className="text-sm text-text-muted py-2">Loading...</div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1.5">
+        {patterns.map((pattern) => (
+          <span
+            key={pattern}
+            className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-md bg-bg-muted text-sm font-mono"
+          >
+            {pattern}
+            <button
+              type="button"
+              onClick={() => handleRemove(pattern)}
+              disabled={isSaving}
+              className="p-0.5 rounded hover:bg-bg-hover text-text-muted hover:text-text cursor-pointer"
+            >
+              <XIcon className="w-3.5 h-3.5 stroke-[1.5]" />
+            </button>
+          </span>
+        ))}
+        {patterns.length === 0 && (
+          <span className="text-sm text-text-muted">
+            No folders ignored — all markdown files will be indexed
+          </span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          type="text"
+          value={newPattern}
+          onChange={(e) => setNewPattern(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleAdd();
+            }
+          }}
+          placeholder="Add folder name..."
+          className="flex-1"
+          disabled={isSaving}
+        />
+        <Button
+          onClick={handleAdd}
+          variant="outline"
+          size="sm"
+          disabled={isSaving || !newPattern.trim()}
+        >
+          <PlusIcon className="w-4 h-4 stroke-[1.5]" />
+          Add
+        </Button>
+      </div>
+      {!isDefault && (
+        <button
+          type="button"
+          onClick={handleReset}
+          disabled={isSaving}
+          className="text-xs text-text-muted hover:text-text underline cursor-pointer"
+        >
+          Reset to defaults
+        </button>
+      )}
     </div>
   );
 }
