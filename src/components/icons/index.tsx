@@ -1446,6 +1446,27 @@ export function WorkflowIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   );
 }
 
+export function IntegrationsIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="17.5" cy="6.5" r="2.5" />
+      <circle cx="17.5" cy="17.5" r="2.5" />
+      <circle cx="6.5" cy="17.5" r="2.5" />
+      <path d="M8.5 15.5l7 -7" />
+    </svg>
+  );
+}
+
 export function PencilIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg

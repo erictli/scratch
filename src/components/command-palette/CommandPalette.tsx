@@ -49,6 +49,7 @@ import {
   OllamaIcon,
   FolderIcon,
   FolderPlusIcon,
+  KeyboardIcon,
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
@@ -65,6 +66,7 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
+  onOpenShortcuts?: () => void;
   onOpenAiModal?: (provider: AiProvider) => void;
   focusMode?: boolean;
   onToggleFocusMode?: () => void;
@@ -75,6 +77,7 @@ export function CommandPalette({
   open,
   onClose,
   onOpenSettings,
+  onOpenShortcuts,
   onOpenAiModal,
   focusMode,
   onToggleFocusMode,
@@ -447,8 +450,18 @@ export function CommandPalette({
       });
     }
 
-    // Settings and theme commands at the bottom
+    // Keyboard shortcuts, settings, and theme commands at the bottom
     baseCommands.push(
+      {
+        id: "keyboard-shortcuts",
+        label: "Keyboard Shortcuts",
+        shortcut: `${mod} /`,
+        icon: <KeyboardIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
+        action: () => {
+          onOpenShortcuts?.();
+          onClose();
+        },
+      },
       {
         id: "settings",
         label: "Settings",
@@ -512,6 +525,7 @@ export function CommandPalette({
     focusMode,
     onToggleFocusMode,
     notesFolder,
+    onOpenShortcuts,
   ]);
 
   // Debounced search using Tantivy (local state, doesn't affect sidebar)

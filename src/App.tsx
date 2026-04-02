@@ -20,6 +20,7 @@ import {
 } from "./components/icons";
 import { AiEditModal } from "./components/ai/AiEditModal";
 import { AiResponseToast } from "./components/ai/AiResponseToast";
+import { KeyboardShortcutsModal } from "./components/shortcuts/KeyboardShortcutsModal";
 import { PreviewApp } from "./components/preview/PreviewApp";
 import {
   check as checkForUpdate,
@@ -69,6 +70,7 @@ function AppContent() {
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
@@ -283,6 +285,13 @@ function AppContent() {
         return;
       }
 
+      // Cmd+/ - Open keyboard shortcuts
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
+
       // Cmd/Ctrl+Shift+F - Open sidebar search
       if (
         (e.metaKey || e.ctrlKey) &&
@@ -429,6 +438,7 @@ function AppContent() {
 
   const handleClosePalette = useCallback(() => {
     setPaletteOpen(false);
+    editorRef.current?.commands.focus();
   }, []);
 
   if (isLoading) {
@@ -481,10 +491,16 @@ function AppContent() {
         />
       )}
 
+      <KeyboardShortcutsModal
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
+
       <CommandPalette
         open={paletteOpen}
         onClose={handleClosePalette}
         onOpenSettings={toggleSettings}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         onOpenAiModal={(provider) => {
           setAiProvider(provider);
           setAiModalOpen(true);

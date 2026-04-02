@@ -56,6 +56,7 @@ export interface Settings {
   defaultNoteName?: string;
   interfaceZoom?: number;
   ollamaModel?: string;
+  ignoredPatterns?: string[];
   customColorsLight?: CustomColors;
   customColorsDark?: CustomColors;
 }

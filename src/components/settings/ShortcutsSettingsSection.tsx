@@ -1,141 +1,4 @@
-import { mod } from "../../lib/platform";
-
-interface Shortcut {
-  keys: string[];
-  description: string;
-  category?: string;
-}
-
-const shortcuts: Shortcut[] = [
-  {
-    keys: [mod, "W"],
-    description: "Close window",
-    category: "Navigation",
-  },
-  {
-    keys: [mod, "P"],
-    description: "Open command palette",
-    category: "Navigation",
-  },
-  {
-    keys: [mod, "N"],
-    description: "Create new note",
-    category: "Notes",
-  },
-  {
-    keys: [mod, "D"],
-    description: "Duplicate current note",
-    category: "Notes",
-  },
-  {
-    keys: ["Delete"],
-    description: "Delete current note",
-    category: "Notes",
-  },
-  {
-    keys: [mod, "Backspace"],
-    description: "Delete current note",
-    category: "Notes",
-  },
-  {
-    keys: [mod, "R"],
-    description: "Reload current note",
-    category: "Notes",
-  },
-  {
-    keys: [mod, ","],
-    description: "Open settings",
-    category: "Navigation",
-  },
-  {
-    keys: [mod, "\\"],
-    description: "Toggle sidebar",
-    category: "Navigation",
-  },
-  {
-    keys: [mod, "K"],
-    description: "Add or edit link",
-    category: "Editor",
-  },
-  {
-    keys: [mod, "Shift", "C"],
-    description: "Open Copy & Export menu",
-    category: "Editor",
-  },
-  {
-    keys: [mod, "F"],
-    description: "Find in current note",
-    category: "Editor",
-  },
-  {
-    keys: [mod, "Shift", "M"],
-    description: "Toggle Markdown source",
-    category: "Editor",
-  },
-  {
-    keys: [mod, "Shift", "Enter"],
-    description: "Toggle Focus mode",
-    category: "Editor",
-  },
-  {
-    keys: ["/"],
-    description: "Slash commands (at start of line)",
-    category: "Editor",
-  },
-  {
-    keys: [mod, "Shift", "F"],
-    description: "Search notes",
-    category: "Navigation",
-  },
-  {
-    keys: [mod, "1"],
-    description: "Go to General settings",
-    category: "Settings",
-  },
-  {
-    keys: [mod, "2"],
-    description: "Go to Appearance settings",
-    category: "Settings",
-  },
-  {
-    keys: [mod, "3"],
-    description: "Go to Shortcuts settings",
-    category: "Settings",
-  },
-  {
-    keys: [mod, "4"],
-    description: "Go to About settings",
-    category: "Settings",
-  },
-  {
-    keys: [mod, "="],
-    description: "Zoom in",
-    category: "Navigation",
-  },
-  {
-    keys: [mod, "−"],
-    description: "Zoom out",
-    category: "Navigation",
-  },
-  {
-    keys: [mod, "0"],
-    description: "Reset zoom",
-    category: "Navigation",
-  },
-];
-
-// Group shortcuts by category
-const groupedShortcuts = shortcuts.reduce(
-  (acc, shortcut) => {
-    const category = shortcut.category || "General";
-    if (!acc[category]) {
-      acc[category] = [];
-    }
-    acc[category].push(shortcut);
-    return acc;
-  },
-  {} as Record<string, Shortcut[]>,
-);
+import { shortcutCategories } from "../../lib/shortcuts";
 
 // Render individual key as keyboard button
 function KeyboardKey({ keyLabel }: { keyLabel: string }) {
@@ -150,33 +13,38 @@ function KeyboardKey({ keyLabel }: { keyLabel: string }) {
 function ShortcutKeys({ keys }: { keys: string[] }) {
   return (
     <div className="flex items-center gap-1.5">
-      {keys.map((key, index) => (
-        <KeyboardKey key={index} keyLabel={key} />
+      {keys.map((key) => (
+        <KeyboardKey key={key} keyLabel={key} />
       ))}
     </div>
   );
 }
 
-export function ShortcutsSettingsSection() {
-  const categoryOrder = ["Navigation", "Notes", "Editor", "Settings"];
+// Categories to show in settings (exclude Markdown Syntax)
+const settingsCategories = ["Navigation", "Notes", "Editor", "Settings"];
 
+export function ShortcutsSettingsSection() {
   return (
     <div className="space-y-8 pb-8">
-      {categoryOrder.map((category, idx) => {
-        const categoryShortcuts = groupedShortcuts[category];
-        if (!categoryShortcuts) return null;
+      {settingsCategories.map((categoryName, idx) => {
+        const category = shortcutCategories.find(
+          (c) => c.title === categoryName,
+        );
+        if (!category) return null;
 
         return (
-          <div key={category}>
+          <div key={categoryName}>
             {idx > 0 && (
               <div className="border-t border-border border-dashed" />
             )}
             <section>
-              <h2 className="text-xl font-medium pt-8 mb-4">{category}</h2>
+              <h2 className="text-xl font-medium pt-8 mb-4">
+                {categoryName}
+              </h2>
               <div className="space-y-3">
-                {categoryShortcuts.map((shortcut, index) => (
+                {category.shortcuts.map((shortcut) => (
                   <div
-                    key={index}
+                    key={shortcut.description}
                     className="flex items-center justify-between gap-4"
                   >
                     <span className="text-sm text-text font-medium">

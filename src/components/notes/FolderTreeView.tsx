@@ -66,8 +66,9 @@ interface FileItemProps {
   note: NoteMetadata;
   depth: number;
   isSelected: boolean;
+  isMultiSelected: boolean;
   isPinned: boolean;
-  onSelect: (id: string) => void;
+  onNoteClick: (id: string, event: React.MouseEvent) => void;
   onPin: (id: string) => Promise<void>;
   onUnpin: (id: string) => Promise<void>;
   onDuplicate: (id: string) => Promise<void>;
@@ -80,8 +81,9 @@ const FileItem = memo(function FileItem({
   note,
   depth,
   isSelected,
+  isMultiSelected,
   isPinned,
-  onSelect,
+  onNoteClick,
   onPin,
   onUnpin,
   onDuplicate,
@@ -90,7 +92,10 @@ const FileItem = memo(function FileItem({
   focusedItemKey,
 }: FileItemProps) {
   const itemRef = useRef<HTMLDivElement>(null);
-  const handleClick = useCallback(() => onSelect(note.id), [onSelect, note.id]);
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => onNoteClick(note.id, e),
+    [onNoteClick, note.id],
+  );
 
   // The parent folder for this note (empty string = root)
   const noteParentFolder = useMemo(() => {
@@ -155,9 +160,12 @@ const FileItem = memo(function FileItem({
               ? "opacity-40"
               : isOver
                 ? "bg-accent/10 ring-1 ring-accent"
-                : isSelected && (!focusedItemKey || focusedItemKey === `note:${note.id}`)
+                : isSelected &&
+                    (!focusedItemKey || focusedItemKey === `note:${note.id}`)
                   ? "bg-bg-muted group-focus/notelist:ring-1 group-focus/notelist:ring-text-muted"
-                  : "hover:bg-bg-muted"
+                  : isMultiSelected
+                    ? "bg-bg-muted"
+                    : "hover:bg-bg-muted"
           }`}
           style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: "8px" }}
           onClick={handleClick}
@@ -182,7 +190,11 @@ const FileItem = memo(function FileItem({
           </ContextMenu.Item>
           <ContextMenu.Item
             className={menuItemClass}
-            onSelect={() => void onDuplicate(note.id).catch((err) => toast.error(`Failed to duplicate: ${err?.message || err}`))}
+            onSelect={() =>
+              void onDuplicate(note.id).catch((err) =>
+                toast.error(`Failed to duplicate: ${err?.message || err}`),
+              )
+            }
           >
             <CopyIcon className="w-4 h-4 stroke-[1.6]" />
             Duplicate
@@ -206,8 +218,11 @@ const FileItem = memo(function FileItem({
                         noteParentFolder.lastIndexOf("/"),
                       )
                     : "";
-                  void Promise.resolve(onMoveToParent(note.id, parentOfParent)).catch((err) =>
-                    toast.error(`Failed to move: ${err?.message || err}`));
+                  void Promise.resolve(
+                    onMoveToParent(note.id, parentOfParent),
+                  ).catch((err) =>
+                    toast.error(`Failed to move: ${err?.message || err}`),
+                  );
                 }}
               >
                 <ArrowUpIcon className="w-4 h-4 stroke-[1.6]" />
@@ -239,7 +254,8 @@ interface FolderItemProps {
   onToggleCollapse: (path: string) => void;
   selectedNoteId: string | null;
   pinnedIds: Set<string>;
-  onSelectNote: (id: string) => void;
+  multiSelectedNoteIds: Set<string>;
+  onNoteClick: (id: string, event: React.MouseEvent) => void;
   focusedItemKey: string | null;
   onCreateNoteHere: (path: string) => void;
   onNewSubfolder: (parentPath: string) => void;
@@ -260,7 +276,8 @@ const FolderItemComponent = memo(function FolderItem({
   onToggleCollapse,
   selectedNoteId,
   pinnedIds,
-  onSelectNote,
+  multiSelectedNoteIds,
+  onNoteClick,
   focusedItemKey,
   onCreateNoteHere,
   onNewSubfolder,
@@ -342,7 +359,8 @@ const FolderItemComponent = memo(function FolderItem({
                   selectedNoteId={selectedNoteId}
                   focusedItemKey={focusedItemKey}
                   pinnedIds={pinnedIds}
-                  onSelectNote={onSelectNote}
+                  multiSelectedNoteIds={multiSelectedNoteIds}
+                  onNoteClick={onNoteClick}
                   onCreateNoteHere={onCreateNoteHere}
                   onNewSubfolder={onNewSubfolder}
                   onRenameFolder={onRenameFolder}
@@ -361,8 +379,9 @@ const FolderItemComponent = memo(function FolderItem({
                   note={note}
                   depth={depth + 1}
                   isSelected={selectedNoteId === note.id}
+                  isMultiSelected={multiSelectedNoteIds.has(note.id)}
                   isPinned={pinnedIds.has(note.id)}
-                  onSelect={onSelectNote}
+                  onNoteClick={onNoteClick}
                   onPin={onPinNote}
                   onUnpin={onUnpinNote}
                   onDuplicate={onDuplicateNote}
@@ -425,8 +444,11 @@ const FolderItemComponent = memo(function FolderItem({
                         parentOfParent.lastIndexOf("/"),
                       )
                     : "";
-                  void Promise.resolve(onMoveFolderToParent(folder.path, grandparent)).catch((err) =>
-                    toast.error(`Failed to move: ${err?.message || err}`));
+                  void Promise.resolve(
+                    onMoveFolderToParent(folder.path, grandparent),
+                  ).catch((err) =>
+                    toast.error(`Failed to move: ${err?.message || err}`),
+                  );
                 }}
               >
                 <ArrowUpIcon className="w-4 h-4 stroke-[1.6]" />
@@ -454,11 +476,19 @@ const FolderItemComponent = memo(function FolderItem({
 interface FolderTreeViewProps {
   pinnedIds: Set<string>;
   settings: Settings | null;
+  multiSelectedNoteIds: Set<string>;
+  setMultiSelectedNoteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  lastClickedNoteId: string | null;
+  setLastClickedNoteId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 export function FolderTreeView({
   pinnedIds,
   settings: _settings,
+  multiSelectedNoteIds,
+  setMultiSelectedNoteIds,
+  lastClickedNoteId,
+  setLastClickedNoteId,
 }: FolderTreeViewProps) {
   const {
     notes,
@@ -487,6 +517,7 @@ export function FolderTreeView({
   const [subfolderParent, setSubfolderParent] = useState("");
   const [noteDeleteDialogOpen, setNoteDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [knownFolders, setKnownFolders] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -564,7 +595,8 @@ export function FolderTreeView({
   }, []);
 
   const handleDeleteConfirm = useCallback(async () => {
-    if (folderToDelete) {
+    if (folderToDelete && !isDeleting) {
+      setIsDeleting(true);
       try {
         await deleteFolder(folderToDelete);
         setFolderToDelete(null);
@@ -572,9 +604,11 @@ export function FolderTreeView({
       } catch (error) {
         console.error("Failed to delete folder:", error);
         toast.error("Failed to delete folder");
+      } finally {
+        setIsDeleting(false);
       }
     }
-  }, [folderToDelete, deleteFolder]);
+  }, [folderToDelete, deleteFolder, isDeleting]);
 
   const openDeleteNoteDialog = useCallback((noteId: string) => {
     setNoteToDelete(noteId);
@@ -582,7 +616,8 @@ export function FolderTreeView({
   }, []);
 
   const handleNoteDeleteConfirm = useCallback(async () => {
-    if (noteToDelete) {
+    if (noteToDelete && !isDeleting) {
+      setIsDeleting(true);
       try {
         await deleteNote(noteToDelete);
         setNoteToDelete(null);
@@ -590,9 +625,11 @@ export function FolderTreeView({
       } catch (error) {
         console.error("Failed to delete note:", error);
         toast.error("Failed to delete note");
+      } finally {
+        setIsDeleting(false);
       }
     }
-  }, [noteToDelete, deleteNote]);
+  }, [noteToDelete, deleteNote, isDeleting]);
 
   const handleRenameConfirm = useCallback(
     async (newName: string) => {
@@ -630,6 +667,76 @@ export function FolderTreeView({
     [tree, pinnedIds, collapsedFolders],
   );
 
+  // Visible note IDs in order (for Shift+Click range computation)
+  const visibleNoteIds = useMemo(
+    () =>
+      visibleItems
+        .filter(
+          (item): item is { type: "note"; id: string } => item.type === "note",
+        )
+        .map((item) => item.id),
+    [visibleItems],
+  );
+
+  const handleNoteClick = useCallback(
+    (noteId: string, event: React.MouseEvent) => {
+      const isMeta = event.metaKey || event.ctrlKey;
+      const isShift = event.shiftKey;
+
+      if (isShift) {
+        // Range select from anchor to target
+        const anchor = lastClickedNoteId ?? selectedNoteId;
+        if (anchor) {
+          let anchorIdx = visibleNoteIds.indexOf(anchor);
+          // Fallback to selectedNoteId if anchor is no longer visible
+          if (anchorIdx === -1 && selectedNoteId) {
+            anchorIdx = visibleNoteIds.indexOf(selectedNoteId);
+          }
+          const targetIdx = visibleNoteIds.indexOf(noteId);
+          if (anchorIdx !== -1 && targetIdx !== -1) {
+            const start = Math.min(anchorIdx, targetIdx);
+            const end = Math.max(anchorIdx, targetIdx);
+            const range = new Set(visibleNoteIds.slice(start, end + 1));
+            // Ensure the active note is part of the selection
+            if (selectedNoteId) range.add(selectedNoteId);
+            setMultiSelectedNoteIds(range);
+          }
+        }
+        // Don't change editor note on Shift+Click
+      } else if (isMeta) {
+        // Toggle individual note in selection
+        setMultiSelectedNoteIds((prev) => {
+          const next = new Set(prev);
+          // Ensure the active note joins the selection
+          if (selectedNoteId && !next.has(selectedNoteId)) {
+            next.add(selectedNoteId);
+          }
+          if (next.has(noteId)) {
+            next.delete(noteId);
+          } else {
+            next.add(noteId);
+          }
+          return next;
+        });
+        setLastClickedNoteId(noteId);
+        // Don't change editor note on Cmd+Click
+      } else {
+        // Plain click: reset selection, open in editor
+        setMultiSelectedNoteIds(new Set([noteId]));
+        setLastClickedNoteId(noteId);
+        selectNote(noteId);
+      }
+    },
+    [
+      lastClickedNoteId,
+      visibleNoteIds,
+      selectedNoteId,
+      setMultiSelectedNoteIds,
+      setLastClickedNoteId,
+      selectNote,
+    ],
+  );
+
   // Track which item is focused for keyboard nav (separate from note selection)
   const [focusedItemKey, setFocusedItemKey] = useState<string | null>(null);
 
@@ -645,13 +752,24 @@ export function FolderTreeView({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter" && e.key !== "Escape") {
+      if (
+        e.key !== "ArrowDown" &&
+        e.key !== "ArrowUp" &&
+        e.key !== "Enter" &&
+        e.key !== "Escape"
+      ) {
         return;
       }
 
       if (e.key === "Escape") {
-        // Blur and let App.tsx handle
-        containerRef.current?.blur();
+        if (multiSelectedNoteIds.size > 1) {
+          // First Escape: clear multi-selection and reset range anchor
+          setMultiSelectedNoteIds(new Set());
+          setLastClickedNoteId(null);
+        } else {
+          // Second Escape: blur and let App.tsx handle
+          containerRef.current?.blur();
+        }
         return;
       }
 
@@ -666,9 +784,11 @@ export function FolderTreeView({
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         let newIndex: number;
         if (e.key === "ArrowDown") {
-          newIndex = currentIndex < visibleItems.length - 1 ? currentIndex + 1 : 0;
+          newIndex =
+            currentIndex < visibleItems.length - 1 ? currentIndex + 1 : 0;
         } else {
-          newIndex = currentIndex > 0 ? currentIndex - 1 : visibleItems.length - 1;
+          newIndex =
+            currentIndex > 0 ? currentIndex - 1 : visibleItems.length - 1;
         }
         const item = visibleItems[newIndex];
         setFocusedItemKey(itemKey(item));
@@ -687,7 +807,15 @@ export function FolderTreeView({
         }
       }
     },
-    [visibleItems, focusedItemKey, selectNote, handleToggleCollapse],
+    [
+      visibleItems,
+      focusedItemKey,
+      selectNote,
+      handleToggleCollapse,
+      multiSelectedNoteIds,
+      setMultiSelectedNoteIds,
+      setLastClickedNoteId,
+    ],
   );
 
   // Listen for focus requests
@@ -699,7 +827,9 @@ export function FolderTreeView({
         const selected = visibleItems.find(
           (item) => item.type === "note" && item.id === selectedNoteId,
         );
-        setFocusedItemKey(selected ? itemKey(selected) : itemKey(visibleItems[0]));
+        setFocusedItemKey(
+          selected ? itemKey(selected) : itemKey(visibleItems[0]),
+        );
       }
     };
     window.addEventListener("focus-note-list", handleFocus);
@@ -733,8 +863,9 @@ export function FolderTreeView({
             note={note}
             depth={0}
             isSelected={selectedNoteId === note.id}
+            isMultiSelected={multiSelectedNoteIds.has(note.id)}
             isPinned={true}
-            onSelect={selectNote}
+            onNoteClick={handleNoteClick}
             onPin={pinNote}
             onUnpin={unpinNote}
             onDuplicate={duplicateNote}
@@ -754,7 +885,8 @@ export function FolderTreeView({
             selectedNoteId={selectedNoteId}
             focusedItemKey={focusedItemKey}
             pinnedIds={pinnedIds}
-            onSelectNote={selectNote}
+            multiSelectedNoteIds={multiSelectedNoteIds}
+            onNoteClick={handleNoteClick}
             onCreateNoteHere={createNoteInFolder}
             onNewSubfolder={handleNewSubfolder}
             onRenameFolder={handleRenameFolder}
@@ -775,8 +907,9 @@ export function FolderTreeView({
             note={note}
             depth={0}
             isSelected={selectedNoteId === note.id}
+            isMultiSelected={multiSelectedNoteIds.has(note.id)}
             isPinned={false}
-            onSelect={selectNote}
+            onNoteClick={handleNoteClick}
             onPin={pinNote}
             onUnpin={unpinNote}
             onDuplicate={duplicateNote}
@@ -798,8 +931,14 @@ export function FolderTreeView({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleDeleteConfirm(); }}>
-              Delete
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteConfirm();
+              }}
+            >
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -841,8 +980,14 @@ export function FolderTreeView({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleNoteDeleteConfirm(); }}>
-              Delete
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                handleNoteDeleteConfirm();
+              }}
+            >
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
