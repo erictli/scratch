@@ -492,7 +492,7 @@ function blockIndexToPos(
   doc: { childCount: number; child: (i: number) => { nodeSize: number } },
   blockIndex: number,
 ): number {
-  const idx = Math.min(blockIndex, doc.childCount - 1);
+  const idx = Math.max(0, Math.min(blockIndex, doc.childCount - 1));
   let pos = 1; // 1 for doc opening token
   for (let i = 0; i < idx; i++) {
     pos += doc.child(i).nodeSize;
@@ -1978,7 +1978,7 @@ export function Editor({
       const textarea = container?.querySelector(
         "textarea",
       ) as HTMLTextAreaElement | null;
-      if (!textarea) return;
+      if (!textarea) return () => {};
 
       const md = transition.md || "";
 
@@ -1987,7 +1987,7 @@ export function Editor({
       const cursorPos =
         transition.cursorBlockIndex < blockOffsets.length
           ? blockOffsets[transition.cursorBlockIndex]
-          : 0;
+          : md.length;
       textarea.setSelectionRange(cursorPos, cursorPos);
       textarea.focus();
 
