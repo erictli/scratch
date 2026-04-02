@@ -1,96 +1,35 @@
 import { useEffect, useCallback, useRef } from "react";
-import { mod, shift } from "../../lib/platform";
 import { XIcon } from "../icons";
+import { shortcutCategories } from "../../lib/shortcuts";
 
-interface Shortcut {
-  keys: string[];
-  description: string;
-}
-
-interface ShortcutCategory {
-  title: string;
-  shortcuts: Shortcut[];
-}
-
-const categories: ShortcutCategory[] = [
-  {
-    title: "Navigation",
-    shortcuts: [
-      { keys: [mod, "P"], description: "Command palette" },
-      { keys: [mod, shift, "F"], description: "Search notes" },
-      { keys: [mod, "\\"], description: "Toggle sidebar" },
-      { keys: [mod, ","], description: "Settings" },
-      { keys: [mod, "W"], description: "Close window" },
-      { keys: [mod, "="], description: "Zoom in" },
-      { keys: [mod, "-"], description: "Zoom out" },
-      { keys: [mod, "0"], description: "Reset zoom" },
-      { keys: [mod, "/"], description: "Keyboard shortcuts" },
-    ],
-  },
-  {
-    title: "Notes",
-    shortcuts: [
-      { keys: [mod, "N"], description: "New note" },
-      { keys: [mod, "D"], description: "Duplicate note" },
-      { keys: [mod, "R"], description: "Reload note" },
-      { keys: ["Delete"], description: "Delete note" },
-      { keys: ["\u2191", "\u2193"], description: "Navigate notes" },
-      { keys: ["Enter"], description: "Focus editor" },
-      { keys: ["Esc"], description: "Back to note list" },
-    ],
-  },
-  {
-    title: "Editor",
-    shortcuts: [
-      { keys: [mod, "B"], description: "Bold" },
-      { keys: [mod, "I"], description: "Italic" },
-      { keys: [mod, "K"], description: "Add / edit link" },
-      { keys: [mod, "F"], description: "Find in note" },
-      { keys: [mod, shift, "C"], description: "Copy & Export" },
-      { keys: [mod, shift, "M"], description: "Markdown source" },
-      { keys: [mod, shift, "Enter"], description: "Focus mode" },
-      { keys: ["/"], description: "Slash commands" },
-    ],
-  },
-  {
-    title: "Markdown Syntax",
-    shortcuts: [
-      { keys: ["#"], description: "Heading 1" },
-      { keys: ["##"], description: "Heading 2" },
-      { keys: ["###"], description: "Heading 3" },
-      { keys: ["-"], description: "Bullet list" },
-      { keys: ["1."], description: "Numbered list" },
-      { keys: [">"], description: "Blockquote" },
-      { keys: ["`code`"], description: "Inline code" },
-      { keys: ["```"], description: "Code block" },
-      { keys: ["---"], description: "Horizontal rule" },
-      { keys: ["- [ ]"], description: "Task list" },
-      { keys: ["**bold**"], description: "Bold text" },
-      { keys: ["*italic*"], description: "Italic text" },
-      { keys: ["[text](url)"], description: "Link" },
-      { keys: ["![alt](url)"], description: "Image" },
-    ],
-  },
-];
+const modalCategories = shortcutCategories.filter(
+  (c) => c.title !== "Settings",
+);
 
 function KeyboardKey({ keyLabel }: { keyLabel: string }) {
   return (
-    <kbd className="text-[11px] leading-none px-1.5 py-1 rounded-md bg-bg-muted text-text min-w-[22px] inline-flex items-center justify-center font-medium">
+    <kbd className="text-xs px-1.5 py-0.5 rounded-md bg-bg-muted text-text min-w-6.5 inline-flex items-center justify-center">
       {keyLabel}
     </kbd>
   );
 }
 
-function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
+function ShortcutRow({
+  keys,
+  description,
+}: {
+  keys: string[];
+  description: string;
+}) {
   return (
     <div className="flex items-center gap-3 py-1">
-      <div className="flex items-center gap-1 shrink-0">
-        {shortcut.keys.map((key, i) => (
-          <KeyboardKey key={i} keyLabel={key} />
+      <div className="flex items-center gap-1.5 shrink-0">
+        {keys.map((key) => (
+          <KeyboardKey key={key} keyLabel={key} />
         ))}
       </div>
-      <span className="text-sm text-text-muted truncate">
-        {shortcut.description}
+      <span className="text-sm text-text font-medium truncate">
+        {description}
       </span>
     </div>
   );
@@ -112,7 +51,26 @@ export function KeyboardShortcutsModal({
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopImmediatePropagation();
         onClose();
+        return;
+      }
+
+      // Trap focus within the modal
+      if (e.key === "Tab") {
+        const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button, a[href], [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     },
     [onClose],
@@ -149,9 +107,12 @@ export function KeyboardShortcutsModal({
       {/* Modal */}
       <div className="relative w-full max-w-4xl max-h-[85vh] mx-4 bg-bg rounded-xl shadow-2xl border border-border animate-slide-down overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border flex-none">
-          <h2 id="keyboard-shortcuts-title" className="text-lg font-semibold text-text">
-            Keyboard Shortcuts
+        <div className="flex items-center justify-between pl-5 pr-3 py-3 border-b border-border flex-none">
+          <h2
+            id="keyboard-shortcuts-title"
+            className="text-lg font-medium text-text"
+          >
+            Shortcuts
           </h2>
           <button
             onClick={onClose}
@@ -162,33 +123,23 @@ export function KeyboardShortcutsModal({
           </button>
         </div>
 
-        {/* Content — multi-column grid */}
-        <div className="overflow-y-auto p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-            {categories.map((category) => (
+        {/* Content — 3-column grid */}
+        <div className="overflow-y-auto p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+            {modalCategories.map((category) => (
               <div key={category.title}>
-                <h3 className="text-sm font-semibold text-text mb-3">
-                  {category.title}
-                </h3>
+                <h3 className="font-medium text-text mb-3">{category.title}</h3>
                 <div className="space-y-0.5">
-                  {category.shortcuts.map((shortcut, i) => (
-                    <ShortcutRow key={i} shortcut={shortcut} />
+                  {category.shortcuts.map((shortcut) => (
+                    <ShortcutRow
+                      key={shortcut.description}
+                      keys={shortcut.keys}
+                      description={shortcut.description}
+                    />
                   ))}
                 </div>
               </div>
             ))}
-          </div>
-
-          {/* Markdown guide link */}
-          <div className="mt-8 pt-4 border-t border-border border-dashed text-center">
-            <a
-              href="https://www.markdownguide.org/cheat-sheet/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-text-muted hover:text-text underline underline-offset-2 transition-colors"
-            >
-              Full Markdown Guide
-            </a>
           </div>
         </div>
       </div>
