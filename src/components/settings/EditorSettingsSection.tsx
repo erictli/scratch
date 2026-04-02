@@ -251,7 +251,9 @@ export function AppearanceSettingsSection() {
                   onChange={(e) => {
                     const parsed = parseInt(e.target.value, 10);
                     if (Number.isFinite(parsed)) {
-                      setCustomEditorWidthPx(Math.min(Math.max(parsed, 480), 3840));
+                      setCustomEditorWidthPx(
+                        Math.min(Math.max(parsed, 480), 3840),
+                      );
                     }
                   }}
                   className="w-full h-9 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -358,7 +360,6 @@ export function AppearanceSettingsSection() {
     }
   }
 }`}
-                    className="bg-bg/80 backdrop-blur-sm"
                   />
                 </div>
                 <pre className="pt-10">

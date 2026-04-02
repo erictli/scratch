@@ -64,12 +64,12 @@ export function CodeCopyButton({
       {copied ? (
         <>
           <CheckIcon className={iconClassName} />
-          {copiedLabel}
+          {copiedLabel && copiedLabel}
         </>
       ) : (
         <>
           <CopyIcon className={iconClassName} />
-          {copyLabel}
+          {copyLabel && copyLabel}
         </>
       )}
     </button>

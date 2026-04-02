@@ -24,6 +24,7 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
 
   const toolbar = (
     <div className="code-block-language-selector" contentEditable={false}>
+      <CodeCopyButton text={codeContent} className={btnClass} />
       {isMermaid && (
         <button
           contentEditable={false}
@@ -38,7 +39,7 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
             </>
           ) : (
             <>
-              <PencilIcon className="w-3.5 h-3.5 stroke-[1.7]" />
+              <PencilIcon className="w-4 h-4 stroke-[1.6]" />
               Edit
             </>
           )}
@@ -58,7 +59,6 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
         </select>
         <ChevronDownIcon className="w-3.25 h-3.25 stroke-[1.7] absolute right-1.25 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted" />
       </div>
-      <CodeCopyButton text={codeContent} className={btnClass} copyLabel="Copy" copiedLabel="Copied" />
     </div>
   );
 
