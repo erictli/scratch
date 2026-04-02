@@ -226,7 +226,19 @@ const NoteItemWithMenu = memo(function NoteItemWithMenu({
   );
 });
 
-export function NoteList() {
+interface NoteListProps {
+  multiSelectedNoteIds: Set<string>;
+  setMultiSelectedNoteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  lastClickedNoteId: string | null;
+  setLastClickedNoteId: React.Dispatch<React.SetStateAction<string | null>>;
+}
+
+export function NoteList({
+  multiSelectedNoteIds,
+  setMultiSelectedNoteIds,
+  lastClickedNoteId,
+  setLastClickedNoteId,
+}: NoteListProps) {
   const {
     notes,
     selectedNoteId,
@@ -349,7 +361,14 @@ export function NoteList() {
   if (foldersEnabled && !isSearching) {
     return (
       <>
-        <FolderTreeView pinnedIds={pinnedIds} settings={settings} />
+        <FolderTreeView
+          pinnedIds={pinnedIds}
+          settings={settings}
+          multiSelectedNoteIds={multiSelectedNoteIds}
+          setMultiSelectedNoteIds={setMultiSelectedNoteIds}
+          lastClickedNoteId={lastClickedNoteId}
+          setLastClickedNoteId={setLastClickedNoteId}
+        />
 
         {/* Delete confirmation dialog */}
         <AlertDialog
