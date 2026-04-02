@@ -676,17 +676,24 @@ export function FolderTreeView({
       const isMeta = event.metaKey || event.ctrlKey;
       const isShift = event.shiftKey;
 
-      if (isShift && lastClickedNoteId) {
+      if (isShift) {
         // Range select from anchor to target
-        const anchorIdx = visibleNoteIds.indexOf(lastClickedNoteId);
-        const targetIdx = visibleNoteIds.indexOf(noteId);
-        if (anchorIdx !== -1 && targetIdx !== -1) {
-          const start = Math.min(anchorIdx, targetIdx);
-          const end = Math.max(anchorIdx, targetIdx);
-          const range = new Set(visibleNoteIds.slice(start, end + 1));
-          // Ensure the active note is part of the selection
-          if (selectedNoteId) range.add(selectedNoteId);
-          setMultiSelectedNoteIds(range);
+        const anchor = lastClickedNoteId ?? selectedNoteId;
+        if (anchor) {
+          let anchorIdx = visibleNoteIds.indexOf(anchor);
+          // Fallback to selectedNoteId if anchor is no longer visible
+          if (anchorIdx === -1 && selectedNoteId) {
+            anchorIdx = visibleNoteIds.indexOf(selectedNoteId);
+          }
+          const targetIdx = visibleNoteIds.indexOf(noteId);
+          if (anchorIdx !== -1 && targetIdx !== -1) {
+            const start = Math.min(anchorIdx, targetIdx);
+            const end = Math.max(anchorIdx, targetIdx);
+            const range = new Set(visibleNoteIds.slice(start, end + 1));
+            // Ensure the active note is part of the selection
+            if (selectedNoteId) range.add(selectedNoteId);
+            setMultiSelectedNoteIds(range);
+          }
         }
         // Don't change editor note on Shift+Click
       } else if (isMeta) {
