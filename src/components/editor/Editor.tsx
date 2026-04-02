@@ -1,4 +1,10 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useState,
+} from "react";
 import {
   useEditor,
   EditorContent,
@@ -441,6 +447,36 @@ interface EditorProps {
   saveToFolderDisabled?: boolean;
 }
 
+/**
+ * Get character offsets where each top-level block starts in markdown.
+ * Blocks are separated by blank lines, ignoring blank lines inside code fences.
+ */
+function getMarkdownBlockOffsets(md: string): number[] {
+  const offsets: number[] = [];
+  const lines = md.split("\n");
+  let pos = 0;
+  let prevBlank = true; // treat doc start as preceded by blank
+  let inCodeFence = false;
+
+  for (const line of lines) {
+    if (line.trimStart().startsWith("```")) {
+      inCodeFence = !inCodeFence;
+    }
+
+    if (!inCodeFence) {
+      const isBlank = line.trim() === "";
+      if (!isBlank && prevBlank) {
+        offsets.push(pos);
+      }
+      prevBlank = isBlank;
+    }
+
+    pos += line.length + 1;
+  }
+
+  return offsets;
+}
+
 export function Editor({
   onToggleSidebar,
   sidebarVisible,
@@ -507,6 +543,11 @@ export function Editor({
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceContent, setSourceContent] = useState("");
   const sourceTimeoutRef = useRef<number | null>(null);
+  const sourceModeTransitionRef = useRef<{
+    topBlockIndex: number;
+    cursorBlockIndex: number;
+    md?: string;
+  } | null>(null);
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1808,16 +1849,88 @@ export function Editor({
     }
   }, [editor, currentNote, getMarkdown]);
 
-  // Toggle source mode
+  // Toggle source mode — computes anchor data and toggles state;
+  // focus/scroll restoration happens in the useLayoutEffect below.
   const toggleSourceMode = useCallback(() => {
     if (!editor) return;
+    const container = scrollContainerRef.current;
+
     if (!sourceMode) {
-      // Entering source mode: get markdown from editor
+      // === Entering source mode (TipTap → textarea) ===
       const md = getMarkdown(editor);
+
+      // Find which top-level block is at the viewport top
+      let topBlockIndex = 0;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        try {
+          const topPos = editor.view.posAtCoords({
+            left: rect.left + rect.width / 2,
+            top: rect.top + 10,
+          });
+          if (topPos) {
+            const resolved = editor.state.doc.resolve(
+              Math.min(topPos.pos, editor.state.doc.content.size),
+            );
+            topBlockIndex = resolved.index(0);
+          }
+        } catch {
+          // posAtCoords can fail at edges
+        }
+      }
+
+      // Find which block the cursor is in
+      let cursorBlockIndex = 0;
+      try {
+        const { from } = editor.state.selection;
+        const resolved = editor.state.doc.resolve(
+          Math.min(from, editor.state.doc.content.size),
+        );
+        cursorBlockIndex = resolved.index(0);
+      } catch {
+        // resolve can fail at edges
+      }
+
+      sourceModeTransitionRef.current = { topBlockIndex, cursorBlockIndex, md };
       setSourceContent(md);
       setSourceMode(true);
     } else {
-      // Exiting source mode: parse markdown back to TipTap JSON, then set content
+      // === Exiting source mode (textarea → TipTap) ===
+      const textarea = container?.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement | null;
+
+      // Find which block is at the top of the textarea
+      let topBlockIndex = 0;
+      if (textarea) {
+        const lineHeight =
+          parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+        const topLine = Math.floor(textarea.scrollTop / lineHeight);
+        const lines = sourceContent.split("\n");
+        let charOffset = 0;
+        for (let i = 0; i < Math.min(topLine, lines.length); i++) {
+          charOffset += lines[i].length + 1;
+        }
+        const blockOffsets = getMarkdownBlockOffsets(sourceContent);
+        for (let i = 0; i < blockOffsets.length; i++) {
+          if (blockOffsets[i] <= charOffset) topBlockIndex = i;
+          else break;
+        }
+      }
+
+      // Find which markdown block the cursor is in
+      let cursorBlockIndex = 0;
+      if (textarea) {
+        const blockOffsets = getMarkdownBlockOffsets(sourceContent);
+        for (let i = 0; i < blockOffsets.length; i++) {
+          if (blockOffsets[i] <= textarea.selectionStart) cursorBlockIndex = i;
+          else break;
+        }
+      }
+
+      sourceModeTransitionRef.current = { topBlockIndex, cursorBlockIndex };
+
+      // Parse and set content
       const manager = editor.storage.markdown?.manager;
       if (manager) {
         try {
@@ -1832,6 +1945,83 @@ export function Editor({
       setSourceMode(false);
     }
   }, [editor, sourceMode, sourceContent, getMarkdown]);
+
+  // Restore focus and scroll position after source mode transitions.
+  // useLayoutEffect runs synchronously after React commits DOM changes,
+  // guaranteeing the new textarea / EditorContent is mounted.
+  useLayoutEffect(() => {
+    const transition = sourceModeTransitionRef.current;
+    if (!transition) return;
+    sourceModeTransitionRef.current = null;
+
+    const container = scrollContainerRef.current;
+
+    if (sourceMode) {
+      // Just entered source mode — focus textarea and scroll to anchor block
+      const textarea = container?.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement | null;
+      if (!textarea) return;
+
+      const md = transition.md || "";
+
+      // Place cursor at the start of the same block in markdown
+      const blockOffsets = getMarkdownBlockOffsets(md);
+      const cursorPos =
+        transition.cursorBlockIndex < blockOffsets.length
+          ? blockOffsets[transition.cursorBlockIndex]
+          : 0;
+      textarea.setSelectionRange(cursorPos, cursorPos);
+      textarea.focus();
+
+      if (transition.topBlockIndex < blockOffsets.length) {
+        const charOffset = blockOffsets[transition.topBlockIndex];
+        const linesBefore = md.slice(0, charOffset).split("\n").length - 1;
+        const lineHeight =
+          parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+        textarea.scrollTop = linesBefore * lineHeight;
+      }
+    } else if (editor) {
+      // Just exited source mode — focus editor and scroll to anchor block.
+      // Use rAF because EditorContent reattaches the ProseMirror view in
+      // its own useEffect, which hasn't run yet during useLayoutEffect.
+      requestAnimationFrame(() => {
+        // Place cursor at the start of the same block in TipTap
+        const doc = editor.state.doc;
+        const cursorBlockIdx = Math.min(
+          transition.cursorBlockIndex,
+          doc.childCount - 1,
+        );
+        let cursorPos = 1; // 1 for doc opening token
+        for (let i = 0; i < cursorBlockIdx; i++) {
+          cursorPos += doc.child(i).nodeSize;
+        }
+        editor.commands.focus(cursorPos);
+
+        // Scroll to anchor block
+        if (container) {
+          const doc = editor.state.doc;
+          const blockIdx = Math.min(
+            transition.topBlockIndex,
+            doc.childCount - 1,
+          );
+          let nodePos = 1; // 1 for doc opening token
+          for (let i = 0; i < blockIdx; i++) {
+            nodePos += doc.child(i).nodeSize;
+          }
+          try {
+            // Reset scroll so coordsAtPos returns absolute content offsets
+            container.scrollTop = 0;
+            const coords = editor.view.coordsAtPos(nodePos);
+            const containerRect = container.getBoundingClientRect();
+            container.scrollTop = coords.top - containerRect.top;
+          } catch {
+            // coordsAtPos can fail if view isn't fully rendered
+          }
+        }
+      });
+    }
+  }, [sourceMode, editor]);
 
   // Listen for toggle-source-mode custom event (from App.tsx shortcut / command palette)
   useEffect(() => {
