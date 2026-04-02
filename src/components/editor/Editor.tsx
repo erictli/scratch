@@ -17,7 +17,7 @@ import { Markdown } from "@tiptap/markdown";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { lowlight } from "./lowlight";
 import { CodeBlockView } from "./CodeBlockView";
-import { Extension } from "@tiptap/core";
+import { Extension, InputRule } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   NodeSelection,
@@ -32,6 +32,14 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
 import { mod, alt, shift, isMac } from "../../lib/platform";
+
+// Prepend https:// if no protocol is present
+function normalizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return trimmed;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
 
 // Validate URL scheme for safe opening
 function isAllowedUrlScheme(url: string): boolean {
@@ -997,6 +1005,26 @@ export function Editor({
           class: "underline cursor-pointer",
         },
       }),
+      // Convert markdown link syntax [text](url) into real links when typed
+      Extension.create({
+        name: "markdownLinkInputRule",
+        addInputRules() {
+          return [
+            new InputRule({
+              find: /\[([^\]]+)\]\(([^)]+)\)$/,
+              handler: ({ state, range, match }) => {
+                const [, text, rawUrl] = match;
+                const url = normalizeUrl(rawUrl);
+                const linkMark = state.schema.marks.link.create({
+                  href: url,
+                });
+                const textNode = state.schema.text(text, [linkMark]);
+                state.tr.replaceWith(range.from, range.to, textNode);
+              },
+            }),
+          ];
+        },
+      }),
       Image.configure({
         inline: false,
         allowBase64: false,
@@ -1258,8 +1286,11 @@ export function Editor({
       if (link) {
         e.preventDefault();
         if ((e.metaKey || e.ctrlKey) && link.href) {
-          if (isAllowedUrlScheme(link.href)) {
-            openUrl(link.href).catch((error) =>
+          // Use raw href attribute and normalize to handle protocol-less URLs
+          const rawHref = link.getAttribute("href") || link.href;
+          const normalizedHref = normalizeUrl(rawHref);
+          if (isAllowedUrlScheme(normalizedHref)) {
+            openUrl(normalizedHref).catch((error) =>
               console.error("Failed to open link:", error),
             );
           } else {
@@ -1511,7 +1542,8 @@ export function Editor({
         // Only show text input if there's no selection AND not editing an existing link
         initialText: hasSelection || existingUrl ? undefined : "",
         onSubmit: (url: string, text?: string) => {
-          if (url.trim()) {
+          const normalizedUrl = normalizeUrl(url);
+          if (normalizedUrl) {
             if (text !== undefined) {
               // No selection case - insert new link with text
               if (text.trim()) {
@@ -1521,7 +1553,9 @@ export function Editor({
                   .insertContent({
                     type: "text",
                     text: text.trim(),
-                    marks: [{ type: "link", attrs: { href: url.trim() } }],
+                    marks: [
+                      { type: "link", attrs: { href: normalizedUrl } },
+                    ],
                   })
                   .run();
               }
@@ -1531,7 +1565,7 @@ export function Editor({
                 .chain()
                 .focus()
                 .extendMarkRange("link")
-                .setLink({ href: url.trim() })
+                .setLink({ href: normalizedUrl })
                 .run();
             }
           } else {
