@@ -126,6 +126,10 @@ pub struct Settings {
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
+    #[serde(rename = "customColorsLight")]
+    pub custom_colors_light: Option<std::collections::HashMap<String, String>>,
+    #[serde(rename = "customColorsDark")]
+    pub custom_colors_dark: Option<std::collections::HashMap<String, String>>,
 }
 
 // Search result

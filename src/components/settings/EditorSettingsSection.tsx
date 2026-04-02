@@ -1,7 +1,21 @@
-import { useTheme } from "../../context/ThemeContext";
+import { useTheme, defaultThemeColors } from "../../context/ThemeContext";
 import { Button, CodeCopyButton, IconButton, Input, Select } from "../ui";
-import type { FontFamily, TextDirection, EditorWidth } from "../../types/note";
+import { ColorPicker } from "../ui/ColorPicker";
+import type { FontFamily, TextDirection, EditorWidth, ThemeColorKey } from "../../types/note";
 import { EyeIcon, MinusIcon, PlusIcon } from "../icons";
+
+// Human-readable labels for theme color keys
+const colorLabels: { key: ThemeColorKey; label: string }[] = [
+  { key: "bg", label: "Background" },
+  { key: "bg-secondary", label: "Sidebar" },
+  { key: "bg-muted", label: "Hover" },
+  { key: "bg-emphasis", label: "Emphasis" },
+  { key: "text", label: "Text" },
+  { key: "text-muted", label: "Secondary Text" },
+  { key: "border", label: "Borders" },
+  { key: "accent", label: "Accent" },
+  { key: "selection", label: "Selection" },
+];
 
 // Text direction options
 const textDirectionOptions: { value: TextDirection; label: string }[] = [
@@ -50,6 +64,11 @@ export function AppearanceSettingsSection() {
     setInterfaceZoom,
     customEditorWidthPx,
     setCustomEditorWidthPx,
+    customColorsLight,
+    customColorsDark,
+    setCustomColor,
+    resetCustomColor,
+    resetAllCustomColors,
   } = useTheme();
 
   // Validated numeric change handler
@@ -112,6 +131,34 @@ export function AppearanceSettingsSection() {
           <p className="mt-3 text-sm text-text-muted">
             Currently using {resolvedTheme} mode based on system preference
           </p>
+        )}
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Colors Section */}
+      <section>
+        <ColorsSubsection
+          label={theme === "system" ? `Colors (${resolvedTheme === "light" ? "Light" : "Dark"})` : "Colors"}
+          mode={resolvedTheme}
+          customColors={resolvedTheme === "dark" ? customColorsDark : customColorsLight}
+          setCustomColor={setCustomColor}
+          resetCustomColor={resetCustomColor}
+          resetAllCustomColors={resetAllCustomColors}
+        />
+        {theme === "system" && (
+          <>
+            <div className="my-6" />
+            <ColorsSubsection
+              label={`Colors (${resolvedTheme === "light" ? "Dark" : "Light"})`}
+              mode={resolvedTheme === "light" ? "dark" : "light"}
+              customColors={resolvedTheme === "light" ? customColorsDark : customColorsLight}
+              setCustomColor={setCustomColor}
+              resetCustomColor={resetCustomColor}
+              resetAllCustomColors={resetAllCustomColors}
+            />
+          </>
         )}
       </section>
 
@@ -397,6 +444,56 @@ export function AppearanceSettingsSection() {
           <div className="absolute bottom-0 left-0 right-0 h-40 bg-linear-to-t from-bg to-transparent pointer-events-none" />
         </div>
       </section>
+    </div>
+  );
+}
+
+// Subsection for customizing colors for a single theme mode
+function ColorsSubsection({
+  label,
+  mode,
+  customColors,
+  setCustomColor,
+  resetCustomColor,
+  resetAllCustomColors,
+}: {
+  label: string;
+  mode: "light" | "dark";
+  customColors: Partial<Record<ThemeColorKey, string>>;
+  setCustomColor: (mode: "light" | "dark", key: ThemeColorKey, value: string) => void;
+  resetCustomColor: (mode: "light" | "dark", key: ThemeColorKey) => void;
+  resetAllCustomColors: (mode: "light" | "dark") => void;
+}) {
+  const defaults = defaultThemeColors[mode];
+  const hasAnyCustom = Object.keys(customColors).length > 0;
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="text-xl font-medium">{label}</h2>
+        {hasAnyCustom && (
+          <Button
+            onClick={() => resetAllCustomColors(mode)}
+            variant="ghost"
+            size="sm"
+          >
+            Reset all
+          </Button>
+        )}
+      </div>
+      <div className="rounded-[10px] border border-border pl-4 py-3 pr-3 space-y-2">
+        {colorLabels.map(({ key, label: colorLabel }) => (
+          <div key={key} className="flex items-center justify-between">
+            <label className="text-sm text-text font-medium">{colorLabel}</label>
+            <ColorPicker
+              color={customColors[key] ?? defaults[key]}
+              defaultColor={defaults[key]}
+              onChange={(value) => setCustomColor(mode, key, value)}
+              onReset={() => resetCustomColor(mode, key)}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
