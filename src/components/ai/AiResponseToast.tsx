@@ -1,6 +1,7 @@
 import { ClaudeIcon, CodexIcon, OpenCodeIcon, OllamaIcon } from "../icons";
 import { mod } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
+import { CodeCopyButton } from "../ui";
 
 interface AiResponseToastProps {
   output: string;
@@ -44,15 +45,19 @@ function parseMarkdown(text: string): React.ReactNode {
     // Code blocks
     if (line.trim().startsWith("```")) {
       if (inCodeBlock) {
+        const codeText = codeBlockContent.join("\n");
         elements.push(
-          <pre
-            key={`code-${index}`}
-            className="bg-bg-secondary rounded px-2 py-1 my-1 overflow-x-auto"
-          >
-            <code className="text-xs font-mono">
-              {codeBlockContent.join("\n")}
-            </code>
-          </pre>,
+          <div key={`code-${index}`} className="relative my-1">
+            <div className="absolute top-1.5 right-1.5 z-10">
+              <CodeCopyButton
+                text={codeText}
+                className="bg-bg/80 backdrop-blur-sm"
+              />
+            </div>
+            <pre className="bg-bg-secondary rounded px-2 pt-8 pb-1 my-1 overflow-x-auto">
+              <code className="text-xs font-mono">{codeText}</code>
+            </pre>
+          </div>,
         );
         codeBlockContent = [];
         inCodeBlock = false;
@@ -117,15 +122,19 @@ function parseMarkdown(text: string): React.ReactNode {
 
   // Flush any unclosed code block
   if (inCodeBlock && codeBlockContent.length > 0) {
+    const codeText = codeBlockContent.join("\n");
     elements.push(
-      <pre
-        key={`code-unclosed`}
-        className="bg-bg-secondary rounded px-2 py-1 my-1 overflow-x-auto"
-      >
-        <code className="text-xs font-mono">
-          {codeBlockContent.join("\n")}
-        </code>
-      </pre>,
+      <div key={`code-unclosed`} className="relative my-1">
+        <div className="absolute top-1.5 right-1.5 z-10">
+          <CodeCopyButton
+            text={codeText}
+            className="bg-bg/80 backdrop-blur-sm"
+          />
+        </div>
+        <pre className="bg-bg-secondary rounded px-2 pt-8 pb-1 my-1 overflow-x-auto">
+          <code className="text-xs font-mono">{codeText}</code>
+        </pre>
+      </div>,
     );
   }
 

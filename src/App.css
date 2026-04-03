@@ -14,7 +14,6 @@
   --color-text-muted: #78716c;
   --color-text-inverse: #fafaf9;
   --color-border: rgba(28, 25, 23, 0.08);
-  --color-border-solid: #d6d3d1; /* stone-300 - for table borders */
   --color-accent: #1c1917;
   --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
 
@@ -60,7 +59,6 @@
   --color-text-muted: #a8a29e;
   --color-text-inverse: #0c0a09;
   --color-border: rgba(250, 249, 249, 0.07);
-  --color-border-solid: #57534e; /* stone-600 - for table borders */
   --color-accent: #fafaf9;
   --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
 
@@ -648,9 +646,17 @@ html.dark {
   border-inline-start-color: var(--color-border);
 }
 
+/* Search match highlighting - uses the selection color */
+.search-match {
+  background-color: color-mix(in srgb, var(--color-selection), transparent 50%);
+}
+.search-match-active {
+  background-color: var(--color-selection);
+}
+
 /* Horizontal rules */
 .prose :where(hr):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  border-color: var(--color-border);
+  border-color: color-mix(in srgb, var(--color-text) 15%, transparent);
   margin-top: 1.75em;
   margin-bottom: 1.75em;
 }
@@ -731,11 +737,42 @@ ul[data-type="taskList"] li > label {
 }
 
 ul[data-type="taskList"] li > label input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
   width: 1rem;
   height: 1rem;
   margin: 0;
-  accent-color: var(--color-accent);
+  border: 1.5px solid color-mix(in srgb, var(--color-text) 25%, transparent);
+  border-radius: 3px;
+  background-color: transparent;
   cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* SVG checkmark for pixel-perfect centering */
+  background: var(--color-text-inverse);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2.5 6L5 8.5L9.5 3.5' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  -webkit-mask-size: 10px;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2.5 6L5 8.5L9.5 3.5' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  mask-size: 10px;
+  mask-repeat: no-repeat;
+  mask-position: center;
 }
 
 ul[data-type="taskList"] li > div {
@@ -771,7 +808,7 @@ table.not-prose {
   width: max-content;
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--color-border-solid);
+  border: 1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
   border-radius: 6px;
   border-collapse: separate;
   border-spacing: 0;
@@ -794,8 +831,8 @@ table.not-prose::-webkit-scrollbar {
 table.not-prose th,
 table.not-prose td {
   border: 0;
-  border-right: 1px solid var(--color-border-solid);
-  border-bottom: 1px solid var(--color-border-solid);
+  border-right: 1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
   padding: 0.5em 0.75em;
   text-align: left;
   vertical-align: top;
@@ -1121,7 +1158,6 @@ table.not-prose th {
     overflow: visible !important;
     height: auto !important;
     overflow-wrap: break-word !important;
-    word-break: break-word !important;
   }
 
   .prose {
@@ -1129,7 +1165,6 @@ table.not-prose th {
     padding: 0 !important;
     margin: 0 !important;
     overflow-wrap: break-word !important;
-    word-break: break-word !important;
   }
 
   /* Ensure page breaks work well */
@@ -1205,7 +1240,6 @@ table.not-prose th {
     max-width: 100% !important;
     table-layout: fixed !important;
     overflow-wrap: break-word !important;
-    word-break: break-word !important;
   }
 
   th,

@@ -1,8 +1,6 @@
 import type { Editor } from "@tiptap/react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "sonner";
-
 /**
  * Triggers the native print dialog for the editor content.
  * Users can save as PDF or print to a physical printer.
@@ -17,22 +15,7 @@ export async function downloadPdf(
 ): Promise<void> {
   if (!editor) throw new Error("Editor not available");
 
-  // Show toast before print dialog. window.print() is synchronous and blocks
-  // the main thread, so we need a short delay for the toast to render first.
-  toast("Print preview margins may differ from actual output", {
-    id: "print-hint",
-    duration: 4000,
-  });
-
-  await new Promise((r) => setTimeout(r, 150));
-
-  // @page margin handles page margins. The static print CSS in App.css
-  // sets .ProseMirror { padding: 0 !important } to zero out the editor's
-  // pt-8/pb-24/px-6 utility padding so it doesn't stack with @page margins.
   window.print();
-
-  // Dismiss toast immediately when dialog closes
-  toast.dismiss("print-hint");
 }
 
 /**

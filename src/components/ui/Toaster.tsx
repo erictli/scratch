@@ -6,16 +6,16 @@ export function Toaster() {
 
   return (
     <Sonner
-      theme={resolvedTheme as "light" | "dark"}
+      theme={resolvedTheme}
       position="bottom-right"
       offset={20}
       toastOptions={{
         classNames: {
           toast:
-            "group toast bg-bg border-border text-text shadow-lg rounded-lg w-full max-w-72",
-          description: "text-text-muted",
-          actionButton: "bg-accent text-white",
-          cancelButton: "bg-bg-muted text-text",
+            "group toast !bg-bg !border-border !text-text shadow-lg rounded-lg w-full max-w-72",
+          description: "!text-text-muted",
+          actionButton: "!bg-accent !text-text-inverse",
+          cancelButton: "!bg-bg-muted !text-text",
           error: "!bg-bg !text-text !border-border",
           success: "!bg-bg !text-text !border-border",
           warning: "!bg-bg !text-text !border-border",

@@ -1,4 +1,10 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useState,
+} from "react";
 import {
   useEditor,
   EditorContent,
@@ -17,7 +23,7 @@ import { Markdown } from "@tiptap/markdown";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { lowlight } from "./lowlight";
 import { CodeBlockView } from "./CodeBlockView";
-import { Extension } from "@tiptap/core";
+import { Extension, InputRule } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   NodeSelection,
@@ -32,6 +38,14 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
 import { mod, alt, shift, isMac } from "../../lib/platform";
+
+// Prepend https:// if no protocol is present
+function normalizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return trimmed;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
 
 // Validate URL scheme for safe opening
 function isAllowedUrlScheme(url: string): boolean {
@@ -125,7 +139,9 @@ function focusAndSelectTitle(editor: TiptapEditor): boolean {
   editor
     .chain()
     .focus()
-    .setTextSelection(titleFrom === titleTo ? titleFrom : { from: titleFrom, to: titleTo })
+    .setTextSelection(
+      titleFrom === titleTo ? titleFrom : { from: titleFrom, to: titleTo },
+    )
     .run();
 
   return true;
@@ -433,6 +449,59 @@ interface EditorProps {
   saveToFolderDisabled?: boolean;
 }
 
+/**
+ * Get character offsets where each top-level block starts in markdown.
+ * Blocks are separated by blank lines, with awareness of code fences
+ * and ATX headings.
+ */
+function getMarkdownBlockOffsets(md: string): number[] {
+  const offsets: number[] = [];
+  const lines = md.split("\n");
+  let pos = 0;
+  let prevBlank = true; // treat doc start as preceded by blank
+  let inCodeFence = false;
+
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+
+    if (inCodeFence) {
+      // Only look for closing fence; don't start new blocks inside code
+      if (trimmed.startsWith("```")) {
+        inCodeFence = false;
+      }
+    } else if (trimmed.startsWith("```")) {
+      // Opening fence is always a block start
+      offsets.push(pos);
+      inCodeFence = true;
+      prevBlank = false;
+    } else {
+      const isBlank = trimmed === "";
+      // Start a new block after a blank line, or for ATX headings
+      if (!isBlank && (prevBlank || trimmed.startsWith("#"))) {
+        offsets.push(pos);
+      }
+      prevBlank = isBlank;
+    }
+
+    pos += line.length + 1;
+  }
+
+  return offsets;
+}
+
+/** ProseMirror position at the start of the Nth top-level block. */
+function blockIndexToPos(
+  doc: { childCount: number; child: (i: number) => { nodeSize: number } },
+  blockIndex: number,
+): number {
+  const idx = Math.max(0, Math.min(blockIndex, doc.childCount - 1));
+  let pos = 1; // 1 for doc opening token
+  for (let i = 0; i < idx; i++) {
+    pos += doc.child(i).nodeSize;
+  }
+  return pos;
+}
+
 export function Editor({
   onToggleSidebar,
   sidebarVisible,
@@ -499,6 +568,11 @@ export function Editor({
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceContent, setSourceContent] = useState("");
   const sourceTimeoutRef = useRef<number | null>(null);
+  const sourceModeTransitionRef = useRef<{
+    topBlockIndex: number;
+    cursorBlockIndex: number;
+    md?: string;
+  } | null>(null);
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -617,9 +691,7 @@ export function Editor({
           const isActive = index === currentIndex;
           decorations.push(
             Decoration.inline(match.from, match.to, {
-              class: isActive
-                ? "bg-yellow-300/50 dark:bg-yellow-400/40" // Brighter yellow for active match
-                : "bg-yellow-300/25 dark:bg-yellow-400/20", // Lighter yellow for inactive matches
+              class: isActive ? "search-match-active" : "search-match",
             }),
           );
         });
@@ -997,6 +1069,29 @@ export function Editor({
           class: "underline cursor-pointer",
         },
       }),
+      // Convert markdown link syntax [text](url) into real links when typed
+      Extension.create({
+        name: "markdownLinkInputRule",
+        addInputRules() {
+          return [
+            new InputRule({
+              find: /\[([^\]]+)\]\(([^)]+)\)$/,
+              handler: ({ state, range, match, commands }) => {
+                const [, text, rawUrl] = match;
+                const url = normalizeUrl(rawUrl);
+                commands.command(({ tr }) => {
+                  const linkMark = state.schema.marks.link.create({
+                    href: url,
+                  });
+                  const textNode = state.schema.text(text, [linkMark]);
+                  tr.replaceWith(range.from, range.to, textNode);
+                  return true;
+                });
+              },
+            }),
+          ];
+        },
+      }),
       Image.configure({
         inline: false,
         allowBase64: false,
@@ -1037,6 +1132,26 @@ export function Editor({
       attributes: {
         class:
           "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
+      },
+      // Serialize copied text as markdown instead of plain text
+      clipboardTextSerializer: (slice) => {
+        const fallback = slice.content.textBetween(
+          0,
+          slice.content.size,
+          "\n\n",
+        );
+        const currentEditor = editorRef.current;
+        const manager = currentEditor?.storage.markdown?.manager;
+        if (!currentEditor || !manager) return fallback;
+        try {
+          const doc = currentEditor.schema.topNodeType.create(
+            null,
+            slice.content,
+          );
+          return manager.serialize(doc.toJSON());
+        } catch {
+          return fallback;
+        }
       },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
@@ -1245,8 +1360,11 @@ export function Editor({
       if (link) {
         e.preventDefault();
         if ((e.metaKey || e.ctrlKey) && link.href) {
-          if (isAllowedUrlScheme(link.href)) {
-            openUrl(link.href).catch((error) =>
+          // Use raw href attribute and normalize to handle protocol-less URLs
+          const rawHref = link.getAttribute("href") ?? "";
+          const normalizedHref = normalizeUrl(rawHref);
+          if (isAllowedUrlScheme(normalizedHref)) {
+            openUrl(normalizedHref).catch((error) =>
               console.error("Failed to open link:", error),
             );
           } else {
@@ -1385,7 +1503,8 @@ export function Editor({
       // For brand new empty notes, focus and select all so user can start typing
       // Skip if the note list has focus (e.g. keyboard navigation with arrow keys)
       if ((isNewNote || wasEmpty) && currentNote.content.trim() === "") {
-        const noteListFocused = document.activeElement?.closest("[data-note-list]");
+        const noteListFocused =
+          document.activeElement?.closest("[data-note-list]");
         if (!noteListFocused) {
           editor.commands.focus("start");
           editor.commands.selectAll();
@@ -1498,7 +1617,8 @@ export function Editor({
         // Only show text input if there's no selection AND not editing an existing link
         initialText: hasSelection || existingUrl ? undefined : "",
         onSubmit: (url: string, text?: string) => {
-          if (url.trim()) {
+          const normalizedUrl = normalizeUrl(url);
+          if (normalizedUrl) {
             if (text !== undefined) {
               // No selection case - insert new link with text
               if (text.trim()) {
@@ -1508,7 +1628,7 @@ export function Editor({
                   .insertContent({
                     type: "text",
                     text: text.trim(),
-                    marks: [{ type: "link", attrs: { href: url.trim() } }],
+                    marks: [{ type: "link", attrs: { href: normalizedUrl } }],
                   })
                   .run();
               }
@@ -1518,7 +1638,7 @@ export function Editor({
                 .chain()
                 .focus()
                 .extendMarkRange("link")
-                .setLink({ href: url.trim() })
+                .setLink({ href: normalizedUrl })
                 .run();
             }
           } else {
@@ -1763,16 +1883,79 @@ export function Editor({
     }
   }, [editor, currentNote, getMarkdown]);
 
-  // Toggle source mode
+  // Toggle source mode — computes anchor data and toggles state;
+  // focus/scroll restoration happens in the useLayoutEffect below.
   const toggleSourceMode = useCallback(() => {
     if (!editor) return;
+    const container = scrollContainerRef.current;
+
     if (!sourceMode) {
-      // Entering source mode: get markdown from editor
+      // === Entering source mode (TipTap → textarea) ===
       const md = getMarkdown(editor);
+
+      // Find which top-level block is at the viewport top
+      let topBlockIndex = 0;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        try {
+          const topPos = editor.view.posAtCoords({
+            left: rect.left + rect.width / 2,
+            top: rect.top + 10,
+          });
+          if (topPos) {
+            const resolved = editor.state.doc.resolve(
+              Math.min(topPos.pos, editor.state.doc.content.size),
+            );
+            topBlockIndex = resolved.index(0);
+          }
+        } catch {
+          // posAtCoords can fail at edges
+        }
+      }
+
+      // Find which block the cursor is in
+      let cursorBlockIndex = 0;
+      try {
+        const { from } = editor.state.selection;
+        const resolved = editor.state.doc.resolve(
+          Math.min(from, editor.state.doc.content.size),
+        );
+        cursorBlockIndex = resolved.index(0);
+      } catch {
+        // resolve can fail at edges
+      }
+
+      sourceModeTransitionRef.current = { topBlockIndex, cursorBlockIndex, md };
       setSourceContent(md);
       setSourceMode(true);
     } else {
-      // Exiting source mode: parse markdown back to TipTap JSON, then set content
+      // === Exiting source mode (textarea → TipTap) ===
+      const textarea = container?.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement | null;
+
+      // Find which block is at the top of the textarea and which has the cursor
+      let topBlockIndex = 0;
+      let cursorBlockIndex = 0;
+      if (textarea) {
+        const blockOffsets = getMarkdownBlockOffsets(sourceContent);
+        const lineHeight =
+          parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+        const topLine = Math.floor(textarea.scrollTop / lineHeight);
+        const lines = sourceContent.split("\n");
+        let charOffset = 0;
+        for (let i = 0; i < Math.min(topLine, lines.length); i++) {
+          charOffset += lines[i].length + 1;
+        }
+        for (let i = 0; i < blockOffsets.length; i++) {
+          if (blockOffsets[i] <= charOffset) topBlockIndex = i;
+          if (blockOffsets[i] <= textarea.selectionStart) cursorBlockIndex = i;
+        }
+      }
+
+      sourceModeTransitionRef.current = { topBlockIndex, cursorBlockIndex };
+
+      // Parse and set content
       const manager = editor.storage.markdown?.manager;
       if (manager) {
         try {
@@ -1787,6 +1970,77 @@ export function Editor({
       setSourceMode(false);
     }
   }, [editor, sourceMode, sourceContent, getMarkdown]);
+
+  // Restore focus and scroll position after source mode transitions.
+  // useLayoutEffect runs synchronously after React commits DOM changes,
+  // guaranteeing the new textarea / EditorContent is mounted.
+  useLayoutEffect(() => {
+    let rafId: number | undefined;
+    const transition = sourceModeTransitionRef.current;
+    if (!transition) {
+      return () => {};
+    }
+    sourceModeTransitionRef.current = null;
+
+    const container = scrollContainerRef.current;
+
+    if (sourceMode) {
+      // Just entered source mode — focus textarea and scroll to anchor block
+      const textarea = container?.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement | null;
+      if (!textarea) return () => {};
+
+      const md = transition.md || "";
+
+      // Place cursor at the start of the same block in markdown
+      const blockOffsets = getMarkdownBlockOffsets(md);
+      const cursorPos =
+        transition.cursorBlockIndex < blockOffsets.length
+          ? blockOffsets[transition.cursorBlockIndex]
+          : md.length;
+      textarea.setSelectionRange(cursorPos, cursorPos);
+      textarea.focus();
+
+      if (transition.topBlockIndex < blockOffsets.length) {
+        const charOffset = blockOffsets[transition.topBlockIndex];
+        const linesBefore = md.slice(0, charOffset).split("\n").length - 1;
+        const lineHeight =
+          parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+        textarea.scrollTop = linesBefore * lineHeight;
+      }
+    } else if (editor) {
+      // Just exited source mode — focus editor and scroll to anchor block.
+      // Use rAF because EditorContent reattaches the ProseMirror view in
+      // its own useEffect, which hasn't run yet during useLayoutEffect.
+      rafId = requestAnimationFrame(() => {
+        if (!editor.view?.dom?.isConnected) return;
+        const doc = editor.state.doc;
+        editor.commands.focus(
+          blockIndexToPos(doc, transition.cursorBlockIndex),
+        );
+
+        // Scroll to anchor block
+        const el = scrollContainerRef.current;
+        if (el) {
+          try {
+            el.scrollTop = 0;
+            const coords = editor.view.coordsAtPos(
+              blockIndexToPos(doc, transition.topBlockIndex),
+            );
+            const containerRect = el.getBoundingClientRect();
+            el.scrollTop = coords.top - containerRect.top;
+          } catch {
+            // coordsAtPos can fail if view isn't fully rendered
+          }
+        }
+      });
+    }
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [sourceMode, editor]);
 
   // Listen for toggle-source-mode custom event (from App.tsx shortcut / command palette)
   useEffect(() => {
@@ -1861,10 +2115,21 @@ export function Editor({
         ></div>
         <div className="flex-1 flex items-center justify-center pb-8">
           <div className="text-center text-text-muted select-none">
-            <img
-              src="/note-dark.png"
-              alt="Note"
-              className="w-42 h-auto mx-auto mb-1 invert dark:invert-0"
+            <div
+              role="img"
+              aria-label="Note"
+              className="w-42 aspect-square mx-auto mb-1"
+              style={{
+                backgroundColor: "var(--color-text)",
+                WebkitMaskImage: "url(/note-dark.png)",
+                WebkitMaskSize: "contain",
+                WebkitMaskRepeat: "no-repeat",
+                WebkitMaskPosition: "center",
+                maskImage: "url(/note-dark.png)",
+                maskSize: "contain",
+                maskRepeat: "no-repeat",
+                maskPosition: "center",
+              }}
             />
             <h1 className="text-2xl text-text font-serif mb-1 tracking-[-0.01em] ">
               What's on your mind?
@@ -2122,6 +2387,7 @@ export function Editor({
               <textarea
                 value={sourceContent}
                 onChange={(e) => handleSourceChange(e.target.value)}
+                wrap="off"
                 dir={textDirection}
                 className="w-full h-full bg-transparent text-text focus:outline-none resize-none px-6 pt-8 pb-24 mx-auto block"
                 style={{

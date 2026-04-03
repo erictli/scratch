@@ -28,6 +28,21 @@ export interface EditorFontSettings {
   lineHeight?: number; // default 1.6
 }
 
+// Customizable theme color keys (maps to CSS --color-* variables)
+export type ThemeColorKey =
+  | "bg"
+  | "bg-secondary"
+  | "bg-muted"
+  | "bg-emphasis"
+  | "text"
+  | "text-muted"
+  | "border"
+  | "accent"
+  | "selection";
+
+// Partial map of color overrides (hex strings)
+export type CustomColors = Partial<Record<ThemeColorKey, string>>;
+
 // Per-folder settings (stored in .scratch/settings.json)
 export interface Settings {
   theme: ThemeSettings;
@@ -41,6 +56,9 @@ export interface Settings {
   defaultNoteName?: string;
   interfaceZoom?: number;
   ollamaModel?: string;
+  ignoredPatterns?: string[];
+  customColorsLight?: CustomColors;
+  customColorsDark?: CustomColors;
 }
 
 export interface FolderNode {

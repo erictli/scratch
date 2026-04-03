@@ -13,6 +13,8 @@ import type {
   FontFamily,
   TextDirection,
   EditorWidth,
+  CustomColors,
+  ThemeColorKey,
 } from "../types/note";
 
 type ThemeMode = "light" | "dark" | "system";
@@ -45,6 +47,34 @@ const defaultEditorFontSettings: Required<EditorFontSettings> = {
   lineHeight: 1.6,
 };
 
+// Default theme colors (must match App.css :root / .dark values)
+const defaultThemeColors: Record<"light" | "dark", Record<ThemeColorKey, string>> = {
+  light: {
+    bg: "#ffffff",
+    "bg-secondary": "#fafaf9",
+    "bg-muted": "rgba(28, 25, 23, 0.06)",
+    "bg-emphasis": "rgba(28, 25, 23, 0.09)",
+    text: "#1c1917",
+    "text-muted": "#78716c",
+    border: "rgba(28, 25, 23, 0.08)",
+    accent: "#1c1917",
+    selection: "rgba(250, 204, 21, 0.4)",
+  },
+  dark: {
+    bg: "rgb(22, 20, 19)",
+    "bg-secondary": "rgb(14, 12, 11)",
+    "bg-muted": "rgba(250, 249, 249, 0.05)",
+    "bg-emphasis": "rgba(250, 249, 249, 0.08)",
+    text: "#fafaf9",
+    "text-muted": "#a8a29e",
+    border: "rgba(250, 249, 249, 0.07)",
+    accent: "#fafaf9",
+    selection: "rgba(253, 224, 71, 0.35)",
+  },
+};
+
+export { defaultThemeColors };
+
 interface ThemeContextType {
   theme: ThemeMode;
   resolvedTheme: "light" | "dark";
@@ -66,6 +96,11 @@ interface ThemeContextType {
   customEditorWidthPx: number;
   setCustomEditorWidthPx: (px: number) => void;
   setEditorMaxWidthLive: (value: string) => void;
+  customColorsLight: CustomColors;
+  customColorsDark: CustomColors;
+  setCustomColor: (mode: "light" | "dark", key: ThemeColorKey, value: string) => void;
+  resetCustomColor: (mode: "light" | "dark", key: ThemeColorKey) => void;
+  resetAllCustomColors: (mode: "light" | "dark") => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -136,6 +171,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [customEditorWidthPx, setCustomEditorWidthPxState] = useState<number>(
     DEFAULT_CUSTOM_WIDTH_PX
   );
+  const [customColorsLight, setCustomColorsLightState] = useState<CustomColors>({});
+  const [customColorsDark, setCustomColorsDarkState] = useState<CustomColors>({});
   const [isInitialized, setIsInitialized] = useState(false);
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
@@ -188,6 +225,12 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         settings.customEditorWidthPx >= 480
       ) {
         setCustomEditorWidthPxState(settings.customEditorWidthPx);
+      }
+      if (settings.customColorsLight) {
+        setCustomColorsLightState(settings.customColorsLight);
+      }
+      if (settings.customColorsDark) {
+        setCustomColorsDarkState(settings.customColorsDark);
       }
     } catch {
       // If settings can't be loaded, use defaults
@@ -319,6 +362,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setEditorWidthState("normal");
     setInterfaceZoomState(1.0);
     setCustomEditorWidthPxState(DEFAULT_CUSTOM_WIDTH_PX);
+    setCustomColorsLightState({});
+    setCustomColorsDarkState({});
     try {
       const settings = await getSettings();
       await updateSettings({
@@ -328,6 +373,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         editorWidth: "normal",
         interfaceZoom: 1.0,
         customEditorWidthPx: undefined,
+        customColorsLight: undefined,
+        customColorsDark: undefined,
       });
     } catch (error) {
       console.error("Failed to reset editor settings:", error);
@@ -398,6 +445,76 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, []);
 
+  // Apply custom color CSS variable overrides whenever theme or colors change
+  useEffect(() => {
+    const root = document.documentElement;
+    const activeColors = resolvedTheme === "dark" ? customColorsDark : customColorsLight;
+    const defaults = defaultThemeColors[resolvedTheme];
+    const keys: ThemeColorKey[] = [
+      "bg", "bg-secondary", "bg-muted", "bg-emphasis",
+      "text", "text-muted", "border", "accent", "selection",
+    ];
+    for (const key of keys) {
+      const value = activeColors[key] ?? defaults[key];
+      root.style.setProperty(`--color-${key}`, value);
+    }
+  }, [resolvedTheme, customColorsLight, customColorsDark]);
+
+  // Set a single custom color for a given mode
+  const setCustomColor = useCallback(
+    async (mode: "light" | "dark", key: ThemeColorKey, value: string) => {
+      const setter = mode === "light" ? setCustomColorsLightState : setCustomColorsDarkState;
+      const settingsKey = mode === "light" ? "customColorsLight" : "customColorsDark";
+      setter((prev) => {
+        const updated = { ...prev, [key]: value };
+        // Persist in background
+        getSettings()
+          .then((settings) => updateSettings({ ...settings, [settingsKey]: updated }))
+          .catch((err) => console.error("Failed to save custom color:", err));
+        return updated;
+      });
+    },
+    [],
+  );
+
+  // Reset a single custom color back to theme default
+  const resetCustomColor = useCallback(
+    async (mode: "light" | "dark", key: ThemeColorKey) => {
+      const setter = mode === "light" ? setCustomColorsLightState : setCustomColorsDarkState;
+      const settingsKey = mode === "light" ? "customColorsLight" : "customColorsDark";
+      setter((prev) => {
+        const updated = { ...prev };
+        delete updated[key];
+        getSettings()
+          .then((settings) =>
+            updateSettings({
+              ...settings,
+              [settingsKey]: Object.keys(updated).length > 0 ? updated : undefined,
+            }),
+          )
+          .catch((err) => console.error("Failed to reset custom color:", err));
+        return updated;
+      });
+    },
+    [],
+  );
+
+  // Reset all custom colors for a given mode
+  const resetAllCustomColors = useCallback(
+    async (mode: "light" | "dark") => {
+      const setter = mode === "light" ? setCustomColorsLightState : setCustomColorsDarkState;
+      const settingsKey = mode === "light" ? "customColorsLight" : "customColorsDark";
+      setter({});
+      try {
+        const settings = await getSettings();
+        await updateSettings({ ...settings, [settingsKey]: undefined });
+      } catch (err) {
+        console.error("Failed to reset all custom colors:", err);
+      }
+    },
+    [],
+  );
+
   // Live CSS variable update during drag (no persistence)
   const setEditorMaxWidthLive = useCallback((value: string) => {
     document.documentElement.style.setProperty("--editor-max-width", value);
@@ -428,6 +545,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         customEditorWidthPx,
         setCustomEditorWidthPx,
         setEditorMaxWidthLive,
+        customColorsLight,
+        customColorsDark,
+        setCustomColor,
+        resetCustomColor,
+        resetAllCustomColors,
       }}
     >
       {children}
