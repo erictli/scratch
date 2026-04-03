@@ -3882,7 +3882,7 @@ pub fn run() {
                         capture_main_window_size_with_scale(
                             window,
                             &state,
-                            size.clone(),
+                            *size,
                             scale_factor,
                         );
                     }
@@ -3895,13 +3895,13 @@ pub fn run() {
                     capture_main_window_size_with_scale(
                         window,
                         &state,
-                        new_inner_size.clone(),
+                        *new_inner_size,
                         *scale_factor,
                     );
                 }
                 tauri::WindowEvent::CloseRequested { .. } => {
                     capture_main_window_size(window, &state);
-                    persist_app_config_if_dirty(&app_handle, &state);
+                    persist_app_config_if_dirty(app_handle, &state);
                 }
                 _ => {}
             }
