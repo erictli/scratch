@@ -107,7 +107,22 @@ import {
   MarkdownIcon,
   MarkdownOffIcon,
   FolderPlusIcon,
+  HistoryIcon,
 } from "../icons";
+import { useOptionalGit } from "../../context/GitContext";
+import { VersionHistoryPanel } from "../history/VersionHistoryPanel";
+import {
+  DiffHighlight,
+  applyVersionDiffDecorations,
+  clearDiffDecorations,
+} from "./DiffHighlight";
+import {
+  computeVersionDiff,
+  computeVersionDiffStats,
+  parseSnapshot,
+  type VersionDiffStats,
+} from "../../lib/diff";
+import { applyHistoryCompareBase } from "./historyCompare";
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -552,6 +567,10 @@ export function Editor({
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyPreviewRef = useRef<string | null>(null);
+  const historyLiveContentRef = useRef<string | null>(null);
+  const gitCtx = useOptionalGit();
   // Delay transition classes until after initial mount to avoid format bar height animation on note load
   const [hasTransitioned, setHasTransitioned] = useState(false);
   useEffect(() => {
@@ -766,6 +785,8 @@ export function Editor({
     needsSaveRef.current = true;
 
     saveTimeoutRef.current = window.setTimeout(async () => {
+      // Never save while previewing a historical version
+      if (historyPreviewRef.current != null) return;
       if (currentNoteIdRef.current !== savingNoteId || !needsSaveRef.current) {
         return;
       }
@@ -1114,6 +1135,7 @@ export function Editor({
         matches: [],
         currentIndex: 0,
       }),
+      DiffHighlight,
       SlashCommand,
       Wikilink,
       WikilinkSuggestion,
@@ -1268,11 +1290,167 @@ export function Editor({
   const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
   // Track reloadVersion to detect manual refreshes
   const lastReloadVersionRef = useRef(0);
+  const diffSnapshotCacheRef = useRef<Map<string, Record<string, unknown>>>(
+    new Map(),
+  );
+  const diffStatsCacheRef = useRef<Map<string, VersionDiffStats>>(new Map());
+
+  useEffect(() => {
+    diffSnapshotCacheRef.current.clear();
+    diffStatsCacheRef.current.clear();
+  }, [editor, currentNote?.id]);
+
+  const getDiffSnapshot = useCallback(
+    (markdown: string): Record<string, unknown> | null => {
+      const cached = diffSnapshotCacheRef.current.get(markdown);
+      if (cached) return cached;
+      if (!editor) return null;
+
+      const manager = editor.storage.markdown?.manager;
+      if (!manager) return null;
+
+      try {
+        const parsed = manager.parse(markdown);
+        const json =
+          typeof parsed?.toJSON === "function" ? parsed.toJSON() : parsed;
+        if (!json || typeof json !== "object") {
+          return null;
+        }
+        const snapshot = json as Record<string, unknown>;
+        diffSnapshotCacheRef.current.set(markdown, snapshot);
+        return snapshot;
+      } catch {
+        return null;
+      }
+    },
+    [editor],
+  );
+
+  const getDiffStatsForContent = useCallback(
+    (oldMarkdown: string, newMarkdown: string): VersionDiffStats => {
+      const cacheKey = `${oldMarkdown}\u0000${newMarkdown}`;
+      const cached = diffStatsCacheRef.current.get(cacheKey);
+      if (cached) return cached;
+
+      if (!editor) {
+        return { added: 0, removed: 0, changed: 0 };
+      }
+
+      const beforeJSON = getDiffSnapshot(oldMarkdown);
+      const afterJSON = getDiffSnapshot(newMarkdown);
+      if (!beforeJSON || !afterJSON) {
+        return { added: 0, removed: 0, changed: 0 };
+      }
+
+      try {
+        const beforeDoc = parseSnapshot(editor.schema, beforeJSON);
+        const afterDoc = parseSnapshot(editor.schema, afterJSON);
+        const stats = computeVersionDiffStats(beforeDoc, afterDoc) ?? {
+          added: 0,
+          removed: 0,
+          changed: 0,
+        };
+        diffStatsCacheRef.current.set(cacheKey, stats);
+        return stats;
+      } catch {
+        return { added: 0, removed: 0, changed: 0 };
+      }
+    },
+    [editor, getDiffSnapshot],
+  );
 
   // Notify parent component when editor is ready
   useEffect(() => {
     onEditorReady?.(editor);
   }, [editor, onEditorReady]);
+
+  // Keep ref in sync for scheduleSave guard
+  // Compare: load current content, compute diff with old version, apply decorations
+  const handleCompare = useCallback(
+    (oldContent: string) => {
+      if (!editor || !currentNote) return;
+
+      // Capture live editor content before overwriting (may differ from currentNote.content
+      // if the user typed within the auto-save debounce window)
+      const liveMarkdown = getMarkdown(editor);
+      // Synchronously flush: cancel pending timer, mark as not needing save
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      if (needsSaveRef.current && loadedNoteIdRef.current) {
+        needsSaveRef.current = false;
+        saveImmediately(loadedNoteIdRef.current, liveMarkdown);
+      }
+
+      historyPreviewRef.current = oldContent;
+      historyLiveContentRef.current = liveMarkdown;
+      isLoadingRef.current = true;
+
+      const beforeJSON = getDiffSnapshot(oldContent);
+      const afterJSON = getDiffSnapshot(liveMarkdown);
+
+      if (!applyHistoryCompareBase(editor, afterJSON)) {
+        historyPreviewRef.current = null;
+        historyLiveContentRef.current = null;
+        clearDiffDecorations(editor);
+        isLoadingRef.current = false;
+        toast.error("Failed to preview version diff");
+        return;
+      }
+
+      if (!beforeJSON) {
+        historyPreviewRef.current = null;
+        historyLiveContentRef.current = null;
+        clearDiffDecorations(editor);
+        editor.setEditable(true);
+        isLoadingRef.current = false;
+        toast.error("Failed to preview version diff");
+        return;
+      }
+
+      // Compute diff using the same cached snapshots as the panel stats.
+      clearDiffDecorations(editor);
+      const afterSnapshot = afterJSON as Record<string, unknown>;
+      const beforeDoc = parseSnapshot(editor.schema, beforeJSON);
+      const afterDoc = parseSnapshot(editor.schema, afterSnapshot);
+      const result = computeVersionDiff(beforeDoc, afterDoc);
+
+      if (result && result.changes.length > 0) {
+        applyVersionDiffDecorations(result.changes, editor);
+      }
+
+      isLoadingRef.current = false;
+    },
+    [editor, currentNote, getMarkdown, getDiffSnapshot, saveImmediately],
+  );
+
+  // Restore editor to normal state when exiting history
+  const handleHistoryClose = useCallback(() => {
+    const restoreContent = historyLiveContentRef.current ?? currentNote?.content;
+    historyPreviewRef.current = null;
+    historyLiveContentRef.current = null;
+    setHistoryOpen(false);
+
+    if (!editor) return;
+    clearDiffDecorations(editor);
+    isLoadingRef.current = true;
+    editor.setEditable(true);
+
+    if (restoreContent != null) {
+      const manager = editor.storage.markdown?.manager;
+      if (manager) {
+        try {
+          editor.commands.setContent(manager.parse(restoreContent));
+        } catch {
+          editor.commands.setContent(restoreContent);
+        }
+      } else {
+        editor.commands.setContent(restoreContent);
+      }
+    }
+    isLoadingRef.current = false;
+  }, [editor, currentNote]);
 
   // Sync notes list into editor storage for wikilink autocomplete
   useEffect(() => {
@@ -1421,6 +1599,15 @@ export function Editor({
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
         sourceTimeoutRef.current = null;
+      }
+      // Close history panel on note switch
+      setHistoryOpen(false);
+      // Clean up compare mode if it was active
+      if (historyPreviewRef.current != null) {
+        historyPreviewRef.current = null;
+        historyLiveContentRef.current = null;
+        clearDiffDecorations(editor);
+        editor.setEditable(true);
       }
     }
     // Check if this is a manual reload (user clicked Refresh button or pressed Cmd+R)
@@ -1799,6 +1986,19 @@ export function Editor({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editor, currentNote, openEditorSearch]);
 
+  // Close history panel on Escape when editor is not focused
+  useEffect(() => {
+    if (!historyOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !editor?.isFocused) {
+        e.preventDefault();
+        handleHistoryClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [historyOpen, editor, handleHistoryClose]);
+
   // Clear search on note switch
   useEffect(() => {
     if (currentNote?.id) {
@@ -2153,6 +2353,7 @@ export function Editor({
   }
 
   return (
+    <>
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
       {/* Drag region with sidebar toggle, date and save status */}
       <div
@@ -2266,6 +2467,16 @@ export function Editor({
                 ) : (
                   <MarkdownIcon className="w-4.75 h-4.75 stroke-[1.4]" />
                 )}
+              </IconButton>
+            </Tooltip>
+          )}
+          {currentNote && gitCtx?.gitEnabled && !previewMode && !sourceMode && (
+            <Tooltip content="Version history">
+              <IconButton
+                onClick={() => setHistoryOpen((v) => !v)}
+                className={cn(historyOpen && "bg-bg-emphasis")}
+              >
+                <HistoryIcon className="w-4.25 h-4.25 stroke-[1.6]" />
               </IconButton>
             </Tooltip>
           )}
@@ -2607,5 +2818,37 @@ export function Editor({
         </div>
       </div>
     </div>
+    {historyOpen && currentNote && (
+      <VersionHistoryPanel
+        noteId={currentNote.id}
+        currentContent={currentNote.content}
+        refreshKey={gitCtx?.status?.changedCount}
+        getDiffStats={getDiffStatsForContent}
+        onCompare={handleCompare}
+        onRestore={async (content) => {
+          historyPreviewRef.current = null;
+          historyLiveContentRef.current = null;
+          if (editor) clearDiffDecorations(editor);
+          editor?.setEditable(true);
+          await saveNote(content, currentNote.id);
+          if (editor) {
+            const manager = editor.storage.markdown?.manager;
+            if (manager) {
+              try {
+                editor.commands.setContent(manager.parse(content));
+              } catch {
+                editor.commands.setContent(content);
+              }
+            } else {
+              editor.commands.setContent(content);
+            }
+          }
+          setHistoryOpen(false);
+          toast.success("Version restored");
+        }}
+        onClose={handleHistoryClose}
+      />
+    )}
+    </>
   );
 }
