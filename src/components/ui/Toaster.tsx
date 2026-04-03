@@ -1,9 +1,12 @@
+import { useTheme } from "../../context/ThemeContext";
 import { Toaster as Sonner } from "sonner";
 
 export function Toaster() {
+  const { resolvedTheme } = useTheme();
+
   return (
     <Sonner
-      theme="light"
+      theme={resolvedTheme}
       position="bottom-right"
       offset={20}
       toastOptions={{

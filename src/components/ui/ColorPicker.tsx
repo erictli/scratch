@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { RgbaColorPicker } from "react-colorful";
 import { cn } from "../../lib/utils";
 
@@ -35,8 +35,8 @@ function parseColor(cssColor: string): RgbaColor {
       a: 1,
     };
   }
-  // hex
-  if (/^#[0-9a-f]{3,8}$/i.test(cssColor)) {
+  // hex (#RGB, #RRGGBB, #RRGGBBAA)
+  if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(cssColor)) {
     let hex = cssColor.slice(1);
     if (hex.length === 3) {
       hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
@@ -79,6 +79,11 @@ function rgbaToHex({ r, g, b }: RgbaColor): string {
   return ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
 
+// Compare two parsed colors for equality
+function colorsEqual(a: RgbaColor, b: RgbaColor): boolean {
+  return a.r === b.r && a.g === b.g && a.b === b.b && Math.abs(a.a - b.a) < 0.005;
+}
+
 interface ColorPickerProps {
   color: string;
   defaultColor: string;
@@ -93,11 +98,18 @@ export function ColorPicker({
   onReset,
 }: ColorPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [hexDraft, setHexDraft] = useState("");
   const popoverRef = useRef<HTMLDivElement>(null);
   const swatchRef = useRef<HTMLButtonElement>(null);
 
-  const isCustom = color !== defaultColor;
-  const parsed = parseColor(color);
+  const parsed = useMemo(() => parseColor(color), [color]);
+  const parsedDefault = useMemo(() => parseColor(defaultColor), [defaultColor]);
+  const isCustom = !colorsEqual(parsed, parsedDefault);
+
+  // Sync hex draft from parsed color (when color changes externally)
+  useEffect(() => {
+    setHexDraft(rgbaToHex(parsed).toUpperCase());
+  }, [parsed.r, parsed.g, parsed.b]);
 
   // Close on outside click
   useEffect(() => {
@@ -126,6 +138,7 @@ export function ColorPicker({
   const handleHexInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 6);
+      setHexDraft(raw.toUpperCase());
       if (raw.length === 6) {
         const r = parseInt(raw.slice(0, 2), 16);
         const g = parseInt(raw.slice(2, 4), 16);
@@ -171,10 +184,10 @@ export function ColorPicker({
               </span>
               <input
                 type="text"
-                value={rgbaToHex(parsed).toUpperCase()}
+                value={hexDraft}
                 onChange={handleHexInput}
                 className="w-full h-8 rounded-md border border-border bg-bg pl-5 pr-2 text-sm text-text font-mono uppercase focus:outline-none focus:border-accent"
-                maxLength={7}
+                maxLength={6}
                 spellCheck={false}
               />
             </div>
