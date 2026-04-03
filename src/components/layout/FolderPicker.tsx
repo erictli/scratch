@@ -32,11 +32,22 @@ export function FolderPicker() {
 
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center p-8 max-w-lg select-none">
-          <img
-            src="/folders-dark.png"
-            alt="Folders"
-            className="w-48 h-auto mx-auto invert dark:invert-0 mb-2 animate-fade-in-up"
-            style={{ animationDelay: "0ms" }}
+          <div
+            role="img"
+            aria-label="Folders"
+            className="w-48 aspect-square mx-auto mb-2 opacity-40 animate-fade-in-up"
+            style={{
+              animationDelay: "0ms",
+              backgroundColor: "var(--color-text)",
+              WebkitMaskImage: "url(/folders-dark.png)",
+              WebkitMaskSize: "contain",
+              WebkitMaskRepeat: "no-repeat",
+              WebkitMaskPosition: "center",
+              maskImage: "url(/folders-dark.png)",
+              maskSize: "contain",
+              maskRepeat: "no-repeat",
+              maskPosition: "center",
+            }}
           />
 
           <h1

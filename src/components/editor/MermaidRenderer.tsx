@@ -14,7 +14,7 @@ export function MermaidRenderer({ code }: MermaidRendererProps) {
           bg: "var(--color-bg)",
           fg: "var(--color-text)",
           muted: "var(--color-text-muted)",
-          border: "var(--color-border-solid)",
+          border: "var(--color-border)",
           transparent: true,
         }),
         error: null,

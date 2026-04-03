@@ -441,7 +441,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           <NoteIcon className="w-3.5 h-3.5 stroke-[1.6] opacity-50 shrink-0" />
           {dragLabel}
           {dragCount > 1 && (
-            <span className="ml-1 px-1.5 py-0.5 bg-accent text-white text-xs rounded-full leading-none">
+            <span className="ml-1 px-1.5 py-0.5 bg-accent text-text-inverse text-xs rounded-full leading-none">
               +{dragCount - 1}
             </span>
           )}

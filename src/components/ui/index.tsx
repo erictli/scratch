@@ -87,7 +87,7 @@ const iconButtonSizes = {
 };
 
 const iconButtonVariants = {
-  primary: "bg-accent text-white hover:bg-accent/90",
+  primary: "bg-accent text-text-inverse hover:bg-accent/90",
   default: "bg-bg-emphasis text-text hover:bg-bg-muted",
   secondary: "bg-bg-muted text-text hover:bg-bg-emphasis",
   ghost: "hover:bg-bg-muted text-text-muted hover:text-text",

@@ -458,7 +458,7 @@ function AppContent() {
 
   return (
     <>
-      <div className="h-full min-h-0 flex bg-bg overflow-hidden">
+      <div className="h-full min-h-0 flex bg-bg text-text overflow-hidden">
         {view === "settings" ? (
           <SettingsPage onBack={closeSettings} />
         ) : (
@@ -483,7 +483,7 @@ function AppContent() {
       {/* Shared backdrop for command palette and AI modal */}
       {(paletteOpen || aiModalOpen) && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 animate-fade-in"
+          className="fixed inset-0 bg-text/50 backdrop-blur-sm z-40 animate-fade-in"
           onClick={() => {
             if (paletteOpen) handleClosePalette();
             if (aiModalOpen) setAiModalOpen(false);

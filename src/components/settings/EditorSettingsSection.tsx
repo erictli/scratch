@@ -1,20 +1,28 @@
 import { useTheme, defaultThemeColors } from "../../context/ThemeContext";
 import { Button, CodeCopyButton, IconButton, Input, Select } from "../ui";
 import { ColorPicker } from "../ui/ColorPicker";
-import type { FontFamily, TextDirection, EditorWidth, ThemeColorKey } from "../../types/note";
-import { EyeIcon, MinusIcon, PlusIcon } from "../icons";
+import type {
+  FontFamily,
+  TextDirection,
+  EditorWidth,
+  ThemeColorKey,
+} from "../../types/note";
+import { ChevronRightIcon, EyeIcon, MinusIcon, PlusIcon } from "../icons";
+import { cn } from "../../lib/utils";
 
-// Human-readable labels for theme color keys
-const colorLabels: { key: ThemeColorKey; label: string }[] = [
-  { key: "bg", label: "Background" },
-  { key: "bg-secondary", label: "Sidebar" },
-  { key: "bg-muted", label: "Hover" },
-  { key: "bg-emphasis", label: "Emphasis" },
-  { key: "text", label: "Text" },
-  { key: "text-muted", label: "Secondary Text" },
-  { key: "border", label: "Borders" },
-  { key: "accent", label: "Accent" },
-  { key: "selection", label: "Selection" },
+// Human-readable labels for theme color keys, grouped logically
+const colorLabels: { key: ThemeColorKey; label: string; group: string }[] = [
+  // Surfaces
+  { key: "bg", label: "Background", group: "Surfaces" },
+  { key: "bg-secondary", label: "Sidebar", group: "Surfaces" },
+  { key: "bg-muted", label: "Hover & Subtle Fill", group: "Surfaces" },
+  { key: "bg-emphasis", label: "Strong Fill", group: "Surfaces" },
+  // Text & UI
+  { key: "text", label: "Text", group: "Text & UI" },
+  { key: "text-muted", label: "Secondary Text", group: "Text & UI" },
+  { key: "accent", label: "Primary & Buttons", group: "Text & UI" },
+  { key: "border", label: "Borders", group: "Text & UI" },
+  { key: "selection", label: "Selection Highlight", group: "Text & UI" },
 ];
 
 // Text direction options
@@ -132,33 +140,39 @@ export function AppearanceSettingsSection() {
             Currently using {resolvedTheme} mode based on system preference
           </p>
         )}
-      </section>
 
-      {/* Divider */}
-      <div className="border-t border-border border-dashed" />
-
-      {/* Colors Section */}
-      <section>
-        <ColorsSubsection
-          label={theme === "system" ? `Colors (${resolvedTheme === "light" ? "Light" : "Dark"})` : "Colors"}
-          mode={resolvedTheme}
-          customColors={resolvedTheme === "dark" ? customColorsDark : customColorsLight}
-          setCustomColor={setCustomColor}
-          resetCustomColor={resetCustomColor}
-          resetAllCustomColors={resetAllCustomColors}
-        />
-        {theme === "system" && (
-          <>
-            <div className="my-6" />
-            <ColorsSubsection
-              label={`Colors (${resolvedTheme === "light" ? "Dark" : "Light"})`}
-              mode={resolvedTheme === "light" ? "dark" : "light"}
-              customColors={resolvedTheme === "light" ? customColorsDark : customColorsLight}
+        {/* Customize Colors */}
+        {theme === "system" ? (
+          <div className="mt-4 space-y-2">
+            <ColorsExpandable
+              label="Customize light colors"
+              mode="light"
+              customColors={customColorsLight}
               setCustomColor={setCustomColor}
               resetCustomColor={resetCustomColor}
               resetAllCustomColors={resetAllCustomColors}
             />
-          </>
+            <ColorsExpandable
+              label="Customize dark colors"
+              mode="dark"
+              customColors={customColorsDark}
+              setCustomColor={setCustomColor}
+              resetCustomColor={resetCustomColor}
+              resetAllCustomColors={resetAllCustomColors}
+            />
+          </div>
+        ) : (
+          <ColorsExpandable
+            label="Customize colors"
+            mode={resolvedTheme}
+            customColors={
+              resolvedTheme === "dark" ? customColorsDark : customColorsLight
+            }
+            setCustomColor={setCustomColor}
+            resetCustomColor={resetCustomColor}
+            resetAllCustomColors={resetAllCustomColors}
+            className="mt-4"
+          />
         )}
       </section>
 
@@ -448,52 +462,81 @@ export function AppearanceSettingsSection() {
   );
 }
 
-// Subsection for customizing colors for a single theme mode
-function ColorsSubsection({
+// Expandable subsection for customizing colors for a single theme mode
+function ColorsExpandable({
   label,
   mode,
   customColors,
   setCustomColor,
   resetCustomColor,
   resetAllCustomColors,
+  className,
 }: {
   label: string;
   mode: "light" | "dark";
   customColors: Partial<Record<ThemeColorKey, string>>;
-  setCustomColor: (mode: "light" | "dark", key: ThemeColorKey, value: string) => void;
+  setCustomColor: (
+    mode: "light" | "dark",
+    key: ThemeColorKey,
+    value: string,
+  ) => void;
   resetCustomColor: (mode: "light" | "dark", key: ThemeColorKey) => void;
   resetAllCustomColors: (mode: "light" | "dark") => void;
+  className?: string;
 }) {
   const defaults = defaultThemeColors[mode];
   const hasAnyCustom = Object.keys(customColors).length > 0;
 
   return (
-    <div>
-      <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-xl font-medium">{label}</h2>
+    <details className={cn("text-sm", className)}>
+      <summary className="cursor-pointer text-text-muted hover:text-text select-none flex items-center gap-1 font-medium">
+        <ChevronRightIcon className="w-3.5 h-3.5 stroke-2 transition-transform [[open]>&]:rotate-90" />
+        {label}
         {hasAnyCustom && (
           <Button
-            onClick={() => resetAllCustomColors(mode)}
+            onClick={(e) => {
+              e.preventDefault();
+              resetAllCustomColors(mode);
+            }}
             variant="ghost"
             size="sm"
+            className="ml-auto"
           >
             Reset all
           </Button>
         )}
+      </summary>
+      <div className="mt-2 rounded-[10px] border border-border pl-4 py-3 pr-3 space-y-1.5">
+        {(() => {
+          let lastGroup = "";
+          return colorLabels.map(({ key, label: colorLabel, group }) => {
+            const showGroup = group !== lastGroup;
+            lastGroup = group;
+            return (
+              <div key={key}>
+                {showGroup && (
+                  <div
+                    className={`text-base text-text-muted font-medium ${key !== colorLabels[0].key ? "mt-6" : ""} mb-2.5`}
+                  >
+                    {group}
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-text font-medium">
+                    {colorLabel}
+                  </label>
+                  <ColorPicker
+                    color={customColors[key] ?? defaults[key]}
+                    defaultColor={defaults[key]}
+                    onChange={(value) => setCustomColor(mode, key, value)}
+                    onReset={() => resetCustomColor(mode, key)}
+                  />
+                </div>
+              </div>
+            );
+          });
+        })()}
       </div>
-      <div className="rounded-[10px] border border-border pl-4 py-3 pr-3 space-y-2">
-        {colorLabels.map(({ key, label: colorLabel }) => (
-          <div key={key} className="flex items-center justify-between">
-            <label className="text-sm text-text font-medium">{colorLabel}</label>
-            <ColorPicker
-              color={customColors[key] ?? defaults[key]}
-              defaultColor={defaults[key]}
-              onChange={(value) => setCustomColor(mode, key, value)}
-              onReset={() => resetCustomColor(mode, key)}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
+    </details>
   );
 }

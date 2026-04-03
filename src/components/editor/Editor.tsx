@@ -133,7 +133,9 @@ function focusAndSelectTitle(editor: TiptapEditor): boolean {
   editor
     .chain()
     .focus()
-    .setTextSelection(titleFrom === titleTo ? titleFrom : { from: titleFrom, to: titleTo })
+    .setTextSelection(
+      titleFrom === titleTo ? titleFrom : { from: titleFrom, to: titleTo },
+    )
     .run();
 
   return true;
@@ -625,9 +627,7 @@ export function Editor({
           const isActive = index === currentIndex;
           decorations.push(
             Decoration.inline(match.from, match.to, {
-              class: isActive
-                ? "bg-yellow-300/50 dark:bg-yellow-400/40" // Brighter yellow for active match
-                : "bg-yellow-300/25 dark:bg-yellow-400/20", // Lighter yellow for inactive matches
+              class: isActive ? "search-match-active" : "search-match",
             }),
           );
         });
@@ -1071,12 +1071,19 @@ export function Editor({
       },
       // Serialize copied text as markdown instead of plain text
       clipboardTextSerializer: (slice) => {
-        const fallback = slice.content.textBetween(0, slice.content.size, "\n\n");
+        const fallback = slice.content.textBetween(
+          0,
+          slice.content.size,
+          "\n\n",
+        );
         const currentEditor = editorRef.current;
         const manager = currentEditor?.storage.markdown?.manager;
         if (!currentEditor || !manager) return fallback;
         try {
-          const doc = currentEditor.schema.topNodeType.create(null, slice.content);
+          const doc = currentEditor.schema.topNodeType.create(
+            null,
+            slice.content,
+          );
           return manager.serialize(doc.toJSON());
         } catch {
           return fallback;
@@ -1432,7 +1439,8 @@ export function Editor({
       // For brand new empty notes, focus and select all so user can start typing
       // Skip if the note list has focus (e.g. keyboard navigation with arrow keys)
       if ((isNewNote || wasEmpty) && currentNote.content.trim() === "") {
-        const noteListFocused = document.activeElement?.closest("[data-note-list]");
+        const noteListFocused =
+          document.activeElement?.closest("[data-note-list]");
         if (!noteListFocused) {
           editor.commands.focus("start");
           editor.commands.selectAll();
@@ -1556,9 +1564,7 @@ export function Editor({
                   .insertContent({
                     type: "text",
                     text: text.trim(),
-                    marks: [
-                      { type: "link", attrs: { href: normalizedUrl } },
-                    ],
+                    marks: [{ type: "link", attrs: { href: normalizedUrl } }],
                   })
                   .run();
               }
@@ -1906,10 +1912,21 @@ export function Editor({
         ></div>
         <div className="flex-1 flex items-center justify-center pb-8">
           <div className="text-center text-text-muted select-none">
-            <img
-              src="/note-dark.png"
-              alt="Note"
-              className="w-42 h-auto mx-auto mb-1 invert dark:invert-0"
+            <div
+              role="img"
+              aria-label="Note"
+              className="w-42 aspect-square mx-auto mb-1"
+              style={{
+                backgroundColor: "var(--color-text)",
+                WebkitMaskImage: "url(/note-dark.png)",
+                WebkitMaskSize: "contain",
+                WebkitMaskRepeat: "no-repeat",
+                WebkitMaskPosition: "center",
+                maskImage: "url(/note-dark.png)",
+                maskSize: "contain",
+                maskRepeat: "no-repeat",
+                maskPosition: "center",
+              }}
             />
             <h1 className="text-2xl text-text font-serif mb-1 tracking-[-0.01em] ">
               What's on your mind?
