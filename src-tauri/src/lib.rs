@@ -4,14 +4,17 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, RwLock,
+};
 use std::time::{Duration, Instant};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use tauri::webview::WebviewWindowBuilder;
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -96,10 +99,17 @@ pub enum TextDirection {
     Rtl,
 }
 
-// App config (stored in app data directory - just the notes folder path)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MainWindowSize {
+    pub width: f64,
+    pub height: f64,
+}
+
+// App config (stored in app data directory)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub notes_folder: Option<String>,
+    pub main_window_size: Option<MainWindowSize>,
 }
 
 // Per-folder settings (stored in .scratch/settings.json within notes folder)
@@ -331,12 +341,13 @@ impl SearchIndex {
 
 // App state with improved structure
 pub struct AppState {
-    pub app_config: RwLock<AppConfig>,  // notes_folder path (stored in app data)
-    pub settings: RwLock<Settings>,      // per-folder settings (stored in .scratch/)
+    pub app_config: RwLock<AppConfig>, // app-level config (stored in app data)
+    pub settings: RwLock<Settings>,    // per-folder settings (stored in .scratch/)
     pub notes_cache: RwLock<HashMap<String, NoteMetadata>>,
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
     pub debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    pub main_window_size_dirty: AtomicBool,
 }
 
 impl Default for AppState {
@@ -348,6 +359,7 @@ impl Default for AppState {
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
+            main_window_size_dirty: AtomicBool::new(false),
         }
     }
 }
@@ -492,7 +504,12 @@ fn strip_markdown(text: &str) -> String {
     while let Some(start) = result.find("~~") {
         if let Some(end) = result[start + 2..].find("~~") {
             let inner = &result[start + 2..start + 2 + end];
-            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                inner,
+                &result[start + 4 + end..]
+            );
         } else {
             break;
         }
@@ -502,7 +519,12 @@ fn strip_markdown(text: &str) -> String {
     while let Some(start) = result.find("**") {
         if let Some(end) = result[start + 2..].find("**") {
             let inner = &result[start + 2..start + 2 + end];
-            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                inner,
+                &result[start + 4 + end..]
+            );
         } else {
             break;
         }
@@ -510,7 +532,12 @@ fn strip_markdown(text: &str) -> String {
     while let Some(start) = result.find("__") {
         if let Some(end) = result[start + 2..].find("__") {
             let inner = &result[start + 2..start + 2 + end];
-            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                inner,
+                &result[start + 4 + end..]
+            );
         } else {
             break;
         }
@@ -520,7 +547,12 @@ fn strip_markdown(text: &str) -> String {
     while let Some(start) = result.find('`') {
         if let Some(end) = result[start + 1..].find('`') {
             let inner = &result[start + 1..start + 1 + end];
-            result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                inner,
+                &result[start + 2 + end..]
+            );
         } else {
             break;
         }
@@ -540,7 +572,12 @@ fn strip_markdown(text: &str) -> String {
         if let Some(end) = result[start + 1..].find('*') {
             if end > 0 {
                 let inner = &result[start + 1..start + 1 + end];
-                result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+                result = format!(
+                    "{}{}{}",
+                    &result[..start],
+                    inner,
+                    &result[start + 2 + end..]
+                );
             } else {
                 break;
             }
@@ -553,7 +590,12 @@ fn strip_markdown(text: &str) -> String {
         if let Some(end) = result[start + 1..].find('_') {
             if end > 0 {
                 let inner = &result[start + 1..start + 1 + end];
-                result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+                result = format!(
+                    "{}{}{}",
+                    &result[..start],
+                    inner,
+                    &result[start + 2 + end..]
+                );
             } else {
                 break;
             }
@@ -641,7 +683,9 @@ fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]
     // Strip .md by converting to string and trimming (avoids with_extension
     // which breaks on stems containing dots like "meeting.2024-01-15.md").
     let rel_str = rel.to_str()?;
-    let id = rel_str.strip_suffix(".md")?.replace(std::path::MAIN_SEPARATOR, "/");
+    let id = rel_str
+        .strip_suffix(".md")?
+        .replace(std::path::MAIN_SEPARATOR, "/");
 
     if id.is_empty() {
         None
@@ -733,6 +777,107 @@ fn save_app_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
+fn main_window_size_from_physical(
+    size: tauri::PhysicalSize<u32>,
+    scale_factor: f64,
+) -> Option<MainWindowSize> {
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return None;
+    }
+
+    // Round to avoid floating noise from physical/logical conversions.
+    let width = ((size.width as f64 / scale_factor) * 100.0).round() / 100.0;
+    let height = ((size.height as f64 / scale_factor) * 100.0).round() / 100.0;
+
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+
+    Some(MainWindowSize { width, height })
+}
+
+fn update_main_window_size_cache(state: &AppState, size: MainWindowSize) {
+    let mut app_config = state.app_config.write().expect("app_config write lock");
+    let changed = app_config.main_window_size.as_ref().is_none_or(|saved| {
+        (saved.width - size.width).abs() > 0.1 || (saved.height - size.height).abs() > 0.1
+    });
+
+    if changed {
+        app_config.main_window_size = Some(size);
+        state.main_window_size_dirty.store(true, Ordering::Relaxed);
+    }
+}
+
+fn capture_main_window_size(window: &tauri::Window, state: &AppState) {
+    if window.is_maximized().unwrap_or_default()
+        || window.is_minimized().unwrap_or_default()
+        || window.is_fullscreen().unwrap_or_default()
+    {
+        return;
+    }
+
+    if let (Ok(size), Ok(scale_factor)) = (window.inner_size(), window.scale_factor()) {
+        if let Some(logical_size) = main_window_size_from_physical(size, scale_factor) {
+            update_main_window_size_cache(state, logical_size);
+        }
+    }
+}
+
+fn capture_main_window_size_with_scale(
+    window: &tauri::Window,
+    state: &AppState,
+    size: tauri::PhysicalSize<u32>,
+    scale_factor: f64,
+) {
+    if window.is_maximized().unwrap_or_default()
+        || window.is_minimized().unwrap_or_default()
+        || window.is_fullscreen().unwrap_or_default()
+    {
+        return;
+    }
+
+    if let Some(logical_size) = main_window_size_from_physical(size, scale_factor) {
+        update_main_window_size_cache(state, logical_size);
+    }
+}
+
+fn apply_saved_main_window_size(app: &AppHandle, config: &AppConfig) {
+    let Some(saved_size) = config.main_window_size.as_ref() else {
+        return;
+    };
+
+    if !saved_size.width.is_finite()
+        || !saved_size.height.is_finite()
+        || saved_size.width <= 0.0
+        || saved_size.height <= 0.0
+    {
+        return;
+    }
+
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window
+            .as_ref()
+            .window()
+            .set_size(tauri::LogicalSize::new(saved_size.width, saved_size.height));
+    }
+}
+
+fn persist_app_config_if_dirty(app: &AppHandle, state: &AppState) {
+    if !state.main_window_size_dirty.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let app_config = state
+        .app_config
+        .read()
+        .expect("app_config read lock")
+        .clone();
+
+    if save_app_config(app, &app_config).is_ok() {
+        state.main_window_size_dirty.store(false, Ordering::Relaxed);
+    }
+}
+
 // Load per-folder settings from disk
 fn load_settings(notes_folder: &str) -> Settings {
     let path = get_settings_path(notes_folder);
@@ -783,7 +928,11 @@ fn normalize_notes_folder_path(path: &str) -> Result<PathBuf, String> {
 /// Shared initialization logic for setting a notes folder.
 /// Creates required directories, verifies write access, updates config/settings,
 /// adds asset protocol scope, and rebuilds the search index.
-fn initialize_notes_folder(app: &AppHandle, path_buf: &PathBuf, state: &AppState) -> Result<String, String> {
+fn initialize_notes_folder(
+    app: &AppHandle,
+    path_buf: &PathBuf,
+    state: &AppState,
+) -> Result<String, String> {
     let normalized_path = path_buf.to_string_lossy().into_owned();
 
     // Verify it's a valid directory
@@ -944,9 +1093,9 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         let b_pinned = pinned_ids.contains(&b.id);
 
         match (a_pinned, b_pinned) {
-            (true, false) => std::cmp::Ordering::Less,    // a pinned, b not -> a first
+            (true, false) => std::cmp::Ordering::Less, // a pinned, b not -> a first
             (false, true) => std::cmp::Ordering::Greater, // b pinned, a not -> b first
-            _ => b.modified.cmp(&a.modified),             // both same status -> sort by date (newest first)
+            _ => b.modified.cmp(&a.modified), // both same status -> sort by date (newest first)
         }
     });
 
@@ -981,9 +1130,7 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
     let content = fs::read_to_string(&file_path)
         .await
         .map_err(|e| e.to_string())?;
-    let metadata = fs::metadata(&file_path)
-        .await
-        .map_err(|e| e.to_string())?;
+    let metadata = fs::metadata(&file_path).await.map_err(|e| e.to_string())?;
 
     let modified = metadata
         .modified()
@@ -1024,7 +1171,10 @@ async fn save_note(
         // Preserve directory prefix for notes in subfolders
         let (dir_prefix, desired_id) = if let Some(pos) = existing_id.rfind('/') {
             let prefix = &existing_id[..pos];
-            (Some(prefix.to_string()), format!("{}/{}", prefix, sanitized_leaf))
+            (
+                Some(prefix.to_string()),
+                format!("{}/{}", prefix, sanitized_leaf),
+            )
         } else {
             (None, sanitized_leaf.clone())
         };
@@ -1082,9 +1232,7 @@ async fn save_note(
         }
     }
 
-    let metadata = fs::metadata(&file_path)
-        .await
-        .map_err(|e| e.to_string())?;
+    let metadata = fs::metadata(&file_path).await.map_err(|e| e.to_string())?;
     let modified = metadata
         .modified()
         .ok()
@@ -1154,7 +1302,10 @@ async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), Strin
 }
 
 #[tauri::command]
-async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) -> Result<Note, String> {
+async fn create_note(
+    target_folder: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Note, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config
@@ -1553,7 +1704,9 @@ async fn move_note(
 
     // Ensure target directory exists
     if let Some(parent) = dest_path.parent() {
-        fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     // Handle collision
@@ -1654,7 +1807,9 @@ async fn move_folder(
 
     // Ensure target parent exists
     if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     // Compute old and new path prefixes for updating IDs
@@ -1723,13 +1878,13 @@ fn get_settings(state: State<AppState>) -> Settings {
 }
 
 #[tauri::command]
-fn update_settings(
-    new_settings: Settings,
-    state: State<AppState>,
-) -> Result<(), String> {
+fn update_settings(new_settings: Settings, state: State<AppState>) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
-        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
     };
 
     {
@@ -1751,7 +1906,10 @@ fn update_git_enabled(
 ) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
-        let folder = app_config.notes_folder.clone().ok_or("Notes folder not set")?;
+        let folder = app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?;
 
         if folder != expected_folder {
             return Err("Notes folder changed".to_string());
@@ -1949,7 +2107,7 @@ async fn import_file_to_folder(
             }
             Err(_) => return Err("Failed to create file".to_string()),
         }
-    };
+    }
 
     let modified = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1995,7 +2153,10 @@ async fn import_file_to_folder(
 }
 
 #[tauri::command]
-async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
+async fn search_notes(
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<SearchResult>, String> {
     let trimmed_query = query.trim().to_string();
     if trimmed_query.is_empty() {
         return Ok(vec![]);
@@ -2005,7 +2166,9 @@ async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<S
     let indexed_result = {
         let index = state.search_index.lock().expect("search index mutex");
         (*index).as_ref().map(|search_index| {
-            search_index.search(&trimmed_query, 20).map_err(|e| e.to_string())
+            search_index
+                .search(&trimmed_query, 20)
+                .map_err(|e| e.to_string())
         })
     };
 
@@ -2016,7 +2179,10 @@ async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<S
             fallback_search(&trimmed_query, &state).await
         }
         Some(Err(e)) => {
-            eprintln!("Tantivy search error, falling back to substring search: {}", e);
+            eprintln!(
+                "Tantivy search error, falling back to substring search: {}",
+                e
+            );
             fallback_search(&trimmed_query, &state).await
         }
         None => {
@@ -2027,7 +2193,10 @@ async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<S
 }
 
 // Fallback search when Tantivy index isn't available - searches title and full content
-async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
+async fn fallback_search(
+    query: &str,
+    state: &State<'_, AppState>,
+) -> Result<Vec<SearchResult>, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -2094,7 +2263,11 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
         }
     }
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(20);
 
     Ok(results)
@@ -2140,7 +2313,9 @@ fn setup_file_watcher(
                         let now = Instant::now();
 
                         if map.len() > 100 {
-                            map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
+                            map.retain(|_, last| {
+                                now.duration_since(*last) < Duration::from_secs(5)
+                            });
                         }
 
                         if let Some(last) = map.get(path) {
@@ -2172,10 +2347,13 @@ fn setup_file_watcher(
                                             let modified = std::fs::metadata(path)
                                                 .ok()
                                                 .and_then(|m| m.modified().ok())
-                                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                .and_then(|t| {
+                                                    t.duration_since(std::time::UNIX_EPOCH).ok()
+                                                })
                                                 .map(|d| d.as_secs() as i64)
                                                 .unwrap_or(0);
-                                            let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                            let _ = search_index
+                                                .index_note(&note_id, &title, &content, modified);
                                         }
                                         Err(_) => {
                                             // File gone between event and read — treat as deletion
@@ -2239,11 +2417,7 @@ fn start_file_watcher(app: AppHandle, state: State<AppState>) -> Result<(), Stri
     // Clean up debounce map before starting
     cleanup_debounce_map(&state.debounce_map);
 
-    let watcher_state = setup_file_watcher(
-        app,
-        &folder,
-        Arc::clone(&state.debounce_map),
-    )?;
+    let watcher_state = setup_file_watcher(app, &folder, Arc::clone(&state.debounce_map))?;
 
     let mut file_watcher = state.file_watcher.lock().expect("file watcher mutex");
     *file_watcher = Some(watcher_state);
@@ -2517,11 +2691,9 @@ async fn git_get_status(state: State<'_, AppState>) -> Result<git::GitStatus, St
 
     match folder {
         Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::get_status(&PathBuf::from(path))
-            })
-            .await
-            .map_err(|e| e.to_string())
+            tauri::async_runtime::spawn_blocking(move || git::get_status(&PathBuf::from(path)))
+                .await
+                .map_err(|e| e.to_string())
         }
         None => Ok(git::GitStatus::default()),
     }
@@ -2531,14 +2703,15 @@ async fn git_get_status(state: State<'_, AppState>) -> Result<git::GitStatus, St
 async fn git_init_repo(state: State<'_, AppState>) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
-        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
     };
 
-    tauri::async_runtime::spawn_blocking(move || {
-        git::git_init(&PathBuf::from(folder))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || git::git_init(&PathBuf::from(folder)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2549,13 +2722,11 @@ async fn git_commit(message: String, state: State<'_, AppState>) -> Result<git::
     };
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::commit_all(&PathBuf::from(path), &message)
-            })
-            .await
-            .map_err(|e| e.to_string())
-        }
+        Some(path) => tauri::async_runtime::spawn_blocking(move || {
+            git::commit_all(&PathBuf::from(path), &message)
+        })
+        .await
+        .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -2572,13 +2743,9 @@ async fn git_push(state: State<'_, AppState>) -> Result<git::GitResult, String> 
     };
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::push(&PathBuf::from(path))
-            })
+        Some(path) => tauri::async_runtime::spawn_blocking(move || git::push(&PathBuf::from(path)))
             .await
-            .map_err(|e| e.to_string())
-        }
+            .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -2596,11 +2763,9 @@ async fn git_fetch(state: State<'_, AppState>) -> Result<git::GitResult, String>
 
     match folder {
         Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::fetch(&PathBuf::from(path))
-            })
-            .await
-            .map_err(|e| e.to_string())
+            tauri::async_runtime::spawn_blocking(move || git::fetch(&PathBuf::from(path)))
+                .await
+                .map_err(|e| e.to_string())
         }
         None => Ok(git::GitResult {
             success: false,
@@ -2618,13 +2783,9 @@ async fn git_pull(state: State<'_, AppState>) -> Result<git::GitResult, String> 
     };
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::pull(&PathBuf::from(path))
-            })
+        Some(path) => tauri::async_runtime::spawn_blocking(move || git::pull(&PathBuf::from(path)))
             .await
-            .map_err(|e| e.to_string())
-        }
+            .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -2641,13 +2802,11 @@ async fn git_add_remote(url: String, state: State<'_, AppState>) -> Result<git::
     };
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::add_remote(&PathBuf::from(path), &url)
-            })
-            .await
-            .map_err(|e| e.to_string())
-        }
+        Some(path) => tauri::async_runtime::spawn_blocking(move || {
+            git::add_remote(&PathBuf::from(path), &url)
+        })
+        .await
+        .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -2670,10 +2829,9 @@ async fn git_push_with_upstream(state: State<'_, AppState>) -> Result<git::GitRe
                 let status = git::get_status(&PathBuf::from(&path));
                 match status.current_branch {
                     Some(branch) => {
-                        if !branch
-                            .chars()
-                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
-                        {
+                        if !branch.chars().all(|c| {
+                            c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.')
+                        }) {
                             return git::GitResult {
                                 success: false,
                                 message: None,
@@ -2805,26 +2963,42 @@ fn cli_target_path() -> PathBuf {
 #[tauri::command]
 fn get_cli_status() -> Result<CliStatus, String> {
     #[cfg(not(target_os = "macos"))]
-    return Ok(CliStatus { supported: false, installed: false, path: None });
+    return Ok(CliStatus {
+        supported: false,
+        installed: false,
+        path: None,
+    });
 
     #[cfg(target_os = "macos")]
     {
         let target = cli_target_path();
         if !target.exists() && target.symlink_metadata().is_err() {
-            return Ok(CliStatus { supported: true, installed: false, path: None });
+            return Ok(CliStatus {
+                supported: true,
+                installed: false,
+                path: None,
+            });
         }
         // Verify this is our wrapper (has marker) and points to the current binary
         let content = std::fs::read_to_string(&target).unwrap_or_default();
         if !content.contains(SCRATCH_CLI_MARKER) {
             // Foreign binary at this path — don't claim it as ours
-            return Ok(CliStatus { supported: true, installed: false, path: None });
+            return Ok(CliStatus {
+                supported: true,
+                installed: false,
+                path: None,
+            });
         }
         let current_exe = std::env::current_exe()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
         if !current_exe.is_empty() && !content.contains(&current_exe) {
             // Our wrapper but points to a moved/deleted binary — needs reinstall
-            return Ok(CliStatus { supported: true, installed: false, path: None });
+            return Ok(CliStatus {
+                supported: true,
+                installed: false,
+                path: None,
+            });
         }
         Ok(CliStatus {
             supported: true,
@@ -2863,8 +3037,8 @@ fn install_cli() -> Result<String, String> {
                 .map_err(|e| format!("Failed to remove existing file: {}", e))?;
         }
 
-        let exe_path = std::env::current_exe()
-            .map_err(|e| format!("Cannot find exe path: {}", e))?;
+        let exe_path =
+            std::env::current_exe().map_err(|e| format!("Cannot find exe path: {}", e))?;
 
         // Shell-escape the exe path using single quotes to prevent
         // interpretation of $, `, ", and other metacharacters.
@@ -2875,8 +3049,7 @@ fn install_cli() -> Result<String, String> {
         // the terminal is not blocked waiting for the GUI app to exit.
         let script = format!(
             "#!/bin/sh\n{}\nnohup {} \"$@\" >/dev/null 2>&1 &\n",
-            SCRATCH_CLI_MARKER,
-            escaped_exe
+            SCRATCH_CLI_MARKER, escaped_exe
         );
         std::fs::write(&target, script.as_bytes())
             .map_err(|e| format!("Failed to write CLI script: {}", e))?;
@@ -3164,7 +3337,10 @@ async fn ai_execute_claude(
 ) -> Result<AiExecutionResult, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
-        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
     };
     let path = PathBuf::from(&file_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -3232,7 +3408,10 @@ async fn ai_execute_opencode(
 ) -> Result<AiExecutionResult, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
-        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
     };
     let path = PathBuf::from(&file_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -3299,7 +3478,10 @@ async fn ai_execute_ollama(
 ) -> Result<AiExecutionResult, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
-        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
     };
     let path = PathBuf::from(&file_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -3401,7 +3583,10 @@ async fn ai_execute_ollama(
                 return Ok(AiExecutionResult {
                     success: false,
                     output: String::new(),
-                    error: Some("Authentication required. Run `ollama login` in your terminal to sign in.".to_string()),
+                    error: Some(
+                        "Authentication required. Run `ollama login` in your terminal to sign in."
+                            .to_string(),
+                    ),
                 });
             }
         }
@@ -3627,8 +3812,18 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                        | tauri_plugin_window_state::StateFlags::VISIBLE
+                        | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
         .setup(|app| {
-            // Load app config on startup (contains notes folder path)
+            // Load app config on startup.
             let mut app_config = load_app_config(app.handle());
 
             // Normalize legacy/invalid saved paths (e.g. file:// URI from older builds)
@@ -3644,7 +3839,10 @@ pub fn run() {
                     Ok(normalized) => {
                         // Path is structurally valid but not currently a directory
                         // (e.g., unmounted drive). Preserve the user's preference.
-                        eprintln!("Notes folder not found (may be temporarily unavailable): {:?}", normalized);
+                        eprintln!(
+                            "Notes folder not found (may be temporarily unavailable): {:?}",
+                            normalized
+                        );
                     }
                     Err(_) => {
                         app_config.notes_folder = None;
@@ -3674,6 +3872,8 @@ pub fn run() {
                 None
             };
 
+            apply_saved_main_window_size(app.handle(), &app_config);
+
             let state = AppState {
                 app_config: RwLock::new(app_config),
                 settings: RwLock::new(settings),
@@ -3681,11 +3881,19 @@ pub fn run() {
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
+                main_window_size_dirty: AtomicBool::new(false),
             };
             app.manage(state);
 
             // Add notes folder to asset protocol scope so images can be served
-            if let Some(ref folder) = app.state::<AppState>().app_config.read().expect("app_config read lock").notes_folder.clone() {
+            if let Some(ref folder) = app
+                .state::<AppState>()
+                .app_config
+                .read()
+                .expect("app_config read lock")
+                .notes_folder
+                .clone()
+            {
                 let _ = app.asset_protocol_scope().allow_directory(folder, true);
             }
 
@@ -3741,6 +3949,45 @@ pub fn run() {
                         let _ = create_preview_window(app, &path.to_string_lossy());
                     }
                 }
+            }
+
+            if window.label() != "main" {
+                return;
+            }
+
+            let app_handle = window.app_handle();
+            let Some(state) = app_handle.try_state::<AppState>() else {
+                return;
+            };
+
+            match event {
+                tauri::WindowEvent::Resized(size) => {
+                    if let Ok(scale_factor) = window.scale_factor() {
+                        capture_main_window_size_with_scale(
+                            window,
+                            &state,
+                            *size,
+                            scale_factor,
+                        );
+                    }
+                }
+                tauri::WindowEvent::ScaleFactorChanged {
+                    scale_factor,
+                    new_inner_size,
+                    ..
+                } => {
+                    capture_main_window_size_with_scale(
+                        window,
+                        &state,
+                        *new_inner_size,
+                        *scale_factor,
+                    );
+                }
+                tauri::WindowEvent::CloseRequested { .. } => {
+                    capture_main_window_size(window, &state);
+                    persist_app_config_if_dirty(app_handle, &state);
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -3802,18 +4049,27 @@ pub fn run() {
 
     // Use .run() callback to handle macOS "Open With" file events
     // RunEvent::Opened is macOS-only in Tauri v2
-    app.run(|_app_handle, _event| {
+    app.run(|app_handle, event| {
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Opened { urls } = _event {
+        if let tauri::RunEvent::Opened { urls } = &event {
             for url in urls {
                 if let Ok(path) = url.to_file_path() {
                     if is_markdown_extension(&path)
                         && path.is_file()
-                        && !try_select_in_notes_folder(_app_handle, &path)
+                        && !try_select_in_notes_folder(app_handle, &path)
                     {
-                        let _ = create_preview_window(_app_handle, &path.to_string_lossy());
+                        let _ = create_preview_window(app_handle, &path.to_string_lossy());
                     }
                 }
+            }
+        }
+
+        if matches!(event, tauri::RunEvent::Exit) {
+            if let Some(state) = app_handle.try_state::<AppState>() {
+                if let Some(main_window) = app_handle.get_webview_window("main") {
+                    capture_main_window_size(&main_window.as_ref().window(), &state);
+                }
+                persist_app_config_if_dirty(app_handle, &state);
             }
         }
     });
