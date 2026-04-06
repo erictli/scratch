@@ -6,6 +6,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { getSettings, updateSettings } from "../services/notes";
 import type {
   ThemeSettings,
@@ -270,6 +271,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     } else {
       root.classList.remove("dark");
     }
+
+    invoke("set_title_bar_theme", { isDark: resolvedTheme === "dark" }).catch(
+      () => {},
+    );
   }, [resolvedTheme]);
 
   // Save theme mode to backend
