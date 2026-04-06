@@ -3702,11 +3702,6 @@ pub fn run() {
             };
 
             if let Some(main_window) = app.get_webview_window("main") {
-                #[cfg(target_os = "windows")]
-                {
-                    windows_title_bar::apply_title_bar_theme(&main_window, false);
-                }
-
                 let has_notes_folder = app
                     .state::<AppState>()
                     .app_config
@@ -3893,11 +3888,16 @@ mod windows_title_bar {
 fn set_title_bar_theme(app: AppHandle, is_dark: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        if let Some(window) = app.get_webview_window("main") {
-            windows_title_bar::apply_title_bar_theme(&window, is_dark);
+        for (label, window) in app.webview_windows() {
+            if label == "main" || label.starts_with("preview-") {
+                windows_title_bar::apply_title_bar_theme(&window, is_dark);
+            }
         }
     }
-    let _ = app;
-    let _ = is_dark;
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        let _ = is_dark;
+    }
     Ok(())
 }
