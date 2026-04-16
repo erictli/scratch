@@ -43,23 +43,30 @@ export type ThemeColorKey =
 // Partial map of color overrides (hex strings)
 export type CustomColors = Partial<Record<ThemeColorKey, string>>;
 
-// Per-folder settings (stored in .scratch/settings.json)
-export interface Settings {
+// Global settings – shared across all notes folders ({APP_CONFIG_DIR}/settings.json)
+export interface GlobalSettings {
   theme: ThemeSettings;
   editorFont?: EditorFontSettings;
-  gitEnabled?: boolean;
-  foldersEnabled?: boolean;
-  pinnedNoteIds?: string[];
   textDirection?: TextDirection;
   editorWidth?: EditorWidth;
   customEditorWidthPx?: number;
-  defaultNoteName?: string;
   interfaceZoom?: number;
   ollamaModel?: string;
+  foldersEnabled?: boolean;
   ignoredPatterns?: string[];
   customColorsLight?: CustomColors;
   customColorsDark?: CustomColors;
 }
+
+// Local settings – specific to the active notes folder (.scratch/settings.json)
+export interface LocalSettings {
+  gitEnabled?: boolean;
+  pinnedNoteIds?: string[];
+  defaultNoteName?: string;
+}
+
+// Combined settings – API contract with the backend (unchanged shape)
+export interface Settings extends GlobalSettings, LocalSettings {}
 
 export interface FolderNode {
   name: string;
