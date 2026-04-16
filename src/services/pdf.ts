@@ -1,7 +1,6 @@
 import type { Editor } from "@tiptap/react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-
 /**
  * Triggers the native print dialog for the editor content.
  * Users can save as PDF or print to a physical printer.
@@ -16,8 +15,6 @@ export async function downloadPdf(
 ): Promise<void> {
   if (!editor) throw new Error("Editor not available");
 
-  // Trigger native print dialog
-  // The user can choose "Save as PDF" in the print dialog
   window.print();
 }
 

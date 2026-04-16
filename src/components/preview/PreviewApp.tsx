@@ -113,6 +113,19 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
         return;
       }
 
+      // Cmd+Shift+P: Print
+      if (modKey && e.shiftKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("print-note"));
+        return;
+      }
+
+      // Cmd+P: Block browser print dialog
+      if (modKey && !e.shiftKey && e.key === "p") {
+        e.preventDefault();
+        return;
+      }
+
       // Cmd+R: Reload file from disk
       if (modKey && e.key === "r") {
         e.preventDefault();
@@ -173,7 +186,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-bg text-text">
+    <div className="h-full min-h-0 flex flex-col bg-bg text-text">
       <Editor
         focusMode={focusMode}
         previewMode={previewData}

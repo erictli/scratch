@@ -20,6 +20,7 @@ import {
 } from "./components/icons";
 import { AiEditModal } from "./components/ai/AiEditModal";
 import { AiResponseToast } from "./components/ai/AiResponseToast";
+import { KeyboardShortcutsModal } from "./components/shortcuts/KeyboardShortcutsModal";
 import { PreviewApp } from "./components/preview/PreviewApp";
 import {
   check as checkForUpdate,
@@ -69,6 +70,7 @@ function AppContent() {
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
@@ -277,9 +279,23 @@ function AppContent() {
       }
 
       // Cmd+P - Open command palette
-      if ((e.metaKey || e.ctrlKey) && e.key === "p") {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "p") {
         e.preventDefault();
         setPaletteOpen(true);
+        return;
+      }
+
+      // Cmd+Shift+P - Print
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("print-note"));
+        return;
+      }
+
+      // Cmd+/ - Open keyboard shortcuts
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
+        e.preventDefault();
+        setShortcutsOpen(true);
         return;
       }
 
@@ -429,11 +445,12 @@ function AppContent() {
 
   const handleClosePalette = useCallback(() => {
     setPaletteOpen(false);
+    editorRef.current?.commands.focus();
   }, []);
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-bg-secondary">
+      <div className="h-full min-h-0 flex items-center justify-center bg-bg-secondary">
         <div className="text-text-muted/70 text-sm flex items-center gap-1.5 font-medium">
           <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
           Initializing Scratch...
@@ -448,12 +465,13 @@ function AppContent() {
 
   return (
     <>
-      <div className="h-screen flex bg-bg overflow-hidden">
+      <div className="h-full min-h-0 flex bg-bg text-text overflow-hidden">
         {view === "settings" ? (
           <SettingsPage onBack={closeSettings} />
         ) : (
           <>
             <div
+              data-sidebar
               className={`transition-all duration-500 ease-out overflow-hidden ${!sidebarVisible || focusMode ? "opacity-0 -translate-x-4 w-0 pointer-events-none" : "opacity-100 translate-x-0 w-64"}`}
             >
               <Sidebar onOpenSettings={toggleSettings} />
@@ -473,7 +491,7 @@ function AppContent() {
       {/* Shared backdrop for command palette and AI modal */}
       {(paletteOpen || aiModalOpen) && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 animate-fade-in"
+          className="fixed inset-0 bg-text/50 backdrop-blur-sm z-40 animate-fade-in"
           onClick={() => {
             if (paletteOpen) handleClosePalette();
             if (aiModalOpen) setAiModalOpen(false);
@@ -481,10 +499,16 @@ function AppContent() {
         />
       )}
 
+      <KeyboardShortcutsModal
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
+
       <CommandPalette
         open={paletteOpen}
         onClose={handleClosePalette}
         onOpenSettings={toggleSettings}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         onOpenAiModal={(provider) => {
           setAiProvider(provider);
           setAiModalOpen(true);

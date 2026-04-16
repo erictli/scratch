@@ -4,6 +4,7 @@ import type { ReactNodeViewProps } from "@tiptap/react";
 import { SUPPORTED_LANGUAGES } from "./lowlight";
 import { MermaidRenderer } from "./MermaidRenderer";
 import { ChevronDownIcon, PencilIcon, EyeIcon } from "../icons";
+import { CodeCopyButton } from "../ui";
 
 const btnClass =
   "code-block-mermaid-btn inline-flex items-center gap-1 text-xs h-6 px-1.5 text-text-muted rounded cursor-pointer transition-colors hover:text-text hover:bg-bg-emphasis";
@@ -23,6 +24,7 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
 
   const toolbar = (
     <div className="code-block-language-selector" contentEditable={false}>
+      <CodeCopyButton text={codeContent} className={btnClass} />
       {isMermaid && (
         <button
           contentEditable={false}
@@ -37,7 +39,7 @@ export function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
             </>
           ) : (
             <>
-              <PencilIcon className="w-3.5 h-3.5 stroke-[1.7]" />
+              <PencilIcon className="w-4 h-4 stroke-[1.6]" />
               Edit
             </>
           )}

@@ -5,19 +5,21 @@ import {
   SwatchIcon,
   KeyboardIcon,
   InfoIcon,
+  IntegrationsIcon,
 } from "../icons";
 import { Button, IconButton } from "../ui";
 import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { AppearanceSettingsSection } from "./EditorSettingsSection";
 import { ShortcutsSettingsSection } from "./ShortcutsSettingsSection";
 import { AboutSettingsSection } from "./AboutSettingsSection";
+import { ToolsSettingsSection } from "./ToolsSettingsSection";
 import { mod, isMac } from "../../lib/platform";
 
 interface SettingsPageProps {
   onBack: () => void;
 }
 
-type SettingsTab = "general" | "editor" | "shortcuts" | "about";
+type SettingsTab = "general" | "tools" | "editor" | "shortcuts" | "about";
 
 const tabs: {
   id: SettingsTab;
@@ -25,10 +27,11 @@ const tabs: {
   icon: typeof FolderIcon;
   shortcut: string;
 }[] = [
-  { id: "general", label: "General", icon: FolderIcon, shortcut: "1" },
-  { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "2" },
-  { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, shortcut: "3" },
-  { id: "about", label: "About", icon: InfoIcon, shortcut: "4" },
+  { id: "general", label: "Folder", icon: FolderIcon, shortcut: "1" },
+  { id: "tools", label: "Integrations", icon: IntegrationsIcon, shortcut: "2" },
+  { id: "editor", label: "Appearance", icon: SwatchIcon, shortcut: "3" },
+  { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon, shortcut: "4" },
+  { id: "about", label: "About", icon: InfoIcon, shortcut: "5" },
 ];
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
@@ -51,11 +54,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           setActiveTab("general");
         } else if (e.key === "2") {
           e.preventDefault();
-          setActiveTab("editor");
+          setActiveTab("tools");
         } else if (e.key === "3") {
           e.preventDefault();
-          setActiveTab("shortcuts");
+          setActiveTab("editor");
         } else if (e.key === "4") {
+          e.preventDefault();
+          setActiveTab("shortcuts");
+        } else if (e.key === "5") {
           e.preventDefault();
           setActiveTab("about");
         }
@@ -125,6 +131,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         >
           <div className="w-full max-w-3xl mx-auto px-6 pb-6">
             {activeTab === "general" && <GeneralSettingsSection />}
+            {activeTab === "tools" && <ToolsSettingsSection />}
             {activeTab === "editor" && <AppearanceSettingsSection />}
             {activeTab === "shortcuts" && <ShortcutsSettingsSection />}
             {activeTab === "about" && <AboutSettingsSection />}
