@@ -371,9 +371,19 @@ fn sanitize_filename(title: &str) -> String {
     }
 }
 
+fn ordinal_suffix(day: u32) -> &'static str {
+    match (day % 100, day % 10) {
+        (11..=13, _) => "th",
+        (_, 1) => "st",
+        (_, 2) => "nd",
+        (_, 3) => "rd",
+        _ => "th",
+    }
+}
+
 /// Expands template tags in a note name template using local timezone
 fn expand_note_name_template(template: &str) -> String {
-    use chrono::Local;
+    use chrono::{Datelike, Local};
 
     let mut result = template.to_string();
 
@@ -388,6 +398,17 @@ fn expand_note_name_template(template: &str) -> String {
     result = result.replace("{year}", &now.format("%Y").to_string());
     result = result.replace("{month}", &now.format("%m").to_string());
     result = result.replace("{day}", &now.format("%d").to_string());
+
+    // Text-based date tags (English, locale-independent)
+    result = result.replace("{monthName}", &now.format("%B").to_string());
+    result = result.replace("{monthShort}", &now.format("%b").to_string());
+    result = result.replace("{weekday}", &now.format("%A").to_string());
+    result = result.replace("{weekdayShort}", &now.format("%a").to_string());
+    let day_num = now.day();
+    result = result.replace(
+        "{dayOrdinal}",
+        &format!("{}{}", day_num, ordinal_suffix(day_num)),
+    );
 
     // Time tags (use dash instead of colon for filename safety)
     result = result.replace("{time}", &now.format("%H-%M-%S").to_string());
