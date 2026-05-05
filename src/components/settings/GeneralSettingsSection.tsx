@@ -595,6 +595,16 @@ export function GeneralSettingsSection() {
                 <span>02</span>
                 <code>{"{day}"}</code>
                 <span>15</span>
+                <code>{"{monthName}"}</code>
+                <span>February</span>
+                <code>{"{monthShort}"}</code>
+                <span>Feb</span>
+                <code>{"{weekday}"}</code>
+                <span>Sunday</span>
+                <code>{"{weekdayShort}"}</code>
+                <span>Sun</span>
+                <code>{"{dayOrdinal}"}</code>
+                <span>15th</span>
                 <code>{"{counter}"}</code>
                 <span>1, 2, 3...</span>
               </div>
