@@ -36,6 +36,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     createNote,
     createFolder,
     notes,
+    attachments,
     search,
     searchQuery,
     clearSearch,
@@ -317,7 +318,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         <div className="flex items-center gap-1">
           <div className="font-medium text-base">Notes</div>
           <div className="text-text-muted font-medium text-2xs min-w-4.75 h-4.75 flex items-center justify-center px-1 bg-bg-muted rounded-sm mt-0.5 pt-px">
-            {notes.length}
+            {notes.length + attachments.length}
           </div>
         </div>
         <div className="flex items-center gap-px">

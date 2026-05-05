@@ -5,6 +5,18 @@ export interface NoteMetadata {
   modified: number;
 }
 
+export type AttachmentKind = "image" | "pdf" | "text" | "file";
+
+export interface AttachmentMetadata {
+  id: string;
+  name: string;
+  path: string;
+  extension: string;
+  kind: AttachmentKind;
+  modified: number;
+  size: number;
+}
+
 export interface Note {
   id: string;
   title: string;
@@ -66,4 +78,5 @@ export interface FolderNode {
   path: string;
   children: FolderNode[];
   notes: NoteMetadata[];
+  attachments: AttachmentMetadata[];
 }

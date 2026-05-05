@@ -28,6 +28,27 @@ pub struct NoteMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AttachmentKind {
+    Image,
+    Pdf,
+    Text,
+    File,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentMetadata {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub extension: String,
+    pub kind: AttachmentKind,
+    pub modified: i64,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CliStatus {
     pub supported: bool,
     pub installed: bool,
@@ -671,6 +692,60 @@ fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]
     }
 }
 
+fn attachment_kind_from_extension(ext: &str) -> Option<AttachmentKind> {
+    match ext.to_ascii_lowercase().as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" => Some(AttachmentKind::Image),
+        "pdf" => Some(AttachmentKind::Pdf),
+        "txt" | "text" | "log" | "csv" | "tsv" | "json" | "xml" | "yaml" | "yml" => {
+            Some(AttachmentKind::Text)
+        }
+        _ => Some(AttachmentKind::File),
+    }
+}
+
+fn attachment_from_abs_path(
+    notes_root: &Path,
+    file_path: &Path,
+    ignored_dirs: &[String],
+) -> Option<AttachmentMetadata> {
+    let rel = file_path.strip_prefix(notes_root).ok()?;
+
+    for component in rel.parent().unwrap_or(Path::new("")).components() {
+        if let std::path::Component::Normal(name) = component {
+            let name_str = name.to_str()?;
+            if EXCLUDED_DIRS.contains(&name_str) || ignored_dirs.iter().any(|d| d == name_str) {
+                return None;
+            }
+        }
+    }
+
+    let ext = file_path.extension()?.to_str()?.to_ascii_lowercase();
+    if ext == "md" || ext == "markdown" {
+        return None;
+    }
+    let kind = attachment_kind_from_extension(&ext)?;
+    let metadata = std::fs::metadata(file_path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    Some(AttachmentMetadata {
+        id: rel.to_str()?.replace(std::path::MAIN_SEPARATOR, "/"),
+        name: file_path.file_name()?.to_str()?.to_string(),
+        path: file_path.to_string_lossy().into_owned(),
+        extension: ext,
+        kind,
+        modified,
+        size: metadata.len(),
+    })
+}
+
 /// Convert a note ID to an absolute file path. Validates against path traversal.
 fn abs_path_from_id(notes_root: &Path, id: &str) -> Result<PathBuf, String> {
     if id.contains('\\') {
@@ -981,6 +1056,50 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
     }
 
     Ok(notes)
+}
+
+#[tauri::command]
+async fn list_attachments(state: State<'_, AppState>) -> Result<Vec<AttachmentMetadata>, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    let path = PathBuf::from(&folder);
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+
+    let ignored_dirs = {
+        let settings = state.settings.read().expect("settings read lock");
+        get_effective_ignored_dirs(&settings)
+    };
+
+    tokio::task::spawn_blocking(move || {
+        use walkdir::WalkDir;
+        let mut attachments = Vec::new();
+        for entry in WalkDir::new(&path)
+            .max_depth(10)
+            .into_iter()
+            .filter_entry(|e| is_visible_notes_entry(e, &ignored_dirs))
+            .flatten()
+        {
+            let file_path = entry.path();
+            if !file_path.is_file() {
+                continue;
+            }
+            if let Some(attachment) = attachment_from_abs_path(&path, file_path, &ignored_dirs) {
+                attachments.push(attachment);
+            }
+        }
+        attachments.sort_by(|a, b| a.id.cmp(&b.id));
+        attachments
+    })
+    .await
+    .map_err(|e| format!("Failed to list attachments: {}", e))
 }
 
 #[tauri::command]
@@ -1908,6 +2027,51 @@ async fn save_file_direct(path: String, content: String) -> Result<FileContent, 
 }
 
 #[tauri::command]
+async fn read_text_attachment(path: String, state: State<'_, AppState>) -> Result<String, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+    let folder_root = PathBuf::from(&folder)
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve notes folder: {}", e))?;
+    let file_path = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve file path: {}", e))?;
+
+    if !file_path.starts_with(&folder_root) {
+        return Err("File is outside the notes folder".to_string());
+    }
+
+    let extension = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if !matches!(
+        extension.as_str(),
+        "txt" | "text" | "log" | "csv" | "tsv" | "json" | "xml" | "yaml" | "yml"
+    ) {
+        return Err("Only text files can be read as text".to_string());
+    }
+
+    let meta = fs::metadata(&file_path)
+        .await
+        .map_err(|_| "Failed to read file metadata".to_string())?;
+    if meta.len() > 10 * 1024 * 1024 {
+        return Err("File too large to preview (max 10 MB)".to_string());
+    }
+
+    fs::read_to_string(&file_path)
+        .await
+        .map_err(|_| "Failed to read text file".to_string())
+}
+
+#[tauri::command]
 async fn import_file_to_folder(
     app: AppHandle,
     path: String,
@@ -2127,6 +2291,7 @@ struct FileChangeEvent {
     kind: String,
     path: String,
     changed_ids: Vec<String>,
+    changed_paths: Vec<String>,
 }
 
 fn setup_file_watcher(
@@ -2150,10 +2315,35 @@ fn setup_file_watcher(
                         DEFAULT_IGNORED_DIRS.iter().map(|s| s.to_string()).collect()
                     };
 
-                    let note_id = match id_from_abs_path(&notes_root, path, &ignored_dirs) {
-                        Some(id) => id,
-                        None => continue,
-                    };
+                    if let Ok(rel) = path.strip_prefix(&notes_root) {
+                        let is_ignored = rel
+                            .parent()
+                            .unwrap_or(Path::new(""))
+                            .components()
+                            .any(|component| {
+                                if let std::path::Component::Normal(name) = component {
+                                    if let Some(name_str) = name.to_str() {
+                                        return EXCLUDED_DIRS.contains(&name_str)
+                                            || ignored_dirs.iter().any(|d| d == name_str);
+                                    }
+                                }
+                                false
+                            });
+                        if is_ignored {
+                            continue;
+                        }
+                    }
+
+                    let note_id = id_from_abs_path(&notes_root, path, &ignored_dirs);
+                    let is_attachment = note_id.is_none()
+                        && path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .and_then(attachment_kind_from_extension)
+                            .is_some();
+                    if note_id.is_none() && !is_attachment {
+                        continue;
+                    }
 
                     // Debounce with cleanup
                     {
@@ -2182,7 +2372,9 @@ fn setup_file_watcher(
                     };
 
                     // Update search index for external file changes
-                    if let Some(state) = app_handle.try_state::<AppState>() {
+                    if let (Some(state), Some(changed_note_id)) =
+                        (app_handle.try_state::<AppState>(), note_id.as_ref())
+                    {
                         let index = state.search_index.lock().expect("search index mutex");
                         if let Some(ref search_index) = *index {
                             match kind {
@@ -2196,18 +2388,18 @@ fn setup_file_watcher(
                                                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                                                 .map(|d| d.as_secs() as i64)
                                                 .unwrap_or(0);
-                                            let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                            let _ = search_index.index_note(changed_note_id, &title, &content, modified);
                                         }
                                         Err(_) => {
                                             // File gone between event and read — treat as deletion
                                             if !path.exists() {
-                                                let _ = search_index.delete_note(&note_id);
+                                                let _ = search_index.delete_note(changed_note_id);
                                             }
                                         }
                                     }
                                 }
                                 "deleted" => {
-                                    let _ = search_index.delete_note(&note_id);
+                                    let _ = search_index.delete_note(changed_note_id);
                                 }
                                 _ => {}
                             }
@@ -2227,7 +2419,12 @@ fn setup_file_watcher(
                         FileChangeEvent {
                             kind: effective_kind.to_string(),
                             path: path.to_string_lossy().into_owned(),
-                            changed_ids: vec![note_id.clone()],
+                            changed_ids: note_id.clone().into_iter().collect(),
+                            changed_paths: if is_attachment {
+                                vec![path.to_string_lossy().into_owned()]
+                            } else {
+                                Vec::new()
+                            },
                         },
                     );
                 }
@@ -3810,6 +4007,7 @@ pub fn run() {
             get_notes_folder,
             set_notes_folder,
             list_notes,
+            list_attachments,
             read_note,
             save_note,
             delete_note,
@@ -3856,6 +4054,7 @@ pub fn run() {
             ai_execute_ollama,
             read_file_direct,
             save_file_direct,
+            read_text_attachment,
             import_file_to_folder,
             open_file_preview,
             install_cli,

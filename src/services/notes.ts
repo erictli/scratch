@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Note, NoteMetadata, Settings } from "../types/note";
+import type { AttachmentMetadata, Note, NoteMetadata, Settings } from "../types/note";
 
 export async function getNotesFolder(): Promise<string | null> {
   return invoke("get_notes_folder");
@@ -11,6 +11,10 @@ export async function setNotesFolder(path: string): Promise<void> {
 
 export async function listNotes(): Promise<NoteMetadata[]> {
   return invoke("list_notes");
+}
+
+export async function listAttachments(): Promise<AttachmentMetadata[]> {
+  return invoke("list_attachments");
 }
 
 export async function readNote(id: string): Promise<Note> {

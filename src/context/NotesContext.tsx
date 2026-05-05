@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { Note, NoteMetadata } from "../types/note";
+import type { AttachmentMetadata, Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
 
@@ -17,7 +17,9 @@ import type { SearchResult } from "../services/notes";
 // Data context: changes frequently, only subscribed by components that need the data
 interface NotesDataContextValue {
   notes: NoteMetadata[];
+  attachments: AttachmentMetadata[];
   selectedNoteId: string | null;
+  selectedAttachment: AttachmentMetadata | null;
   currentNote: Note | null;
   notesFolder: string | null;
   isLoading: boolean;
@@ -32,6 +34,7 @@ interface NotesDataContextValue {
 // Actions context: stable references, rarely causes re-renders
 interface NotesActionsContextValue {
   selectNote: (id: string) => Promise<void>;
+  selectAttachment: (attachment: AttachmentMetadata) => void;
   createNote: () => Promise<void>;
   consumePendingNewNote: (id: string) => boolean;
   saveNote: (content: string, noteId?: string) => Promise<void>;
@@ -58,7 +61,10 @@ const NotesActionsContext = createContext<NotesActionsContextValue | null>(null)
 
 export function NotesProvider({ children }: { children: ReactNode }) {
   const [notes, setNotes] = useState<NoteMetadata[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentMetadata[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [selectedAttachment, setSelectedAttachment] =
+    useState<AttachmentMetadata | null>(null);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [notesFolder, setNotesFolderState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -77,6 +83,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   // Ref to access selectedNoteId in file watcher without re-registering listener
   const selectedNoteIdRef = useRef<string | null>(null);
   selectedNoteIdRef.current = selectedNoteId;
+  const selectedAttachmentRef = useRef<AttachmentMetadata | null>(null);
+  selectedAttachmentRef.current = selectedAttachment;
   // Ref to access notes in search callback without re-creating it on every notes change
   const notesRef = useRef<NoteMetadata[]>([]);
   notesRef.current = notes;
@@ -91,7 +99,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     if (!notesFolder) return;
     try {
       const notesList = await notesService.listNotes();
+      const attachmentsList = await notesService.listAttachments();
       setNotes(notesList);
+      setAttachments(attachmentsList);
+      setSelectedAttachment((prev) => {
+        if (!prev) return prev;
+        return attachmentsList.find((attachment) => attachment.id === prev.id) ?? null;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load notes");
     }
@@ -116,6 +130,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       }
       // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
+      setSelectedAttachment(null);
       setHasExternalChanges(false);
       // Expand parent folders so the note is visible in the tree
       const lastSlash = id.lastIndexOf("/");
@@ -132,6 +147,24 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       if (requestId !== selectRequestIdRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load note");
+    }
+  }, []);
+
+  const selectAttachment = useCallback((attachment: AttachmentMetadata) => {
+    selectRequestIdRef.current += 1;
+    pendingNewNoteIdRef.current = null;
+    setSelectedAttachment(attachment);
+    setSelectedNoteId(null);
+    setCurrentNote(null);
+    setHasExternalChanges(false);
+
+    const lastSlash = attachment.id.lastIndexOf("/");
+    if (lastSlash > 0) {
+      window.dispatchEvent(
+        new CustomEvent("expand-folder", {
+          detail: attachment.id.substring(0, lastSlash),
+        }),
+      );
     }
   }, []);
 
@@ -165,6 +198,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       await refreshNotes();
       setCurrentNote(note);
       setSelectedNoteId(note.id);
+      setSelectedAttachment(null);
       // Clear search when creating a new note
       setSearchQuery("");
       setSearchResults([]);
@@ -353,6 +387,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         await refreshNotes();
         setCurrentNote(note);
         setSelectedNoteId(note.id);
+        setSelectedAttachment(null);
         setSearchQuery("");
         setSearchResults([]);
         setTimeout(() => {
@@ -394,6 +429,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           }
           return prevId;
         });
+        setSelectedAttachment((prev) =>
+          prev && prev.id.startsWith(path + "/") ? null : prev,
+        );
         await refreshNotes();
       } catch (err) {
         setError(
@@ -507,6 +545,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     try {
       await notesService.setNotesFolder(path);
       setNotesFolderState(path);
+      setSelectedAttachment(null);
       // Start file watcher after setting folder
       await notesService.startFileWatcher();
     } catch (err) {
@@ -522,9 +561,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     try {
       setNotesFolderState(path);
       setSelectedNoteId(null);
+      setSelectedAttachment(null);
       setCurrentNote(null);
       const notesList = await notesService.listNotes();
+      const attachmentsList = await notesService.listAttachments();
       setNotes(notesList);
+      setAttachments(attachmentsList);
       await notesService.startFileWatcher();
     } catch (err) {
       setError(
@@ -605,7 +647,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         setNotesFolderState(folder);
         if (folder) {
           const notesList = await notesService.listNotes();
+          const attachmentsList = await notesService.listAttachments();
           setNotes(notesList);
+          setAttachments(attachmentsList);
           // Start file watcher
           await notesService.startFileWatcher();
         }
@@ -628,6 +672,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       if (isCancelled) return;
 
       const changedIds = event.payload.changed_ids || [];
+      const changedPaths = (event.payload as { changed_paths?: string[] }).changed_paths || [];
 
       // Filter out notes we recently saved ourselves
       const externalChanges = changedIds.filter(
@@ -635,12 +680,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       );
 
       // Only refresh if there are external changes
-      if (externalChanges.length > 0) {
+      if (externalChanges.length > 0 || changedPaths.length > 0) {
         refreshNotes();
 
         // If the currently selected note was changed externally, set flag (don't auto-reload)
         const currentId = selectedNoteIdRef.current;
         if (currentId && externalChanges.includes(currentId)) {
+          setHasExternalChanges(true);
+        }
+        const currentAttachment = selectedAttachmentRef.current;
+        if (currentAttachment && changedPaths.includes(currentAttachment.path)) {
           setHasExternalChanges(true);
         }
       }
@@ -684,7 +733,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const dataValue = useMemo<NotesDataContextValue>(
     () => ({
       notes,
+      attachments,
       selectedNoteId,
+      selectedAttachment,
       currentNote,
       notesFolder,
       isLoading,
@@ -697,7 +748,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }),
     [
       notes,
+      attachments,
       selectedNoteId,
+      selectedAttachment,
       currentNote,
       notesFolder,
       isLoading,
@@ -714,6 +767,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const actionsValue = useMemo<NotesActionsContextValue>(
     () => ({
       selectNote,
+      selectAttachment,
       createNote,
       consumePendingNewNote,
       saveNote,
@@ -736,6 +790,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }),
     [
       selectNote,
+      selectAttachment,
       createNote,
       consumePendingNewNote,
       saveNote,
