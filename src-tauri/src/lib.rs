@@ -3813,6 +3813,7 @@ pub fn run() {
             install_cli,
             uninstall_cli,
             get_cli_status,
+            set_title_bar_theme,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -3834,4 +3835,83 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(target_os = "windows")]
+mod windows_title_bar {
+    use tauri::WebviewWindow;
+
+    #[allow(non_snake_case)]
+    mod dwm {
+        pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+        pub const DWMWA_CAPTION_COLOR: u32 = 35;
+        pub const DWMWA_BORDER_COLOR: u32 = 34;
+
+        extern "system" {
+            pub fn DwmSetWindowAttribute(
+                hwnd: isize,
+                attr: u32,
+                value: *const std::ffi::c_void,
+                size: u32,
+            ) -> i32;
+        }
+    }
+
+    pub fn apply_title_bar_theme(window: &WebviewWindow, is_dark: bool, rgb: (u8, u8, u8)) {
+        let Ok(hwnd) = window.hwnd() else {
+            return;
+        };
+        let hwnd = hwnd.0 as isize;
+
+        // Windows COLORREF is little-endian 0x00BBGGRR
+        let (r, g, b) = rgb;
+        let caption_color: u32 =
+            ((b as u32) << 16) | ((g as u32) << 8) | (r as u32);
+
+        unsafe {
+            let set_attr = |attr: u32, value: *const std::ffi::c_void, size: u32| {
+                let _ = dwm::DwmSetWindowAttribute(hwnd, attr, value, size);
+            };
+
+            let dark_mode: i32 = if is_dark { 1 } else { 0 };
+            set_attr(
+                dwm::DWMWA_USE_IMMERSIVE_DARK_MODE,
+                &dark_mode as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<i32>() as u32,
+            );
+            set_attr(
+                dwm::DWMWA_CAPTION_COLOR,
+                &caption_color as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+            set_attr(
+                dwm::DWMWA_BORDER_COLOR,
+                &caption_color as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+    }
+}
+
+#[tauri::command]
+fn set_title_bar_theme(
+    app: AppHandle,
+    is_dark: bool,
+    r: u8,
+    g: u8,
+    b: u8,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        for (label, window) in app.webview_windows() {
+            if label == "main" || label.starts_with("preview-") {
+                windows_title_bar::apply_title_bar_theme(&window, is_dark, (r, g, b));
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, is_dark, r, g, b);
+    }
+    Ok(())
 }

@@ -6,6 +6,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { getSettings, updateSettings } from "../services/notes";
 import type {
   ThemeSettings,
@@ -74,6 +75,21 @@ const defaultThemeColors: Record<"light" | "dark", Record<ThemeColorKey, string>
 };
 
 export { defaultThemeColors };
+
+// Normalize any CSS color string (hex, rgb(), rgba(), hsl(), named) to an RGB
+// triple by letting the browser parse it via getComputedStyle.
+function parseCssColorToRgb(value: string): [number, number, number] | null {
+  if (typeof document === "undefined") return null;
+  const probe = document.createElement("div");
+  probe.style.color = value;
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  const computed = getComputedStyle(probe).color;
+  document.body.removeChild(probe);
+  const match = computed.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
 
 interface ThemeContextType {
   theme: ThemeMode;
@@ -457,6 +473,19 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     for (const key of keys) {
       const value = activeColors[key] ?? defaults[key];
       root.style.setProperty(`--color-${key}`, value);
+    }
+
+    // Sync the Windows title bar to match bg-secondary (no-op on other OSes).
+    const captionColor =
+      activeColors["bg-secondary"] ?? defaults["bg-secondary"];
+    const rgb = parseCssColorToRgb(captionColor);
+    if (rgb) {
+      invoke("set_title_bar_theme", {
+        isDark: resolvedTheme === "dark",
+        r: rgb[0],
+        g: rgb[1],
+        b: rgb[2],
+      }).catch(() => {});
     }
   }, [resolvedTheme, customColorsLight, customColorsDark]);
 
