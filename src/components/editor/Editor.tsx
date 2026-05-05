@@ -1132,6 +1132,9 @@ export function Editor({
       attributes: {
         class:
           "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
+        spellcheck: "true",
+        autocorrect: "on",
+        autocapitalize: "sentences",
       },
       // Serialize copied text as markdown instead of plain text
       clipboardTextSerializer: (slice) => {

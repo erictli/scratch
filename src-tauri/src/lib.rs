@@ -3678,8 +3678,54 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
     opened_preview
 }
 
+// On macOS, WKWebView reads per-app preferences from NSUserDefaults to decide
+// whether to show the spelling underline and apply auto-correct / smart-substitution
+// in contenteditable regions. These keys default to off for new bundle IDs, which
+// is why a fresh Tauri app gets neither the red underline nor auto-replace even
+// when the HTML `spellcheck`/`autocorrect` attributes are set. Register the
+// WebKit defaults so users get Apple-Notes-like behavior on first launch; this
+// must happen before the webview is constructed (setting them inside .setup() is
+// too late). registerDefaults is used so user-toggled values via the WebKit
+// right-click menu still take precedence.
+#[cfg(target_os = "macos")]
+fn register_webview_defaults() {
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSDictionary, NSNumber, NSString, NSUserDefaults};
+
+    let keys = [
+        "WebContinuousSpellCheckingEnabled",
+        "WebGrammarCheckingEnabled",
+        "WebAutomaticSpellingCorrectionEnabled",
+        "WebAutomaticQuoteSubstitutionEnabled",
+        "WebAutomaticDashSubstitutionEnabled",
+        "WebAutomaticTextReplacementEnabled",
+        "WebAutomaticLinkDetectionEnabled",
+    ];
+
+    let ns_keys: Vec<_> = keys.iter().map(|k| NSString::from_str(k)).collect();
+    let key_refs: Vec<&NSString> = ns_keys.iter().map(|k| &**k).collect();
+
+    let yes_values: Vec<_> = (0..keys.len()).map(|_| NSNumber::new_bool(true)).collect();
+    let value_refs: Vec<&AnyObject> = yes_values
+        .iter()
+        .map(|v| {
+            let any: &AnyObject = v;
+            any
+        })
+        .collect();
+
+    let dict: objc2::rc::Retained<NSDictionary<NSString, AnyObject>> =
+        NSDictionary::from_slices(&key_refs, &value_refs);
+    unsafe {
+        NSUserDefaults::standardUserDefaults().registerDefaults(&dict);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    register_webview_defaults();
+
     let app = tauri::Builder::default()
         // Single-instance: forward CLI args from subsequent launches to the running instance
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
