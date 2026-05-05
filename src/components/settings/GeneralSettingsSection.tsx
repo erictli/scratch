@@ -587,43 +587,52 @@ export function GeneralSettingsSection() {
                 </div>
               )}
 
-              {/* Changes count */}
-              {status.changedCount > 0 && (
+              {/* Stats — hidden when status fetch errored, since counts may be stale or wrong */}
+              {status.error ? (
                 <div className="flex items-center justify-between pt-3 border-t border-border border-dashed">
-                  <span className="text-sm text-text font-medium">
-                    Changes to commit
-                  </span>
+                  <span className="text-sm text-text font-medium">Status</span>
                   <span className="text-sm text-text-muted">
-                    {status.changedCount} file
-                    {status.changedCount === 1 ? "" : "s"} changed
+                    An error occurred
                   </span>
                 </div>
-              )}
+              ) : (
+                <>
+                  {status.changedCount > 0 && (
+                    <div className="flex items-center justify-between pt-3 border-t border-border border-dashed">
+                      <span className="text-sm text-text font-medium">
+                        Changes to commit
+                      </span>
+                      <span className="text-sm text-text-muted">
+                        {status.changedCount} file
+                        {status.changedCount === 1 ? "" : "s"} changed
+                      </span>
+                    </div>
+                  )}
 
-              {/* Commits to push */}
-              {status.aheadCount > 0 && status.hasUpstream && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-text font-medium">
-                    Commits to push
-                  </span>
-                  <span className="text-sm text-text-muted">
-                    {status.aheadCount} commit
-                    {status.aheadCount === 1 ? "" : "s"}
-                  </span>
-                </div>
-              )}
+                  {status.aheadCount > 0 && status.hasUpstream && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-text font-medium">
+                        Commits to push
+                      </span>
+                      <span className="text-sm text-text-muted">
+                        {status.aheadCount} commit
+                        {status.aheadCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  )}
 
-              {/* Commits to pull */}
-              {status.behindCount > 0 && status.hasUpstream && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-text font-medium">
-                    Commits to pull
-                  </span>
-                  <span className="text-sm text-text-muted">
-                    {status.behindCount} commit
-                    {status.behindCount === 1 ? "" : "s"}
-                  </span>
-                </div>
+                  {status.behindCount > 0 && status.hasUpstream && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-text font-medium">
+                        Commits to pull
+                      </span>
+                      <span className="text-sm text-text-muted">
+                        {status.behindCount} commit
+                        {status.behindCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Error display */}
