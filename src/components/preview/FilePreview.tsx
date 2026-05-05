@@ -7,6 +7,7 @@ import { Button, IconButton } from "../ui";
 import {
   CopyIcon,
   ExternalLinkIcon,
+  FileIcon,
   ImageIcon,
   NoteIcon,
   PanelLeftIcon,
@@ -187,7 +188,7 @@ export function FilePreview({
 
         {attachment.kind === "file" && (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-text-muted">
-            <ImageIcon className="w-9 h-9 stroke-[1.4]" />
+            <FileIcon className="w-9 h-9 stroke-[1.4]" />
             <p className="text-sm">
               No preview is available for this file type.
             </p>
