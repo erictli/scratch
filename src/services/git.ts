@@ -50,6 +50,14 @@ export async function addRemote(url: string): Promise<GitResult> {
   return invoke("git_add_remote", { url });
 }
 
+export async function setRemoteUrl(url: string): Promise<GitResult> {
+  return invoke("git_set_remote_url", { url });
+}
+
+export async function removeRemote(): Promise<GitResult> {
+  return invoke("git_remove_remote");
+}
+
 export async function pushWithUpstream(): Promise<GitResult> {
   return invoke("git_push_with_upstream");
 }

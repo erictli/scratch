@@ -56,6 +56,8 @@ export function GeneralSettingsSection() {
     initRepo,
     isLoading,
     addRemote,
+    setRemoteUrl: updateRemoteUrl,
+    removeRemote,
     pushWithUpstream,
     isAddingRemote,
     isPushing,
@@ -65,6 +67,7 @@ export function GeneralSettingsSection() {
 
   const [remoteUrl, setRemoteUrl] = useState("");
   const [showRemoteInput, setShowRemoteInput] = useState(false);
+  const [isEditingRemote, setIsEditingRemote] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
   // Load template from settings on mount
@@ -177,6 +180,42 @@ export function GeneralSettingsSection() {
     }
   };
 
+  const handleStartEditRemote = () => {
+    setRemoteUrl(status?.remoteUrl || "");
+    setIsEditingRemote(true);
+    clearError();
+  };
+
+  const handleCancelEditRemote = () => {
+    setIsEditingRemote(false);
+    setRemoteUrl("");
+    clearError();
+  };
+
+  const handleSaveRemoteUrl = async () => {
+    if (isAddingRemote) return;
+    const trimmed = remoteUrl.trim();
+    if (!trimmed) return;
+    if (trimmed === status?.remoteUrl) {
+      setIsEditingRemote(false);
+      return;
+    }
+    const success = await updateRemoteUrl(trimmed);
+    if (success) {
+      setRemoteUrl("");
+      setIsEditingRemote(false);
+    }
+  };
+
+  const handleRemoveRemote = async () => {
+    if (isAddingRemote) return;
+    const success = await removeRemote();
+    if (success) {
+      setRemoteUrl("");
+      setIsEditingRemote(false);
+    }
+  };
+
   const handlePushWithUpstream = async () => {
     await pushWithUpstream();
   };
@@ -198,6 +237,7 @@ export function GeneralSettingsSection() {
 
     if (!enabled) {
       setShowRemoteInput(false);
+      setIsEditingRemote(false);
       setRemoteUrl("");
     }
   };
@@ -345,32 +385,98 @@ export function GeneralSettingsSection() {
               {/* Remote configuration */}
               {status.hasRemote ? (
                 <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text font-medium">
-                      Remote
-                    </span>
-                    {getRemoteWebUrl(status.remoteUrl) ? (
-                      <button
-                        onClick={() =>
-                          handleOpenUrl(getRemoteWebUrl(status.remoteUrl)!)
-                        }
-                        className="flex items-center gap-0.75 text-sm text-text-muted hover:text-text truncate max-w-50 transition-colors cursor-pointer"
-                        title={status.remoteUrl || undefined}
-                      >
-                        <span className="truncate">
-                          {formatRemoteUrl(status.remoteUrl)}
-                        </span>
-                        <ExternalLinkIcon className="w-3.25 h-3.25 shrink-0" />
-                      </button>
-                    ) : (
-                      <span
-                        className="text-sm text-text-muted truncate max-w-50"
-                        title={status.remoteUrl || undefined}
-                      >
-                        {formatRemoteUrl(status.remoteUrl)}
+                  {isEditingRemote ? (
+                    <div className="space-y-2">
+                      <span className="text-sm text-text font-medium">
+                        Remote
                       </span>
-                    )}
-                  </div>
+                      <Input
+                        type="text"
+                        value={remoteUrl}
+                        onChange={(e) => setRemoteUrl(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveRemoteUrl();
+                          if (e.key === "Escape") handleCancelEditRemote();
+                        }}
+                        placeholder="https://github.com/user/repo.git"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleSaveRemoteUrl}
+                          disabled={
+                            isAddingRemote ||
+                            !remoteUrl.trim() ||
+                            remoteUrl.trim() === status.remoteUrl
+                          }
+                          size="sm"
+                        >
+                          {isAddingRemote ? (
+                            <>
+                              <SpinnerIcon className="w-3 h-3 mr-2 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            "Save"
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleCancelEditRemote}
+                          disabled={isAddingRemote}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleRemoveRemote}
+                          disabled={isAddingRemote}
+                          className="ml-auto text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                      <RemoteInstructions />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-text font-medium">
+                        Remote
+                      </span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        {getRemoteWebUrl(status.remoteUrl) ? (
+                          <button
+                            onClick={() =>
+                              handleOpenUrl(getRemoteWebUrl(status.remoteUrl)!)
+                            }
+                            className="flex items-center gap-0.75 text-sm text-text-muted hover:text-text truncate max-w-50 transition-colors cursor-pointer"
+                            title={status.remoteUrl || undefined}
+                          >
+                            <span className="truncate">
+                              {formatRemoteUrl(status.remoteUrl)}
+                            </span>
+                            <ExternalLinkIcon className="w-3.25 h-3.25 shrink-0" />
+                          </button>
+                        ) : (
+                          <span
+                            className="text-sm text-text-muted truncate max-w-50"
+                            title={status.remoteUrl || undefined}
+                          >
+                            {formatRemoteUrl(status.remoteUrl)}
+                          </span>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={handleStartEditRemote}
+                        >
+                          Change
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Upstream tracking status */}
                   {status.hasUpstream ? (
