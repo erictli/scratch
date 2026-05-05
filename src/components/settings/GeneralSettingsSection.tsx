@@ -467,13 +467,13 @@ export function GeneralSettingsSection() {
                             {formatRemoteUrl(status.remoteUrl)}
                           </span>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="xs"
+                        <button
+                          type="button"
                           onClick={handleStartEditRemote}
+                          className="text-sm text-text font-medium hover:text-text-muted transition-colors cursor-pointer"
                         >
                           Change
-                        </Button>
+                        </button>
                       </div>
                     </div>
                   )}
@@ -587,8 +587,8 @@ export function GeneralSettingsSection() {
                 </div>
               )}
 
-              {/* Stats — hidden when status fetch errored, since counts may be stale or wrong */}
-              {status.error ? (
+              {/* Stats — hidden whenever there's an error, since counts may be stale or misleading alongside it */}
+              {lastError ? (
                 <div className="flex items-center justify-between pt-3 border-t border-border border-dashed">
                   <span className="text-sm text-text font-medium">Status</span>
                   <span className="text-sm text-text-muted">
@@ -646,7 +646,7 @@ export function GeneralSettingsSection() {
                         href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-red-400 hover:text-red-300 underline mt-1 inline-block"
+                        className="text-xs text-red-500 hover:text-red-700 underline mt-1 inline-block"
                       >
                         Learn more about SSH authentication
                       </a>
@@ -654,7 +654,7 @@ export function GeneralSettingsSection() {
                     <Button
                       onClick={clearError}
                       variant="link"
-                      className="block text-xs h-auto p-0 mt-2 text-red-400 hover:text-red-300"
+                      className="block text-xs h-auto p-0 mt-2 text-red-500 hover:text-red-700"
                     >
                       Dismiss
                     </Button>
@@ -851,7 +851,9 @@ function IgnoredFoldersEditor() {
       try {
         await invoke("rebuild_search_index");
       } catch {
-        toast.error("Search index rebuild failed — search results may be stale");
+        toast.error(
+          "Search index rebuild failed — search results may be stale",
+        );
       }
     } catch {
       toast.error("Failed to save ignored folders");
