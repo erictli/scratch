@@ -405,7 +405,8 @@ pub fn add_remote(path: &Path, url: &str) -> GitResult {
 
 /// Update the URL of the existing 'origin' remote
 pub fn set_remote_url(path: &Path, url: &str) -> GitResult {
-    if !is_valid_remote_url(url) {
+    let normalized = url.trim();
+    if !is_valid_remote_url(normalized) {
         return GitResult {
             success: false,
             message: None,
@@ -414,7 +415,7 @@ pub fn set_remote_url(path: &Path, url: &str) -> GitResult {
     }
 
     let output = git_cmd()
-        .args(["remote", "set-url", "origin", url])
+        .args(["remote", "set-url", "origin", normalized])
         .current_dir(path)
         .output();
 
@@ -468,11 +469,12 @@ pub fn remove_remote(path: &Path) -> GitResult {
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                // Removing an already-missing 'origin' is idempotent — converge on "not connected".
                 if stderr.contains("No such remote") {
                     GitResult {
-                        success: false,
+                        success: true,
                         message: None,
-                        error: Some("No 'origin' remote configured".to_string()),
+                        error: None,
                     }
                 } else {
                     GitResult {

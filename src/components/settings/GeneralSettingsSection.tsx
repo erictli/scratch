@@ -639,7 +639,7 @@ export function GeneralSettingsSection() {
               {lastError && (
                 <div className="pt-3 border-t border-border">
                   <div className="bg-red-500/10 rounded-md p-3">
-                    <p className="text-sm text-red-500 capitalize">
+                    <p className="text-sm text-red-500 first-letter:capitalize">
                       {lastError}
                     </p>
                     {(lastError.includes("Authentication") ||
