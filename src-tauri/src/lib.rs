@@ -102,7 +102,46 @@ pub struct AppConfig {
     pub notes_folder: Option<String>,
 }
 
-// Per-folder settings (stored in .scratch/settings.json within notes folder)
+// Global settings – stored in {APP_CONFIG_DIR}/settings.json
+// These are user preferences shared across all notes folders.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GlobalSettings {
+    pub theme: ThemeSettings,
+    #[serde(rename = "editorFont")]
+    pub editor_font: Option<EditorFontSettings>,
+    #[serde(rename = "textDirection")]
+    pub text_direction: Option<TextDirection>,
+    #[serde(rename = "editorWidth")]
+    pub editor_width: Option<String>,
+    #[serde(rename = "customEditorWidthPx")]
+    pub custom_editor_width_px: Option<u32>,
+    #[serde(rename = "interfaceZoom")]
+    pub interface_zoom: Option<f32>,
+    #[serde(rename = "ollamaModel")]
+    pub ollama_model: Option<String>,
+    #[serde(rename = "foldersEnabled")]
+    pub folders_enabled: Option<bool>,
+    #[serde(rename = "ignoredPatterns")]
+    pub ignored_patterns: Option<Vec<String>>,
+    #[serde(rename = "customColorsLight")]
+    pub custom_colors_light: Option<std::collections::HashMap<String, String>>,
+    #[serde(rename = "customColorsDark")]
+    pub custom_colors_dark: Option<std::collections::HashMap<String, String>>,
+}
+
+// Local settings – stored in {NOTES_FOLDER}/.scratch/settings.json
+// These are specific to the active notes folder.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LocalSettings {
+    #[serde(rename = "gitEnabled")]
+    pub git_enabled: Option<bool>,
+    #[serde(rename = "pinnedNoteIds")]
+    pub pinned_note_ids: Option<Vec<String>>,
+    #[serde(rename = "defaultNoteName")]
+    pub default_note_name: Option<String>,
+}
+
+// Combined settings – used as the API contract with the frontend (unchanged shape).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     pub theme: ThemeSettings,
@@ -331,8 +370,9 @@ impl SearchIndex {
 
 // App state with improved structure
 pub struct AppState {
-    pub app_config: RwLock<AppConfig>,  // notes_folder path (stored in app data)
-    pub settings: RwLock<Settings>,      // per-folder settings (stored in .scratch/)
+    pub app_config: RwLock<AppConfig>,           // notes_folder path (stored in app data)
+    pub global_settings: RwLock<GlobalSettings>, // user prefs shared across folders
+    pub local_settings: RwLock<LocalSettings>,   // per-folder settings (stored in .scratch/)
     pub notes_cache: RwLock<HashMap<String, NoteMetadata>>,
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
@@ -343,7 +383,8 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             app_config: RwLock::new(AppConfig::default()),
-            settings: RwLock::new(Settings::default()),
+            global_settings: RwLock::new(GlobalSettings::default()),
+            local_settings: RwLock::new(LocalSettings::default()),
             notes_cache: RwLock::new(HashMap::new()),
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
@@ -621,8 +662,8 @@ const DEFAULT_IGNORED_DIRS: &[&str] = &[
     ".parcel-cache",
 ];
 
-/// Get the effective ignored directories from settings (or defaults if not customized).
-fn get_effective_ignored_dirs(settings: &Settings) -> Vec<String> {
+/// Get the effective ignored directories from global settings (or defaults if not customized).
+fn get_effective_ignored_dirs(settings: &GlobalSettings) -> Vec<String> {
     settings.ignored_patterns.clone().unwrap_or_else(|| {
         DEFAULT_IGNORED_DIRS.iter().map(|s| s.to_string()).collect()
     })
@@ -715,8 +756,23 @@ fn get_app_config_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(app_data.join("config.json"))
 }
 
+// Get global settings directory (~/.config/scratch/), survives app uninstall/reinstall
+fn get_global_settings_dir() -> Result<PathBuf> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| anyhow::anyhow!("Cannot determine home directory"))?;
+    let dir = PathBuf::from(home).join(".config").join("scratch");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+// Get global settings file path (~/.config/scratch/settings.json, shared across all folders)
+fn get_global_settings_path() -> Result<PathBuf> {
+    Ok(get_global_settings_dir()?.join("settings.json"))
+}
+
 // Get per-folder settings file path (in .scratch/ within notes folder)
-fn get_settings_path(notes_folder: &str) -> PathBuf {
+fn get_local_settings_path(notes_folder: &str) -> PathBuf {
     let scratch_dir = PathBuf::from(notes_folder).join(".scratch");
     std::fs::create_dir_all(&scratch_dir).ok();
     scratch_dir.join("settings.json")
@@ -754,9 +810,12 @@ fn save_app_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
-// Load per-folder settings from disk
-fn load_settings(notes_folder: &str) -> Settings {
-    let path = get_settings_path(notes_folder);
+// Load global settings from disk (shared across all notes folders)
+fn load_global_settings() -> GlobalSettings {
+    let path = match get_global_settings_path() {
+        Ok(p) => p,
+        Err(_) => return GlobalSettings::default(),
+    };
 
     if path.exists() {
         std::fs::read_to_string(&path)
@@ -764,13 +823,61 @@ fn load_settings(notes_folder: &str) -> Settings {
             .and_then(|content| serde_json::from_str(&content).ok())
             .unwrap_or_default()
     } else {
-        Settings::default()
+        GlobalSettings::default()
+    }
+}
+
+// Save global settings to disk
+fn save_global_settings(settings: &GlobalSettings) -> Result<()> {
+    let path = get_global_settings_path()?;
+    let content = serde_json::to_string_pretty(settings)?;
+    std::fs::write(path, content)?;
+    Ok(())
+}
+
+// Migrate global settings from old Tauri app_data location to ~/.config/scratch/
+fn migrate_global_settings(app: &AppHandle) {
+    let new_path = match get_global_settings_path() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+
+    // Already migrated or fresh install
+    if new_path.exists() {
+        return;
+    }
+
+    // Check old location (Tauri app_data_dir)
+    let old_path = match app.path().app_data_dir() {
+        Ok(dir) => dir.join("settings.json"),
+        Err(_) => return,
+    };
+
+    if old_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&old_path) {
+            let _ = std::fs::write(&new_path, content);
+            eprintln!("Migrated global settings from {:?} to {:?}", old_path, new_path);
+        }
+    }
+}
+
+// Load per-folder settings from disk
+fn load_local_settings(notes_folder: &str) -> LocalSettings {
+    let path = get_local_settings_path(notes_folder);
+
+    if path.exists() {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+            .unwrap_or_default()
+    } else {
+        LocalSettings::default()
     }
 }
 
 // Save per-folder settings to disk
-fn save_settings(notes_folder: &str, settings: &Settings) -> Result<()> {
-    let path = get_settings_path(notes_folder);
+fn save_local_settings(notes_folder: &str, settings: &LocalSettings) -> Result<()> {
+    let path = get_local_settings_path(notes_folder);
     let content = serde_json::to_string_pretty(settings)?;
     std::fs::write(path, content)?;
     Ok(())
@@ -827,7 +934,7 @@ fn initialize_notes_folder(app: &AppHandle, path_buf: &PathBuf, state: &AppState
     let _ = std::fs::remove_file(&write_test_path);
 
     // Load per-folder settings (starts fresh with defaults if none exist)
-    let settings = load_settings(&normalized_path);
+    let local = load_local_settings(&normalized_path);
 
     // Update app config
     {
@@ -835,10 +942,10 @@ fn initialize_notes_folder(app: &AppHandle, path_buf: &PathBuf, state: &AppState
         app_config.notes_folder = Some(normalized_path.clone());
     }
 
-    // Update settings in memory
+    // Update local settings in memory (global settings are loaded once at startup)
     {
-        let mut current_settings = state.settings.write().expect("settings write lock");
-        *current_settings = settings;
+        let mut local_settings = state.local_settings.write().expect("local_settings write lock");
+        *local_settings = local;
     }
 
     // Save app config to disk
@@ -854,7 +961,7 @@ fn initialize_notes_folder(app: &AppHandle, path_buf: &PathBuf, state: &AppState
     if let Ok(index_path) = get_search_index_path(app) {
         if let Ok(search_index) = SearchIndex::new(&index_path) {
             let ignored_dirs = {
-                let settings = state.settings.read().expect("settings read lock");
+                let settings = state.global_settings.read().expect("global_settings read lock");
                 get_effective_ignored_dirs(&settings)
             };
             let _ = search_index.rebuild_index(path_buf, &ignored_dirs);
@@ -901,7 +1008,7 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
     }
 
     let ignored_dirs = {
-        let settings = state.settings.read().expect("settings read lock");
+        let settings = state.global_settings.read().expect("global_settings read lock");
         get_effective_ignored_dirs(&settings)
     };
 
@@ -949,10 +1056,10 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         })
         .collect();
 
-    // Load pinned note IDs from settings
+    // Load pinned note IDs from local settings
     let pinned_ids: HashSet<String> = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let local = state.local_settings.read().expect("local_settings read lock");
+        local
             .pinned_note_ids
             .as_ref()
             .map(|ids| ids.iter().cloned().collect())
@@ -1185,10 +1292,10 @@ async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) 
     };
     let folder_path = PathBuf::from(&folder);
 
-    // Get template from settings (default "Untitled")
+    // Get template from local settings (default "Untitled")
     let template = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings
+        let local = state.local_settings.read().expect("local_settings read lock");
+        local
             .default_note_name
             .clone()
             .unwrap_or_else(|| "Untitled".to_string())
@@ -1320,7 +1427,7 @@ async fn list_folders(state: State<'_, AppState>) -> Result<Vec<String>, String>
     let folder_path = PathBuf::from(&folder);
 
     let ignored_dirs = {
-        let settings = state.settings.read().expect("settings read lock");
+        let settings = state.global_settings.read().expect("global_settings read lock");
         get_effective_ignored_dirs(&settings)
     };
 
@@ -1485,10 +1592,10 @@ async fn rename_folder(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Update pinned note IDs in settings
+    // Update pinned note IDs in local settings
     {
-        let mut settings = state.settings.write().expect("settings write lock");
-        if let Some(ref mut pinned) = settings.pinned_note_ids {
+        let mut local = state.local_settings.write().expect("local_settings write lock");
+        if let Some(ref mut pinned) = local.pinned_note_ids {
             for id in pinned.iter_mut() {
                 if id.starts_with(&old_prefix) {
                     *id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
@@ -1497,8 +1604,9 @@ async fn rename_folder(
                 }
             }
         }
-        // Save settings
-        let _ = save_settings(&folder, &settings);
+        if let Err(e) = save_local_settings(&folder, &local) {
+            eprintln!("Warning: failed to persist pinned note IDs: {}", e);
+        }
     }
 
     // Update cache
@@ -1525,7 +1633,7 @@ async fn rename_folder(
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
             let ignored_dirs = {
-                let settings = state.settings.read().expect("settings read lock");
+                let settings = state.global_settings.read().expect("global_settings read lock");
                 get_effective_ignored_dirs(&settings)
             };
             let _ = search_index.rebuild_index(&folder_root, &ignored_dirs);
@@ -1586,17 +1694,19 @@ async fn move_note(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Update pinned note IDs
+    // Update pinned note IDs in local settings
     {
-        let mut settings = state.settings.write().expect("settings write lock");
-        if let Some(ref mut pinned) = settings.pinned_note_ids {
+        let mut local = state.local_settings.write().expect("local_settings write lock");
+        if let Some(ref mut pinned) = local.pinned_note_ids {
             for pin_id in pinned.iter_mut() {
                 if *pin_id == id {
                     *pin_id = new_id.clone();
                 }
             }
         }
-        let _ = save_settings(&folder, &settings);
+        if let Err(e) = save_local_settings(&folder, &local) {
+            eprintln!("Warning: failed to persist pinned note IDs: {}", e);
+        }
     }
 
     // Update cache
@@ -1613,7 +1723,7 @@ async fn move_note(
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
             let ignored_dirs = {
-                let settings = state.settings.read().expect("settings read lock");
+                let settings = state.global_settings.read().expect("global_settings read lock");
                 get_effective_ignored_dirs(&settings)
             };
             let _ = search_index.rebuild_index(&folder_root, &ignored_dirs);
@@ -1691,17 +1801,19 @@ async fn move_folder(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Update pinned note IDs
+    // Update pinned note IDs in local settings
     {
-        let mut settings = state.settings.write().expect("settings write lock");
-        if let Some(ref mut pinned) = settings.pinned_note_ids {
+        let mut local = state.local_settings.write().expect("local_settings write lock");
+        if let Some(ref mut pinned) = local.pinned_note_ids {
             for pin_id in pinned.iter_mut() {
                 if pin_id.starts_with(&old_prefix) {
                     *pin_id = format!("{}{}", new_prefix, &pin_id[old_prefix.len()..]);
                 }
             }
         }
-        let _ = save_settings(&folder, &settings);
+        if let Err(e) = save_local_settings(&folder, &local) {
+            eprintln!("Warning: failed to persist pinned note IDs: {}", e);
+        }
     }
 
     // Update cache
@@ -1728,7 +1840,7 @@ async fn move_folder(
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
             let ignored_dirs = {
-                let settings = state.settings.read().expect("settings read lock");
+                let settings = state.global_settings.read().expect("global_settings read lock");
                 get_effective_ignored_dirs(&settings)
             };
             let _ = search_index.rebuild_index(&folder_root, &ignored_dirs);
@@ -1740,7 +1852,24 @@ async fn move_folder(
 
 #[tauri::command]
 fn get_settings(state: State<AppState>) -> Settings {
-    state.settings.read().expect("settings read lock").clone()
+    let global = state.global_settings.read().expect("global_settings read lock").clone();
+    let local = state.local_settings.read().expect("local_settings read lock").clone();
+    Settings {
+        theme: global.theme,
+        editor_font: global.editor_font,
+        text_direction: global.text_direction,
+        editor_width: global.editor_width,
+        custom_editor_width_px: global.custom_editor_width_px,
+        interface_zoom: global.interface_zoom,
+        ollama_model: global.ollama_model,
+        folders_enabled: global.folders_enabled,
+        ignored_patterns: global.ignored_patterns,
+        custom_colors_light: global.custom_colors_light,
+        custom_colors_dark: global.custom_colors_dark,
+        git_enabled: local.git_enabled,
+        pinned_note_ids: local.pinned_note_ids,
+        default_note_name: local.default_note_name,
+    }
 }
 
 #[tauri::command]
@@ -1748,18 +1877,45 @@ fn update_settings(
     new_settings: Settings,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let folder = {
-        let app_config = state.app_config.read().expect("app_config read lock");
-        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+    let new_global = GlobalSettings {
+        theme: new_settings.theme,
+        editor_font: new_settings.editor_font,
+        text_direction: new_settings.text_direction,
+        editor_width: new_settings.editor_width,
+        custom_editor_width_px: new_settings.custom_editor_width_px,
+        interface_zoom: new_settings.interface_zoom,
+        ollama_model: new_settings.ollama_model,
+        folders_enabled: new_settings.folders_enabled,
+        ignored_patterns: new_settings.ignored_patterns,
+        custom_colors_light: new_settings.custom_colors_light,
+        custom_colors_dark: new_settings.custom_colors_dark,
     };
 
-    {
-        let mut settings = state.settings.write().expect("settings write lock");
-        *settings = new_settings;
-    }
+    let new_local = LocalSettings {
+        git_enabled: new_settings.git_enabled,
+        pinned_note_ids: new_settings.pinned_note_ids,
+        default_note_name: new_settings.default_note_name,
+    };
 
-    let settings = state.settings.read().expect("settings read lock");
-    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+    // Save global settings
+    {
+        let mut global = state.global_settings.write().expect("global_settings write lock");
+        *global = new_global.clone();
+    }
+    save_global_settings(&new_global).map_err(|e| e.to_string())?;
+
+    // Save local settings only if a notes folder is active
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+    if let Some(folder) = folder {
+        {
+            let mut local = state.local_settings.write().expect("local_settings write lock");
+            *local = new_local.clone();
+        }
+        save_local_settings(&folder, &new_local).map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }
@@ -1782,12 +1938,12 @@ fn update_git_enabled(
     };
 
     {
-        let mut settings = state.settings.write().expect("settings write lock");
-        settings.git_enabled = enabled;
+        let mut local = state.local_settings.write().expect("local_settings write lock");
+        local.git_enabled = enabled;
     }
 
-    let settings = state.settings.read().expect("settings read lock");
-    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+    let local = state.local_settings.read().expect("local_settings read lock");
+    save_local_settings(&folder, &local).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -2144,7 +2300,7 @@ fn setup_file_watcher(
                 for path in event.paths.iter() {
                     // Read current ignored patterns from settings
                     let ignored_dirs = if let Some(state) = app_handle.try_state::<AppState>() {
-                        let settings = state.settings.read().expect("settings read lock");
+                        let settings = state.global_settings.read().expect("global_settings read lock");
                         get_effective_ignored_dirs(&settings)
                     } else {
                         DEFAULT_IGNORED_DIRS.iter().map(|s| s.to_string()).collect()
@@ -2414,7 +2570,7 @@ fn rebuild_search_index(state: State<AppState>) -> Result<(), String> {
     };
 
     let ignored_dirs = {
-        let settings = state.settings.read().expect("settings read lock");
+        let settings = state.global_settings.read().expect("global_settings read lock");
         get_effective_ignored_dirs(&settings)
     };
 
@@ -3481,7 +3637,7 @@ fn try_select_in_notes_folder(app: &AppHandle, path: &Path) -> bool {
     }
 
     let ignored_dirs = {
-        let settings = state.settings.read().expect("settings read lock");
+        let settings = state.global_settings.read().expect("global_settings read lock");
         get_effective_ignored_dirs(&settings)
     };
 
@@ -3670,15 +3826,21 @@ pub fn run() {
                 }
             }
 
+            // Migrate global settings from old app_data location to ~/.config/scratch/
+            migrate_global_settings(app.handle());
+
+            // Load global settings (shared across all notes folders)
+            let global_settings = load_global_settings();
+
             // Load per-folder settings if notes folder is set
-            let settings = if let Some(ref folder) = app_config.notes_folder {
-                load_settings(folder)
+            let local_settings = if let Some(ref folder) = app_config.notes_folder {
+                load_local_settings(folder)
             } else {
-                Settings::default()
+                LocalSettings::default()
             };
 
             // Initialize search index if notes folder is set
-            let ignored_dirs = get_effective_ignored_dirs(&settings);
+            let ignored_dirs = get_effective_ignored_dirs(&global_settings);
             let search_index = if let Some(ref folder) = app_config.notes_folder {
                 if let Ok(index_path) = get_search_index_path(app.handle()) {
                     SearchIndex::new(&index_path).ok().inspect(|idx| {
@@ -3693,7 +3855,8 @@ pub fn run() {
 
             let state = AppState {
                 app_config: RwLock::new(app_config),
-                settings: RwLock::new(settings),
+                global_settings: RwLock::new(global_settings),
+                local_settings: RwLock::new(local_settings),
                 notes_cache: RwLock::new(HashMap::new()),
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
