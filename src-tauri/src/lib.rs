@@ -2898,6 +2898,51 @@ fn get_cli_status() -> Result<CliStatus, String> {
 }
 
 #[tauri::command]
+async fn git_get_file_history(
+    state: State<'_, AppState>,
+    file_path: String,
+) -> Result<Vec<git::FileVersion>, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::get_file_history(&PathBuf::from(&path), &file_path)
+            })
+            .await
+            .map_err(|e| e.to_string())?
+        }
+        None => Ok(vec![]),
+    }
+}
+
+#[tauri::command]
+async fn git_get_file_at_commit(
+    state: State<'_, AppState>,
+    commit: String,
+    file_path: String,
+) -> Result<String, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::get_file_at_commit(&PathBuf::from(&path), &commit, &file_path)
+            })
+            .await
+            .map_err(|e| e.to_string())?
+        }
+        None => Err("No notes folder configured".to_string()),
+    }
+}
+
+#[tauri::command]
 fn install_cli() -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
     return Err("CLI install is only supported on macOS".to_string());
@@ -3846,6 +3891,8 @@ pub fn run() {
             git_set_remote_url,
             git_remove_remote,
             git_push_with_upstream,
+            git_get_file_history,
+            git_get_file_at_commit,
             ai_check_claude_cli,
             ai_check_codex_cli,
             ai_check_opencode_cli,
