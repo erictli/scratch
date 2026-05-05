@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import type { AttachmentMetadata } from "../../types/note";
@@ -47,6 +47,7 @@ export function FilePreview({
   const [isLoadingText, setIsLoadingText] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [imageError, setImageError] = useState(false);
+  const loadIdRef = useRef(0);
   const assetUrl = useMemo(
     () => convertFileSrc(attachment.path),
     [attachment.path],
@@ -54,15 +55,19 @@ export function FilePreview({
 
   const loadText = useCallback(async () => {
     if (attachment.kind !== "text") return;
+    const id = ++loadIdRef.current;
     setIsLoadingText(true);
     try {
-      setTextContent(await filesService.readTextFile(attachment.path));
+      const content = await filesService.readTextFile(attachment.path);
+      if (id !== loadIdRef.current) return;
+      setTextContent(content);
     } catch (error) {
+      if (id !== loadIdRef.current) return;
       console.error("Failed to read text file:", error);
-      toast.error(`Failed to read file: ${error}`);
+      toast.error("Failed to read file. Please try again.");
       setTextContent("");
     } finally {
-      setIsLoadingText(false);
+      if (id === loadIdRef.current) setIsLoadingText(false);
     }
   }, [attachment.kind, attachment.path]);
 
