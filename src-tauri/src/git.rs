@@ -403,6 +403,96 @@ pub fn add_remote(path: &Path, url: &str) -> GitResult {
     }
 }
 
+/// Update the URL of the existing 'origin' remote
+pub fn set_remote_url(path: &Path, url: &str) -> GitResult {
+    let normalized = url.trim();
+    if !is_valid_remote_url(normalized) {
+        return GitResult {
+            success: false,
+            message: None,
+            error: Some("Invalid remote URL format. URL must start with https://, http://, or git@".to_string()),
+        };
+    }
+
+    let output = git_cmd()
+        .args(["remote", "set-url", "origin", normalized])
+        .current_dir(path)
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                GitResult {
+                    success: true,
+                    message: Some("Remote URL updated".to_string()),
+                    error: None,
+                }
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                if stderr.contains("No such remote") {
+                    GitResult {
+                        success: false,
+                        message: None,
+                        error: Some("No 'origin' remote configured".to_string()),
+                    }
+                } else {
+                    GitResult {
+                        success: false,
+                        message: None,
+                        error: Some(stderr.trim().to_string()),
+                    }
+                }
+            }
+        }
+        Err(e) => GitResult {
+            success: false,
+            message: None,
+            error: Some(format!("Failed to update remote: {}", e)),
+        },
+    }
+}
+
+/// Remove the 'origin' remote
+pub fn remove_remote(path: &Path) -> GitResult {
+    let output = git_cmd()
+        .args(["remote", "remove", "origin"])
+        .current_dir(path)
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                GitResult {
+                    success: true,
+                    message: Some("Remote removed".to_string()),
+                    error: None,
+                }
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                // Removing an already-missing 'origin' is idempotent — converge on "not connected".
+                if stderr.contains("No such remote") {
+                    GitResult {
+                        success: true,
+                        message: None,
+                        error: None,
+                    }
+                } else {
+                    GitResult {
+                        success: false,
+                        message: None,
+                        error: Some(stderr.trim().to_string()),
+                    }
+                }
+            }
+        }
+        Err(e) => GitResult {
+            success: false,
+            message: None,
+            error: Some(format!("Failed to remove remote: {}", e)),
+        },
+    }
+}
+
 /// Push to remote and set upstream tracking (git push -u origin <branch>)
 pub fn push_with_upstream(path: &Path, branch: &str) -> GitResult {
     let output = git_cmd()

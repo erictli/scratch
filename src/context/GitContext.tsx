@@ -37,6 +37,8 @@ interface GitContextValue {
   pull: () => Promise<string | false>;
   sync: () => Promise<{ ok: true; message: string } | { ok: false; error: string }>;
   addRemote: (url: string) => Promise<boolean>;
+  setRemoteUrl: (url: string) => Promise<boolean>;
+  removeRemote: () => Promise<boolean>;
   pushWithUpstream: () => Promise<boolean>;
   clearError: () => void;
 }
@@ -273,6 +275,42 @@ export function GitProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshStatus]);
 
+  const setRemoteUrl = useCallback(async (url: string) => {
+    setIsAddingRemote(true);
+    try {
+      const result = await gitService.setRemoteUrl(url);
+      if (result.error) {
+        setLastError(result.error);
+        return false;
+      }
+      await refreshStatus();
+      return true;
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : "Failed to update remote");
+      return false;
+    } finally {
+      setIsAddingRemote(false);
+    }
+  }, [refreshStatus]);
+
+  const removeRemote = useCallback(async () => {
+    setIsAddingRemote(true);
+    try {
+      const result = await gitService.removeRemote();
+      if (result.error) {
+        setLastError(result.error);
+        return false;
+      }
+      await refreshStatus();
+      return true;
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : "Failed to remove remote");
+      return false;
+    } finally {
+      setIsAddingRemote(false);
+    }
+  }, [refreshStatus]);
+
   const pushWithUpstream = useCallback(async () => {
     setIsPushing(true);
     try {
@@ -439,6 +477,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
       pull,
       sync,
       addRemote,
+      setRemoteUrl,
+      removeRemote,
       pushWithUpstream,
       clearError,
     }),
@@ -462,6 +502,8 @@ export function GitProvider({ children }: { children: ReactNode }) {
       pull,
       sync,
       addRemote,
+      setRemoteUrl,
+      removeRemote,
       pushWithUpstream,
       clearError,
     ]

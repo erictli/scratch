@@ -56,6 +56,8 @@ export function GeneralSettingsSection() {
     initRepo,
     isLoading,
     addRemote,
+    setRemoteUrl: updateRemoteUrl,
+    removeRemote,
     pushWithUpstream,
     isAddingRemote,
     isPushing,
@@ -65,6 +67,7 @@ export function GeneralSettingsSection() {
 
   const [remoteUrl, setRemoteUrl] = useState("");
   const [showRemoteInput, setShowRemoteInput] = useState(false);
+  const [isEditingRemote, setIsEditingRemote] = useState(false);
   const [noteTemplate, setNoteTemplate] = useState<string>("Untitled");
   const [previewNoteName, setPreviewNoteName] = useState<string>("Untitled");
   // Load template from settings on mount
@@ -177,6 +180,42 @@ export function GeneralSettingsSection() {
     }
   };
 
+  const handleStartEditRemote = () => {
+    setRemoteUrl(status?.remoteUrl || "");
+    setIsEditingRemote(true);
+    clearError();
+  };
+
+  const handleCancelEditRemote = () => {
+    setIsEditingRemote(false);
+    setRemoteUrl("");
+    clearError();
+  };
+
+  const handleSaveRemoteUrl = async () => {
+    if (isAddingRemote) return;
+    const trimmed = remoteUrl.trim();
+    if (!trimmed) return;
+    if (trimmed === status?.remoteUrl) {
+      setIsEditingRemote(false);
+      return;
+    }
+    const success = await updateRemoteUrl(trimmed);
+    if (success) {
+      setRemoteUrl("");
+      setIsEditingRemote(false);
+    }
+  };
+
+  const handleRemoveRemote = async () => {
+    if (isAddingRemote) return;
+    const success = await removeRemote();
+    if (success) {
+      setRemoteUrl("");
+      setIsEditingRemote(false);
+    }
+  };
+
   const handlePushWithUpstream = async () => {
     await pushWithUpstream();
   };
@@ -198,6 +237,7 @@ export function GeneralSettingsSection() {
 
     if (!enabled) {
       setShowRemoteInput(false);
+      setIsEditingRemote(false);
       setRemoteUrl("");
     }
   };
@@ -345,32 +385,98 @@ export function GeneralSettingsSection() {
               {/* Remote configuration */}
               {status.hasRemote ? (
                 <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text font-medium">
-                      Remote
-                    </span>
-                    {getRemoteWebUrl(status.remoteUrl) ? (
-                      <button
-                        onClick={() =>
-                          handleOpenUrl(getRemoteWebUrl(status.remoteUrl)!)
-                        }
-                        className="flex items-center gap-0.75 text-sm text-text-muted hover:text-text truncate max-w-50 transition-colors cursor-pointer"
-                        title={status.remoteUrl || undefined}
-                      >
-                        <span className="truncate">
-                          {formatRemoteUrl(status.remoteUrl)}
-                        </span>
-                        <ExternalLinkIcon className="w-3.25 h-3.25 shrink-0" />
-                      </button>
-                    ) : (
-                      <span
-                        className="text-sm text-text-muted truncate max-w-50"
-                        title={status.remoteUrl || undefined}
-                      >
-                        {formatRemoteUrl(status.remoteUrl)}
+                  {isEditingRemote ? (
+                    <div className="space-y-2">
+                      <span className="text-sm text-text font-medium">
+                        Remote
                       </span>
-                    )}
-                  </div>
+                      <Input
+                        type="text"
+                        value={remoteUrl}
+                        onChange={(e) => setRemoteUrl(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveRemoteUrl();
+                          if (e.key === "Escape") handleCancelEditRemote();
+                        }}
+                        placeholder="https://github.com/user/repo.git"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleSaveRemoteUrl}
+                          disabled={
+                            isAddingRemote ||
+                            !remoteUrl.trim() ||
+                            remoteUrl.trim() === status.remoteUrl
+                          }
+                          size="sm"
+                        >
+                          {isAddingRemote ? (
+                            <>
+                              <SpinnerIcon className="w-3 h-3 mr-2 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            "Save"
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleCancelEditRemote}
+                          disabled={isAddingRemote}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleRemoveRemote}
+                          disabled={isAddingRemote}
+                          className="ml-auto text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                      <RemoteInstructions />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-text font-medium">
+                        Remote
+                      </span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        {getRemoteWebUrl(status.remoteUrl) ? (
+                          <button
+                            onClick={() =>
+                              handleOpenUrl(getRemoteWebUrl(status.remoteUrl)!)
+                            }
+                            className="flex items-center gap-0.75 text-sm text-text-muted hover:text-text truncate max-w-50 transition-colors cursor-pointer"
+                            title={status.remoteUrl || undefined}
+                          >
+                            <span className="truncate">
+                              {formatRemoteUrl(status.remoteUrl)}
+                            </span>
+                            <ExternalLinkIcon className="w-3.25 h-3.25 shrink-0" />
+                          </button>
+                        ) : (
+                          <span
+                            className="text-sm text-text-muted truncate max-w-50"
+                            title={status.remoteUrl || undefined}
+                          >
+                            {formatRemoteUrl(status.remoteUrl)}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleStartEditRemote}
+                          className="text-sm text-text font-medium hover:text-text-muted transition-colors cursor-pointer"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Upstream tracking status */}
                   {status.hasUpstream ? (
@@ -422,7 +528,7 @@ export function GeneralSettingsSection() {
                     <span className="text-sm text-text font-medium">
                       Remote
                     </span>
-                    <span className="text-sm font-medium text-orange-500">
+                    <span className="text-sm font-medium text-red-500">
                       Not connected
                     </span>
                   </div>
@@ -481,57 +587,68 @@ export function GeneralSettingsSection() {
                 </div>
               )}
 
-              {/* Changes count */}
-              {status.changedCount > 0 && (
+              {/* Stats — hidden whenever there's an error, since counts may be stale or misleading alongside it */}
+              {lastError ? (
                 <div className="flex items-center justify-between pt-3 border-t border-border border-dashed">
-                  <span className="text-sm text-text font-medium">
-                    Changes to commit
-                  </span>
+                  <span className="text-sm text-text font-medium">Status</span>
                   <span className="text-sm text-text-muted">
-                    {status.changedCount} file
-                    {status.changedCount === 1 ? "" : "s"} changed
+                    An error occurred
                   </span>
                 </div>
-              )}
+              ) : (
+                <>
+                  {status.changedCount > 0 && (
+                    <div className="flex items-center justify-between pt-3 border-t border-border border-dashed">
+                      <span className="text-sm text-text font-medium">
+                        Changes to commit
+                      </span>
+                      <span className="text-sm text-text-muted">
+                        {status.changedCount} file
+                        {status.changedCount === 1 ? "" : "s"} changed
+                      </span>
+                    </div>
+                  )}
 
-              {/* Commits to push */}
-              {status.aheadCount > 0 && status.hasUpstream && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-text font-medium">
-                    Commits to push
-                  </span>
-                  <span className="text-sm text-text-muted">
-                    {status.aheadCount} commit
-                    {status.aheadCount === 1 ? "" : "s"}
-                  </span>
-                </div>
-              )}
+                  {status.aheadCount > 0 && status.hasUpstream && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-text font-medium">
+                        Commits to push
+                      </span>
+                      <span className="text-sm text-text-muted">
+                        {status.aheadCount} commit
+                        {status.aheadCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  )}
 
-              {/* Commits to pull */}
-              {status.behindCount > 0 && status.hasUpstream && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-text font-medium">
-                    Commits to pull
-                  </span>
-                  <span className="text-sm text-text-muted">
-                    {status.behindCount} commit
-                    {status.behindCount === 1 ? "" : "s"}
-                  </span>
-                </div>
+                  {status.behindCount > 0 && status.hasUpstream && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-text font-medium">
+                        Commits to pull
+                      </span>
+                      <span className="text-sm text-text-muted">
+                        {status.behindCount} commit
+                        {status.behindCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Error display */}
               {lastError && (
                 <div className="pt-3 border-t border-border">
-                  <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3">
-                    <p className="text-sm text-red-500">{lastError}</p>
+                  <div className="bg-red-500/10 rounded-md p-3">
+                    <p className="text-sm text-red-500 first-letter:capitalize">
+                      {lastError}
+                    </p>
                     {(lastError.includes("Authentication") ||
                       lastError.includes("SSH")) && (
                       <a
                         href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-red-400 hover:text-red-300 underline mt-1 inline-block"
+                        className="text-sm text-red-500 hover:text-red-600 underline font-medium mt-1 inline-block"
                       >
                         Learn more about SSH authentication
                       </a>
@@ -539,7 +656,7 @@ export function GeneralSettingsSection() {
                     <Button
                       onClick={clearError}
                       variant="link"
-                      className="block text-xs h-auto p-0 mt-2 text-red-400 hover:text-red-300"
+                      className="block text-sm h-auto p-0 mt-2 text-red-500 hover:text-red-600 font-medium"
                     >
                       Dismiss
                     </Button>
@@ -736,7 +853,9 @@ function IgnoredFoldersEditor() {
       try {
         await invoke("rebuild_search_index");
       } catch {
-        toast.error("Search index rebuild failed — search results may be stale");
+        toast.error(
+          "Search index rebuild failed — search results may be stale",
+        );
       }
     } catch {
       toast.error("Failed to save ignored folders");

@@ -2674,6 +2674,52 @@ async fn git_add_remote(url: String, state: State<'_, AppState>) -> Result<git::
 }
 
 #[tauri::command]
+async fn git_set_remote_url(url: String, state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::set_remote_url(&PathBuf::from(path), &url)
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitResult {
+            success: false,
+            message: None,
+            error: Some("Notes folder not set".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
+async fn git_remove_remote(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone()
+    };
+
+    match folder {
+        Some(path) => {
+            tauri::async_runtime::spawn_blocking(move || {
+                git::remove_remote(&PathBuf::from(path))
+            })
+            .await
+            .map_err(|e| e.to_string())
+        }
+        None => Ok(git::GitResult {
+            success: false,
+            message: None,
+            error: Some("Notes folder not set".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
 async fn git_push_with_upstream(state: State<'_, AppState>) -> Result<git::GitResult, String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
@@ -3797,6 +3843,8 @@ pub fn run() {
             git_fetch,
             git_pull,
             git_add_remote,
+            git_set_remote_url,
+            git_remove_remote,
             git_push_with_upstream,
             ai_check_claude_cli,
             ai_check_codex_cli,
