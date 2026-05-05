@@ -110,8 +110,8 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
           </Tooltip>
         ) : null}
 
-        {/* Changes indicator */}
-        {hasChanges && (
+        {/* Changes indicator — hidden when there's an error so we don't show a stale count alongside it */}
+        {hasChanges && !lastError && (
           <Tooltip content="You have uncommitted changes">
             <span className="text-xs text-text-muted/70">Files changed</span>
           </Tooltip>
