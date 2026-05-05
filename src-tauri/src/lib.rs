@@ -699,7 +699,7 @@ fn attachment_kind_from_extension(ext: &str) -> Option<AttachmentKind> {
         "txt" | "text" | "log" | "csv" | "tsv" | "json" | "xml" | "yaml" | "yml" => {
             Some(AttachmentKind::Text)
         }
-        _ => None,
+        _ => Some(AttachmentKind::File),
     }
 }
 
@@ -2057,6 +2057,13 @@ async fn read_text_attachment(path: String, state: State<'_, AppState>) -> Resul
         "txt" | "text" | "log" | "csv" | "tsv" | "json" | "xml" | "yaml" | "yml"
     ) {
         return Err("Only text files can be read as text".to_string());
+    }
+
+    let meta = fs::metadata(&file_path)
+        .await
+        .map_err(|_| "Failed to read file metadata".to_string())?;
+    if meta.len() > 10 * 1024 * 1024 {
+        return Err("File too large to preview (max 10 MB)".to_string());
     }
 
     fs::read_to_string(&file_path)

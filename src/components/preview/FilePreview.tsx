@@ -45,7 +45,11 @@ export function FilePreview({
   const [textContent, setTextContent] = useState<string | null>(null);
   const [isLoadingText, setIsLoadingText] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
-  const assetUrl = useMemo(() => convertFileSrc(attachment.path), [attachment.path]);
+  const [imageError, setImageError] = useState(false);
+  const assetUrl = useMemo(
+    () => convertFileSrc(attachment.path),
+    [attachment.path],
+  );
 
   const loadText = useCallback(async () => {
     if (attachment.kind !== "text") return;
@@ -63,11 +67,13 @@ export function FilePreview({
 
   useEffect(() => {
     setTextContent(null);
+    setImageError(false);
     loadText();
   }, [loadText, attachment.modified]);
 
   const handleReload = useCallback(() => {
     setReloadKey((key) => key + 1);
+    setImageError(false);
     loadText();
   }, [loadText]);
 
@@ -105,7 +111,8 @@ export function FilePreview({
           )}
           <div className="min-w-0">
             <div className="text-xs text-text-muted truncate">
-              {formatBytes(attachment.size)} · {formatDateTime(attachment.modified)}
+              {formatBytes(attachment.size)} ·{" "}
+              {formatDateTime(attachment.modified)}
             </div>
           </div>
         </div>
@@ -125,12 +132,23 @@ export function FilePreview({
       <div className="flex-1 min-h-0 overflow-auto">
         {attachment.kind === "image" && (
           <div className="h-full min-h-0 flex items-center justify-center p-6">
-            <img
-              key={`${attachment.path}:${attachment.modified}:${reloadKey}`}
-              src={`${assetUrl}?v=${attachment.modified}-${reloadKey}`}
-              alt={attachment.name}
-              className="max-w-full max-h-full object-contain rounded-md"
-            />
+            {imageError ? (
+              <div className="flex flex-col items-center justify-center gap-3 text-text-muted">
+                <ImageIcon className="w-9 h-9 stroke-[1.4]" />
+                <p className="text-sm">Failed to load image.</p>
+                <Button onClick={handleReveal} variant="secondary" size="sm">
+                  Reveal File
+                </Button>
+              </div>
+            ) : (
+              <img
+                key={`${attachment.path}:${attachment.modified}:${reloadKey}`}
+                src={`${assetUrl}?v=${attachment.modified}-${reloadKey}`}
+                alt={attachment.name}
+                className="max-w-full max-h-full object-contain rounded-md"
+                onError={() => setImageError(true)}
+              />
+            )}
           </div>
         )}
 
@@ -143,7 +161,9 @@ export function FilePreview({
           >
             <div className="h-full flex flex-col items-center justify-center gap-3 text-text-muted">
               <NoteIcon className="w-9 h-9 stroke-[1.4]" />
-              <p className="text-sm">PDF preview is not available in this WebView.</p>
+              <p className="text-sm">
+                PDF preview is not available in this WebView.
+              </p>
               <Button onClick={handleReveal} variant="secondary" size="sm">
                 Reveal File
               </Button>
@@ -168,7 +188,9 @@ export function FilePreview({
         {attachment.kind === "file" && (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-text-muted">
             <ImageIcon className="w-9 h-9 stroke-[1.4]" />
-            <p className="text-sm">No preview is available for this file type.</p>
+            <p className="text-sm">
+              No preview is available for this file type.
+            </p>
             <Button onClick={handleReveal} variant="secondary" size="sm">
               Reveal File
             </Button>
