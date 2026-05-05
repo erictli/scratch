@@ -123,7 +123,7 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
             <Button
               onClick={clearError}
               variant="link"
-              className="text-xs h-auto p-0 text-orange-500 hover:text-orange-600 hover:no-underline"
+              className="text-xs h-auto p-0 text-red-500 hover:text-red-600 hover:no-underline"
             >
               An error occurred
             </Button>

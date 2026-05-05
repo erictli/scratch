@@ -433,7 +433,7 @@ export function GeneralSettingsSection() {
                           size="sm"
                           onClick={handleRemoveRemote}
                           disabled={isAddingRemote}
-                          className="ml-auto text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                          className="ml-auto text-red-500 hover:text-red-600 hover:bg-red-500/10"
                         >
                           Remove
                         </Button>
@@ -528,7 +528,7 @@ export function GeneralSettingsSection() {
                     <span className="text-sm text-text font-medium">
                       Remote
                     </span>
-                    <span className="text-sm font-medium text-orange-500">
+                    <span className="text-sm font-medium text-red-500">
                       Not connected
                     </span>
                   </div>
@@ -638,15 +638,17 @@ export function GeneralSettingsSection() {
               {/* Error display */}
               {lastError && (
                 <div className="pt-3 border-t border-border">
-                  <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3">
-                    <p className="text-sm text-red-500">{lastError}</p>
+                  <div className="bg-red-500/10 rounded-md p-3">
+                    <p className="text-sm text-red-500 capitalize">
+                      {lastError}
+                    </p>
                     {(lastError.includes("Authentication") ||
                       lastError.includes("SSH")) && (
                       <a
                         href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-red-500 hover:text-red-700 underline mt-1 inline-block"
+                        className="text-sm text-red-500 hover:text-red-600 underline font-medium mt-1 inline-block"
                       >
                         Learn more about SSH authentication
                       </a>
@@ -654,7 +656,7 @@ export function GeneralSettingsSection() {
                     <Button
                       onClick={clearError}
                       variant="link"
-                      className="block text-xs h-auto p-0 mt-2 text-red-500 hover:text-red-700"
+                      className="block text-sm h-auto p-0 mt-2 text-red-500 hover:text-red-600 font-medium"
                     >
                       Dismiss
                     </Button>
