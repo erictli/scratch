@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { Note, NoteMetadata } from "../types/note";
+import type { Note, NoteMetadata, Settings } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
 
@@ -27,6 +27,7 @@ interface NotesDataContextValue {
   isSearching: boolean;
   hasExternalChanges: boolean;
   reloadVersion: number;
+  settings: Settings | null;
 }
 
 // Actions context: stable references, rarely causes re-renders
@@ -51,6 +52,8 @@ interface NotesActionsContextValue {
   renameFolder: (oldPath: string, newName: string) => Promise<void>;
   moveNote: (id: string, targetFolder: string) => Promise<void>;
   moveFolder: (path: string, targetParent: string) => Promise<void>;
+  updateSettings: (newSettings: Settings) => Promise<void>;
+  refreshSettings: () => Promise<void>;
 }
 
 const NotesDataContext = createContext<NotesDataContextValue | null>(null);
@@ -84,6 +87,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const selectRequestIdRef = useRef(0);
   // Monotonic counter to ignore stale async search responses
   const searchRequestIdRef = useRef(0);
+  const [settings, setSettings] = useState<Settings | null>(null);
   // Tracks the ID of a newly created note so Editor can focus its title.
   const pendingNewNoteIdRef = useRef<string | null>(null);
 
@@ -96,6 +100,28 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setError(err instanceof Error ? err.message : "Failed to load notes");
     }
   }, [notesFolder]);
+
+  const refreshSettings = useCallback(async () => {
+    try {
+      const s = await notesService.getSettings();
+      setSettings(s);
+    } catch (err) {
+      console.error("Failed to load settings in NotesContext:", err);
+    }
+  }, []);
+
+  const updateSettings = useCallback(async (newSettings: Settings) => {
+    // Synchronously update local state for absolute instant feedback!
+    setSettings(newSettings);
+    try {
+      await notesService.updateSettings(newSettings);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update settings");
+      // Rollback or reload if update fails
+      const s = await notesService.getSettings();
+      setSettings(s);
+    }
+  }, []);
 
   // Debounced refresh - coalesces rapid saves into a single refresh
   const scheduleRefresh = useCallback(() => {
@@ -314,14 +340,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
             ...currentSettings,
             pinnedNoteIds: [...pinnedIds, id],
           };
+          // Synchronously update setting state for immediate UI feedback
+          setSettings(updatedSettings);
           await notesService.updateSettings(updatedSettings);
           await refreshNotes();
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to pin note");
+        await refreshSettings();
       }
     },
-    [refreshNotes]
+    [refreshNotes, refreshSettings]
   );
 
   const unpinNote = useCallback(
@@ -334,13 +363,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           ...currentSettings,
           pinnedNoteIds: pinnedIds.filter((pinId) => pinId !== id),
         };
+        // Synchronously update setting state for immediate UI feedback
+        setSettings(updatedSettings);
         await notesService.updateSettings(updatedSettings);
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to unpin note");
+        await refreshSettings();
       }
     },
-    [refreshNotes]
+    [refreshNotes, refreshSettings]
   );
 
   const createNoteInFolder = useCallback(
@@ -603,6 +635,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       try {
         const folder = await notesService.getNotesFolder();
         setNotesFolderState(folder);
+        await refreshSettings();
         if (folder) {
           const notesList = await notesService.listNotes();
           setNotes(notesList);
@@ -616,7 +649,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       }
     }
     init();
-  }, []);
+  }, [refreshSettings]);
 
   // Listen for file change events and notify if current note changed externally
   useEffect(() => {
@@ -673,12 +706,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     };
   }, [selectNote, refreshNotes]);
 
-  // Refresh notes when folder changes
+  // Refresh notes and settings when folder changes
   useEffect(() => {
     if (notesFolder) {
       refreshNotes();
+      refreshSettings();
     }
-  }, [notesFolder, refreshNotes]);
+  }, [notesFolder, refreshNotes, refreshSettings]);
 
   // Memoize data context value to prevent unnecessary re-renders
   const dataValue = useMemo<NotesDataContextValue>(
@@ -694,6 +728,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       isSearching,
       hasExternalChanges,
       reloadVersion,
+      settings,
     }),
     [
       notes,
@@ -707,6 +742,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       isSearching,
       hasExternalChanges,
       reloadVersion,
+      settings,
     ]
   );
 
@@ -733,6 +769,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       renameFolder: renameFolderAction,
       moveNote: moveNoteAction,
       moveFolder: moveFolderAction,
+      updateSettings,
+      refreshSettings,
     }),
     [
       selectNote,
@@ -755,6 +793,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       renameFolderAction,
       moveNoteAction,
       moveFolderAction,
+      updateSettings,
+      refreshSettings,
     ]
   );
 
