@@ -202,7 +202,7 @@ export const Footer = memo(function Footer({
             <IconButton
               onClick={handleCommit}
               disabled={isCommitting}
-              title="Quick commit"
+              title="Commit Changes"
             >
               {isCommitting ? (
                 <SpinnerIcon className="w-4.5 h-4.5 stroke-[1.5] animate-spin" />
