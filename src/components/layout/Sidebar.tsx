@@ -26,6 +26,7 @@ import {
 import { mod, shift, isMac } from "../../lib/platform";
 import * as notesService from "../../services/notes";
 import { FolderNameDialog } from "../notes/FolderNameDialog";
+import { CommitPanel } from "../git/CommitPanel";
 
 interface SidebarProps {
   onOpenSettings?: () => void;
@@ -53,6 +54,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const [dragCount, setDragCount] = useState(1);
   const [multiSelectedNoteIds, setMultiSelectedNoteIds] = useState<Set<string>>(new Set());
   const [lastClickedNoteId, setLastClickedNoteId] = useState<string | null>(null);
+  const [commitPanelOpen, setCommitPanelOpen] = useState(false);
   const debounceRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const multiSelectedRef = useRef(multiSelectedNoteIds) as RefObject<Set<string>>;
@@ -303,6 +305,18 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       window.removeEventListener("create-new-folder", handleCreateFolder);
   }, [selectedNoteId]);
 
+  useEffect(() => {
+    const handleOpenCommitPanel = () => {
+      setCommitPanelOpen(true);
+    };
+
+    window.addEventListener("open-commit-panel", handleOpenCommitPanel);
+
+    return () => {
+      window.removeEventListener("open-commit-panel", handleOpenCommitPanel);
+    };
+  }, []);
+
   return (
     <DndContext
       sensors={sensors}
@@ -420,8 +434,16 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         />
       </div>
 
+      <CommitPanel
+        open={commitPanelOpen}
+        onClose={() => setCommitPanelOpen(false)}
+      />
+
       {/* Footer with git status, commit, and settings */}
-      <Footer onOpenSettings={onOpenSettings} />
+        <Footer
+          onOpenSettings={onOpenSettings}
+          onOpenCommit={() => setCommitPanelOpen(true)}
+        />
 
       {/* Folder name dialog */}
       <FolderNameDialog

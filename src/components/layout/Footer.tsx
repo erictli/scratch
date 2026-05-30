@@ -15,6 +15,7 @@ import { mod, isMac } from "../../lib/platform";
 
 interface FooterProps {
   onOpenSettings?: () => void;
+  onOpenCommit?: () => void;
 }
 
 export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
