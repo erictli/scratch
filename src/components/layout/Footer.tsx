@@ -18,7 +18,10 @@ interface FooterProps {
   onOpenCommit?: () => void;
 }
 
-export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
+export const Footer = memo(function Footer({
+  onOpenSettings,
+  onOpenCommit,
+}: FooterProps) {
   const {
     status,
     isLoading,
@@ -28,24 +31,13 @@ export const Footer = memo(function Footer({ onOpenSettings }: FooterProps) {
     gitEnabled,
     sync,
     initRepo,
-    commit,
     lastError,
     clearError,
   } = useGit();
 
-  const handleCommit = useCallback(async () => {
-    if (isCommitting) return;
-    try {
-      const success = await commit("Quick commit from Scratch");
-      if (success) {
-        toast.success("Changes committed");
-      } else {
-        toast.error("Failed to commit");
-      }
-    } catch {
-      toast.error("Failed to commit");
-    }
-  }, [commit, isCommitting]);
+  const handleCommit = useCallback(() => {
+    onOpenCommit?.();
+  }, [onOpenCommit]);
 
   const handleSync = useCallback(async () => {
     if (isSyncing) return;
