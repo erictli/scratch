@@ -305,17 +305,21 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       window.removeEventListener("create-new-folder", handleCreateFolder);
   }, [selectedNoteId]);
 
-  useEffect(() => {
-    const handleOpenCommitPanel = () => {
-      setCommitPanelOpen(true);
-    };
+  const handleOpenCommitPanel = useCallback(() => {
+    setCommitPanelOpen(true);
+  }, []);
 
+  const handleCloseCommitPanel = useCallback(() => {
+    setCommitPanelOpen(false);
+  }, []);
+  
+  useEffect(() => {
     window.addEventListener("open-commit-panel", handleOpenCommitPanel);
 
     return () => {
       window.removeEventListener("open-commit-panel", handleOpenCommitPanel);
     };
-  }, []);
+  }, [handleOpenCommitPanel]);
 
   return (
     <DndContext
@@ -436,13 +440,13 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
 
       <CommitPanel
         open={commitPanelOpen}
-        onClose={() => setCommitPanelOpen(false)}
+        onClose={handleCloseCommitPanel}
       />
 
       {/* Footer with git status, commit, and settings */}
         <Footer
           onOpenSettings={onOpenSettings}
-          onOpenCommit={() => setCommitPanelOpen(true)}
+          onOpenCommit={handleOpenCommitPanel}
         />
 
       {/* Folder name dialog */}
