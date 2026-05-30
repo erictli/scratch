@@ -15,6 +15,7 @@ export {
 export { Button } from "./Button";
 export { CodeCopyButton } from "./CodeCopyButton";
 export { Input } from "./Input";
+export { Textarea } from "./Textarea";
 export { Select } from "./Select";
 export { Toaster } from "./Toaster";
 export {
@@ -52,7 +53,7 @@ export function ToolbarButton({
         isActive
           ? "bg-bg-muted text-text"
           : "hover:bg-bg-muted text-text-muted",
-        className
+        className,
       )}
       tabIndex={-1}
       aria-label={title}
@@ -70,8 +71,7 @@ export function ToolbarButton({
 }
 
 // Icon button (for sidebar actions, etc.)
-export interface IconButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
   size?: "xs" | "sm" | "md" | "lg" | "xl";
   variant?: "primary" | "default" | "secondary" | "ghost" | "outline";
@@ -98,7 +98,7 @@ const iconButtonVariants = {
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
   (
     { className, children, title, size = "sm", variant = "ghost", ...props },
-    ref
+    ref,
   ) => {
     const button = (
       <button
@@ -109,7 +109,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
           "disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
           iconButtonSizes[size],
           iconButtonVariants[variant],
-          className
+          className,
         )}
         tabIndex={-1}
         aria-label={title}
@@ -124,7 +124,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
     }
 
     return button;
-  }
+  },
 );
 IconButton.displayName = "IconButton";
 
@@ -166,7 +166,7 @@ export function ListItem({
         "focus:outline-none focus-visible:outline-none",
         isSelected
           ? "bg-bg-muted group-focus/notelist:ring-1 group-focus/notelist:ring-text-muted"
-          : "hover:bg-bg-muted"
+          : "hover:bg-bg-muted",
       )}
     >
       <div className="flex items-center justify-between gap-2">
@@ -184,7 +184,7 @@ export function ListItem({
           <div
             className={cn(
               "text-xs whitespace-nowrap",
-              isSelected ? "text-text" : "text-text-muted"
+              isSelected ? "text-text" : "text-text-muted",
             )}
           >
             {meta}
@@ -194,7 +194,7 @@ export function ListItem({
           className={cn(
             "text-xs line-clamp-1 min-h-5",
             hasSubtitle ? "text-text-muted" : "text-transparent",
-            isSelected ? "opacity-100" : "opacity-70"
+            isSelected ? "opacity-100" : "opacity-70",
           )}
         >
           {hasSubtitle ? cleanSubtitle : "\u00A0"}
@@ -233,7 +233,7 @@ export function CommandItem({
       tabIndex={-1}
       className={cn(
         "w-full text-left px-3 py-2 rounded-lg flex items-center justify-between transition-colors cursor-pointer",
-        isSelected ? "bg-bg-muted text-text" : "text-text hover:bg-bg-muted"
+        isSelected ? "bg-bg-muted text-text" : "text-text hover:bg-bg-muted",
       )}
     >
       <div className="flex items-center gap-3 min-w-0">
@@ -242,7 +242,7 @@ export function CommandItem({
             className={cn(
               "shrink-0 flex items-center justify-center text-text-muted",
               variant === "note" &&
-                "w-9 h-9 rounded-md bg-bg-emphasis flex items-center justify-center"
+                "w-9 h-9 rounded-md bg-bg-emphasis flex items-center justify-center",
             )}
           >
             {iconText ? (
@@ -265,7 +265,9 @@ export function CommandItem({
         <kbd
           className={cn(
             "text-xs px-2 py-0.5 rounded-md ml-2",
-            isSelected ? "bg-bg-muted text-text" : "bg-bg-muted text-text-muted"
+            isSelected
+              ? "bg-bg-muted text-text"
+              : "bg-bg-muted text-text-muted",
           )}
         >
           {shortcut}
