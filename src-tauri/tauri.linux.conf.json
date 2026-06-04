@@ -1,0 +1,9 @@
+{
+  "app": {
+    "windows": [
+      {
+        "visible": true
+      }
+    ]
+  }
+}

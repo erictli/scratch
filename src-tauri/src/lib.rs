@@ -3661,6 +3661,7 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
                 }
             }
             if let Some(main_window) = app.get_webview_window("main") {
+                #[cfg(not(target_os = "linux"))]
                 let _ = main_window.show();
                 let _ = main_window.set_focus();
             }
@@ -3670,6 +3671,7 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
     // If no files were opened, show and focus the main window
     if !opened_file {
         if let Some(main_window) = app.get_webview_window("main") {
+            #[cfg(not(target_os = "linux"))]
             let _ = main_window.show();
             let _ = main_window.set_focus();
         }
@@ -3786,6 +3788,7 @@ pub fn run() {
                     // - No standalone preview was opened (normal launch), OR
                     // - No notes folder is configured yet (new user needs FolderPicker
                     //   for onboarding, even if a preview is also showing).
+                    #[cfg(not(target_os = "linux"))]
                     let _ = main_window.show();
                 }
             }
