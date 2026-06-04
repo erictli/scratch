@@ -3660,8 +3660,8 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
                     eprintln!("Failed to initialize notes folder {:?}: {}", canonical, e);
                 }
             }
+            #[cfg(not(target_os = "linux"))]
             if let Some(main_window) = app.get_webview_window("main") {
-                #[cfg(not(target_os = "linux"))]
                 let _ = main_window.show();
                 let _ = main_window.set_focus();
             }
@@ -3670,8 +3670,8 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
 
     // If no files were opened, show and focus the main window
     if !opened_file {
+        #[cfg(not(target_os = "linux"))]
         if let Some(main_window) = app.get_webview_window("main") {
-            #[cfg(not(target_os = "linux"))]
             let _ = main_window.show();
             let _ = main_window.set_focus();
         }

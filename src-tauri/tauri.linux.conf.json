@@ -2,6 +2,13 @@
   "app": {
     "windows": [
       {
+        "title": "Scratch",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 600,
+        "minHeight": 400,
+        "resizable": true,
+        "decorations": true,
         "visible": true
       }
     ]
