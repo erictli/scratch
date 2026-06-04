@@ -23,7 +23,7 @@ import {
   FolderPlusIcon,
   NoteIcon,
 } from "../icons";
-import { mod, shift, isMac } from "../../lib/platform";
+import { mod, shift, isMac, isWindows } from "../../lib/platform";
 import * as notesService from "../../services/notes";
 import { FolderNameDialog } from "../notes/FolderNameDialog";
 
@@ -312,8 +312,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     >
     <div className="relative w-64 h-full bg-bg-secondary border-r border-border flex flex-col select-none">
       {/* Drag region */}
-      <div className="h-11 shrink-0" data-tauri-drag-region></div>
-      <div className="flex items-center justify-between pl-4 pr-3 pb-2 border-b border-border shrink-0">
+      {!isWindows && <div className="h-11 shrink-0" data-tauri-drag-region></div>}
+      <div className={`flex items-center justify-between pl-4 pr-3 pb-2 border-b border-border shrink-0${isWindows ? " pt-2" : ""}`}>
         <div className="flex items-center gap-1">
           <div className="font-medium text-base">Notes</div>
           <div className="text-text-muted font-medium text-2xs min-w-4.75 h-4.75 flex items-center justify-center px-1 bg-bg-muted rounded-sm mt-0.5 pt-px">

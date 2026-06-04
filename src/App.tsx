@@ -29,6 +29,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as aiService from "./services/ai";
 import type { AiProvider } from "./services/ai";
+import { isMac, isWindows } from "./lib/platform";
 
 // Detect preview mode from URL search params
 function getWindowMode(): {
@@ -647,10 +648,8 @@ function App() {
 
   // Add platform class for OS-specific styling (e.g., keyboard shortcuts)
   useEffect(() => {
-    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-    document.documentElement.classList.add(
-      isMac ? "platform-mac" : "platform-other",
-    );
+    const os = isMac ? "mac" : isWindows ? "windows" : "linux";
+    document.documentElement.classList.add(`platform-${os}`);
   }, []);
 
   // Check for app updates on startup (folder mode only)

@@ -124,6 +124,12 @@ body,
   overscroll-behavior: none;
 }
 
+/* Windows keeps its native title bar (no in-app titlebar spacer); a top border
+   separates the app content from the themed caption. */
+.platform-windows #root {
+  border-top: 1px solid var(--color-border);
+}
+
 /* macOS transparent title bar support */
 .titlebar-drag-region {
   -webkit-app-region: drag;

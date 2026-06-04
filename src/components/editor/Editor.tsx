@@ -37,7 +37,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
-import { mod, alt, shift, isMac } from "../../lib/platform";
+import { mod, alt, shift, isMac, isWindows } from "../../lib/platform";
 
 // Prepend https:// if no protocol is present
 function normalizeUrl(url: string): string {
@@ -2079,10 +2079,12 @@ export function Editor({
     if (previewMode) {
       return (
         <div className="flex-1 flex flex-col bg-bg">
-          <div
-            className="h-10 shrink-0 flex items-end px-4 pb-1"
-            data-tauri-drag-region
-          ></div>
+          {!isWindows && (
+            <div
+              className="h-10 shrink-0 flex items-end px-4 pb-1"
+              data-tauri-drag-region
+            ></div>
+          )}
           <div className="flex-1 flex items-center justify-center">
             <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
           </div>
@@ -2094,10 +2096,12 @@ export function Editor({
     if (notesCtx?.selectedNoteId) {
       return (
         <div className="flex-1 flex flex-col bg-bg">
-          <div
-            className="h-10 shrink-0 flex items-end px-4 pb-1"
-            data-tauri-drag-region
-          ></div>
+          {!isWindows && (
+            <div
+              className="h-10 shrink-0 flex items-end px-4 pb-1"
+              data-tauri-drag-region
+            ></div>
+          )}
           <div className="flex-1 flex items-center justify-center">
             <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
           </div>
@@ -2109,10 +2113,12 @@ export function Editor({
     return (
       <div className="flex-1 flex flex-col bg-bg">
         {/* Drag region */}
-        <div
-          className="h-10 shrink-0 flex items-end px-4 pb-1"
-          data-tauri-drag-region
-        ></div>
+        {!isWindows && (
+          <div
+            className="h-10 shrink-0 flex items-end px-4 pb-1"
+            data-tauri-drag-region
+          ></div>
+        )}
         <div className="flex-1 flex items-center justify-center pb-8">
           <div className="text-center text-text-muted select-none">
             <div
@@ -2163,7 +2169,7 @@ export function Editor({
       <div
         className={cn(
           "h-11 shrink-0 flex items-center justify-between px-3",
-          !isSidebarActive && "pl-22",
+          !isSidebarActive && !isWindows && "pl-22",
         )}
         data-tauri-drag-region
       >

@@ -8,6 +8,9 @@ export const isMac =
   typeof navigator !== "undefined" &&
   /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
+export const isWindows =
+  typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent);
+
 /** Modifier key symbol/label */
 export const mod = isMac ? "⌘" : "Ctrl";
 export const alt = isMac ? "⌥" : "Alt";
