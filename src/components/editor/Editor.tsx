@@ -107,7 +107,9 @@ import {
   MarkdownIcon,
   MarkdownOffIcon,
   FolderPlusIcon,
+  SparklesIcon,
 } from "../icons";
+import { AiSelectionModal } from "../ai/AiSelectionModal";
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -246,6 +248,7 @@ interface FormatBarProps {
   onAddLink: () => void;
   onAddBlockMath: () => void;
   onAddImage: () => void;
+  onAskAi: () => void;
 }
 
 // FormatBar must re-render with parent to reflect editor.isActive() state changes
@@ -255,6 +258,7 @@ function FormatBar({
   onAddLink,
   onAddBlockMath,
   onAddImage,
+  onAskAi,
 }: FormatBarProps) {
   const [tableMenuOpen, setTableMenuOpen] = useState(false);
 
@@ -423,6 +427,18 @@ function FormatBar({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+
+      <div className="w-px h-4.5 border-l border-border mx-2" />
+
+      <ToolbarButton
+        onClick={onAskAi}
+        isActive={false}
+        disabled={editor.state.selection.empty}
+        title="Ask AI"
+        className="disabled:opacity-40"
+      >
+        <SparklesIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+      </ToolbarButton>
     </div>
   );
 }
@@ -1552,6 +1568,35 @@ export function Editor({
   }, []); // Only run cleanup on unmount, not when saveNote changes
 
   // Link handlers - show inline popup at cursor position
+  const [aiSelection, setAiSelection] = useState<{
+    from: number;
+    to: number;
+    text: string;
+  } | null>(null);
+
+  const handleAskAi = useCallback(() => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+    const text = editor.state.doc.textBetween(from, to, "\n");
+    if (text.trim()) setAiSelection({ from, to, text });
+  }, [editor]);
+
+  const applyAiSelection = useCallback(
+    (result: string) => {
+      if (!editor || !aiSelection) return;
+      const manager = editor.storage.markdown?.manager;
+      const parsed = manager ? manager.parse(result) : result;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt({ from: aiSelection.from, to: aiSelection.to }, parsed)
+        .run();
+      setAiSelection(null);
+    },
+    [editor, aiSelection],
+  );
+
   const handleAddLink = useCallback(() => {
     if (!editor) return;
 
@@ -2367,8 +2412,16 @@ export function Editor({
           onAddLink={handleAddLink}
           onAddBlockMath={handleAddBlockMath}
           onAddImage={handleAddImage}
+          onAskAi={handleAskAi}
         />
       </div>
+
+      <AiSelectionModal
+        open={!!aiSelection}
+        selectedText={aiSelection?.text ?? ""}
+        onClose={() => setAiSelection(null)}
+        onApply={applyAiSelection}
+      />
 
       {/* Editor content area with resize handles overlay */}
       <div data-editor-content-area className="flex-1 relative overflow-hidden">

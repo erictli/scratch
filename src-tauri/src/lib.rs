@@ -102,6 +102,12 @@ pub struct AppConfig {
     pub notes_folder: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiPreset {
+    pub label: String,
+    pub instruction: String,
+}
+
 // Per-folder settings (stored in .scratch/settings.json within notes folder)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -124,6 +130,12 @@ pub struct Settings {
     pub custom_editor_width_px: Option<u32>,
     #[serde(rename = "ollamaModel")]
     pub ollama_model: Option<String>,
+    #[serde(rename = "opencodeModel")]
+    pub opencode_model: Option<String>,
+    #[serde(rename = "defaultAiProvider")]
+    pub default_ai_provider: Option<String>,
+    #[serde(rename = "aiSelectionPresets")]
+    pub ai_selection_presets: Option<Vec<AiPreset>>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
     #[serde(rename = "ignoredPatterns")]
@@ -3354,6 +3366,56 @@ async fn ai_check_ollama_cli() -> Result<bool, String> {
 }
 
 #[tauri::command]
+async fn ai_list_ollama_models() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let path = get_expanded_path();
+        let output = no_window_cmd("ollama")
+            .env("PATH", &path)
+            .arg("list")
+            .output()
+            .map_err(|e| format!("Failed to run ollama list: {}", e))?;
+        if !output.status.success() {
+            return Err("Ollama is not running or returned an error.".to_string());
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let models = stdout
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_whitespace().next())
+            .map(|s| s.to_string())
+            .collect();
+        Ok(models)
+    })
+    .await
+    .map_err(|e| format!("Failed to list Ollama models: {}", e))?
+}
+
+#[tauri::command]
+async fn ai_list_opencode_models() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let path = get_expanded_path();
+        let output = no_window_cmd("opencode")
+            .env("PATH", &path)
+            .arg("models")
+            .output()
+            .map_err(|e| format!("Failed to run opencode models: {}", e))?;
+        if !output.status.success() {
+            return Err("OpenCode failed to list models.".to_string());
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let models = stdout
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        Ok(models)
+    })
+    .await
+    .map_err(|e| format!("Failed to list OpenCode models: {}", e))?
+}
+
+#[tauri::command]
 async fn ai_execute_ollama(
     file_path: String,
     prompt: String,
@@ -3492,6 +3554,106 @@ async fn ai_execute_ollama(
     } else {
         Ok(result)
     }
+}
+
+#[tauri::command]
+async fn ai_transform_text(
+    provider: String,
+    text: String,
+    prompt: String,
+    model: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<AiExecutionResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    let instructions = format!(
+        "You are a Markdown editor. Edit the Markdown in <text> as requested in \
+         <request>, and return ONLY the resulting Markdown, with no commentary, \
+         explanation, or code fences.\n\n\
+         <request>\n{prompt}\n</request>\n\n\
+         <text>\n{text}\n</text>\n\n\
+         Return only the edited Markdown."
+    );
+
+    let (cli_name, command, args, stdin, not_found, cwd, env) = match provider.as_str() {
+        "claude" => (
+            "Claude",
+            "claude",
+            vec!["--dangerously-skip-permissions".to_string(), "--print".to_string()],
+            instructions,
+            "Claude CLI not found. Please install it from https://claude.ai/code",
+            None,
+            None,
+        ),
+        "codex" => (
+            "Codex",
+            "codex",
+            vec![
+                "exec".to_string(),
+                "--skip-git-repo-check".to_string(),
+                "--dangerously-bypass-approvals-and-sandbox".to_string(),
+                "-".to_string(),
+            ],
+            instructions,
+            "Codex CLI not found. Please install it from https://github.com/openai/codex",
+            None,
+            None,
+        ),
+        "opencode" => {
+            let mut args = vec!["run".to_string()];
+            if let Some(m) = model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+                args.push("--model".to_string());
+                args.push(m.to_string());
+            }
+            args.push("--".to_string());
+            args.push(instructions);
+            (
+                "OpenCode",
+                "opencode",
+                args,
+                String::new(),
+                "OpenCode CLI not found. Please install it from https://opencode.ai",
+                Some(folder),
+                Some(vec![(
+                    "OPENCODE_PERMISSION".to_string(),
+                    r#"{"*":"allow","bash":"deny","task":"deny","webfetch":"deny","websearch":"deny","codesearch":"deny","skill":"deny","external_directory":"deny","doom_loop":"deny"}"#.to_string(),
+                )]),
+            )
+        }
+        "ollama" => {
+            let model_name = match model {
+                Some(m) if !m.trim().is_empty() => m.trim().to_string(),
+                _ => "qwen3:8b".to_string(),
+            };
+            (
+                "Ollama",
+                "ollama",
+                vec!["run".to_string(), model_name],
+                instructions,
+                "Ollama CLI not found. Please install it from https://ollama.com",
+                None,
+                None,
+            )
+        }
+        other => return Err(format!("Unknown AI provider: {}", other)),
+    };
+
+    execute_ai_cli(
+        cli_name,
+        command.to_string(),
+        args,
+        stdin,
+        not_found.to_string(),
+        cwd,
+        env,
+    )
+    .await
 }
 
 /// Check if a markdown file is inside the configured notes folder.
@@ -3850,10 +4012,13 @@ pub fn run() {
             ai_check_codex_cli,
             ai_check_opencode_cli,
             ai_check_ollama_cli,
+            ai_list_ollama_models,
+            ai_list_opencode_models,
             ai_execute_claude,
             ai_execute_codex,
             ai_execute_opencode,
             ai_execute_ollama,
+            ai_transform_text,
             read_file_direct,
             save_file_direct,
             import_file_to_folder,

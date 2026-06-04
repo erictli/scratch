@@ -80,3 +80,20 @@ export async function executeOllamaEdit(
 ): Promise<AiExecutionResult> {
   return invoke("ai_execute_ollama", { filePath, prompt, model });
 }
+
+export async function listOllamaModels(): Promise<string[]> {
+  return invoke("ai_list_ollama_models");
+}
+
+export async function listOpencodeModels(): Promise<string[]> {
+  return invoke("ai_list_opencode_models");
+}
+
+export async function aiTransformSelection(
+  provider: AiProvider,
+  text: string,
+  prompt: string,
+  model?: string,
+): Promise<AiExecutionResult> {
+  return invoke("ai_transform_text", { provider, text, prompt, model });
+}

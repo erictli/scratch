@@ -278,11 +278,40 @@ html.dark {
   animation: pulse-gentle 1.3s ease-in-out infinite;
 }
 
+@keyframes text-shimmer {
+  from {
+    background-position: 200% center;
+  }
+  to {
+    background-position: -200% center;
+  }
+}
+
+.text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-muted) 35%,
+    var(--color-text) 50%,
+    var(--color-text-muted) 65%
+  );
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2.2s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-spin-slow,
   .animate-bounce-gentle,
   .animate-pulse-gentle {
     animation: none;
+  }
+  .text-shimmer {
+    animation: none;
+    color: var(--color-text-muted);
+    -webkit-text-fill-color: var(--color-text-muted);
   }
 }
 

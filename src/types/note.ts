@@ -56,6 +56,9 @@ export interface Settings {
   defaultNoteName?: string;
   interfaceZoom?: number;
   ollamaModel?: string;
+  opencodeModel?: string;
+  defaultAiProvider?: "claude" | "codex" | "opencode" | "ollama";
+  aiSelectionPresets?: { label: string; instruction: string }[];
   ignoredPatterns?: string[];
   customColorsLight?: CustomColors;
   customColorsDark?: CustomColors;
