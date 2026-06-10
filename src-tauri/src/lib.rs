@@ -122,6 +122,8 @@ pub struct Settings {
     pub interface_zoom: Option<f32>,
     #[serde(rename = "customEditorWidthPx")]
     pub custom_editor_width_px: Option<u32>,
+    #[serde(rename = "sidebarWidthPx")]
+    pub sidebar_width_px: Option<u32>,
     #[serde(rename = "ollamaModel")]
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]

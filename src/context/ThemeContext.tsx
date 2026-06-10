@@ -8,6 +8,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getSettings, updateSettings } from "../services/notes";
+import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
 import type {
   ThemeSettings,
   EditorFontSettings,
@@ -112,6 +113,9 @@ interface ThemeContextType {
   customEditorWidthPx: number;
   setCustomEditorWidthPx: (px: number) => void;
   setEditorMaxWidthLive: (value: string) => void;
+  sidebarWidthPx: number | null;
+  setSidebarWidthPx: (px: number | null) => void;
+  setSidebarWidthLive: (px: number) => void;
   customColorsLight: CustomColors;
   customColorsDark: CustomColors;
   setCustomColor: (mode: "light" | "dark", key: ThemeColorKey, value: string) => void;
@@ -187,6 +191,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [customEditorWidthPx, setCustomEditorWidthPxState] = useState<number>(
     DEFAULT_CUSTOM_WIDTH_PX
   );
+  const [sidebarWidthPx, setSidebarWidthPxState] = useState<number | null>(null);
   const [customColorsLight, setCustomColorsLightState] = useState<CustomColors>({});
   const [customColorsDark, setCustomColorsDarkState] = useState<CustomColors>({});
   const [isInitialized, setIsInitialized] = useState(false);
@@ -241,6 +246,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         settings.customEditorWidthPx >= 480
       ) {
         setCustomEditorWidthPxState(settings.customEditorWidthPx);
+      }
+      if (
+        typeof settings.sidebarWidthPx === "number" &&
+        settings.sidebarWidthPx >= SIDEBAR_MIN_PX &&
+        settings.sidebarWidthPx <= SIDEBAR_MAX_PX
+      ) {
+        setSidebarWidthPxState(settings.sidebarWidthPx);
       }
       if (settings.customColorsLight) {
         setCustomColorsLightState(settings.customColorsLight);
@@ -329,6 +341,15 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     applyLayoutCSSVariables(editorWidth, customEditorWidthPx);
   }, [editorWidth, customEditorWidthPx]);
 
+  // Apply sidebar width CSS variable whenever it changes (null = no override, fallback to 16rem)
+  useEffect(() => {
+    if (sidebarWidthPx === null) {
+      document.documentElement.style.removeProperty("--sidebar-width");
+    } else {
+      document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidthPx}px`);
+    }
+  }, [sidebarWidthPx]);
+
   // Apply interface zoom whenever it changes (suppress transitions during zoom)
   useEffect(() => {
     const root = document.documentElement;
@@ -378,6 +399,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setEditorWidthState("normal");
     setInterfaceZoomState(1.0);
     setCustomEditorWidthPxState(DEFAULT_CUSTOM_WIDTH_PX);
+    setSidebarWidthPxState(null);
     setCustomColorsLightState({});
     setCustomColorsDarkState({});
     try {
@@ -389,6 +411,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         editorWidth: "normal",
         interfaceZoom: 1.0,
         customEditorWidthPx: undefined,
+        sidebarWidthPx: undefined,
         customColorsLight: undefined,
         customColorsDark: undefined,
       });
@@ -458,6 +481,29 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       });
     } catch (error) {
       console.error("Failed to save custom editor width:", error);
+    }
+  }, []);
+
+  // Set sidebar width in px (persists to settings). Pass null to reset to default 16rem.
+  const setSidebarWidthPx = useCallback(async (px: number | null) => {
+    if (px === null) {
+      setSidebarWidthPxState(null);
+      document.documentElement.style.removeProperty("--sidebar-width");
+      try {
+        const settings = await getSettings();
+        await updateSettings({ ...settings, sidebarWidthPx: undefined });
+      } catch (error) {
+        console.error("Failed to reset sidebar width:", error);
+      }
+    } else {
+      const clamped = Math.round(Math.min(Math.max(px, SIDEBAR_MIN_PX), SIDEBAR_MAX_PX));
+      setSidebarWidthPxState(clamped);
+      try {
+        const settings = await getSettings();
+        await updateSettings({ ...settings, sidebarWidthPx: clamped });
+      } catch (error) {
+        console.error("Failed to save sidebar width:", error);
+      }
     }
   }, []);
 
@@ -549,6 +595,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     document.documentElement.style.setProperty("--editor-max-width", value);
   }, []);
 
+  // Live sidebar width update during drag (no persistence)
+  const setSidebarWidthLive = useCallback((px: number) => {
+    document.documentElement.style.setProperty("--sidebar-width", `${px}px`);
+  }, []);
+
   // Don't render until initialized to prevent flash
   if (!isInitialized) {
     return null;
@@ -574,6 +625,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         customEditorWidthPx,
         setCustomEditorWidthPx,
         setEditorMaxWidthLive,
+        sidebarWidthPx,
+        setSidebarWidthPx,
+        setSidebarWidthLive,
         customColorsLight,
         customColorsDark,
         setCustomColor,

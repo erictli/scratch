@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { GitProvider } from "./context/GitContext";
 import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
+import { SidebarResizeHandle } from "./components/layout/SidebarResizeHandle";
 import { Editor } from "./components/editor/Editor";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
@@ -472,9 +473,11 @@ function AppContent() {
           <>
             <div
               data-sidebar
-              className={`transition-all duration-500 ease-out overflow-hidden ${!sidebarVisible || focusMode ? "opacity-0 -translate-x-4 w-0 pointer-events-none" : "opacity-100 translate-x-0 w-64"}`}
+              style={{ width: (!sidebarVisible || focusMode) ? 0 : "var(--sidebar-width, 16rem)" }}
+              className={`relative transition-all duration-500 ease-out overflow-hidden ${!sidebarVisible || focusMode ? "opacity-0 -translate-x-4 pointer-events-none" : "opacity-100 translate-x-0"}`}
             >
               <Sidebar onOpenSettings={toggleSettings} />
+              {sidebarVisible && !focusMode && <SidebarResizeHandle />}
             </div>
             <Editor
               onToggleSidebar={toggleSidebar}

@@ -1054,6 +1054,11 @@ table.not-prose th {
   transition: none !important;
 }
 
+/* Suppress sidebar transition during drag resize */
+.sidebar-no-transition [data-sidebar] {
+  transition: none !important;
+}
+
 /* Print styles for clean PDF export */
 @page {
   margin: 0.75in;
