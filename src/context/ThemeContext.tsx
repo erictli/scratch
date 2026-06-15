@@ -484,7 +484,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, []);
 
-  // Set sidebar width in px (persists to settings). Pass null to reset to default 16rem.
+  /**
+   * Persists the clamped sidebar width to settings.
+   * Pass `null` to remove the override and fall back to the CSS default.
+   */
   const setSidebarWidthPx = useCallback(async (px: number | null) => {
     if (px === null) {
       setSidebarWidthPxState(null);
@@ -595,7 +598,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     document.documentElement.style.setProperty("--editor-max-width", value);
   }, []);
 
-  // Live sidebar width update during drag (no persistence)
+  /** Updates `--sidebar-width` CSS variable immediately during drag without writing to settings. */
   const setSidebarWidthLive = useCallback((px: number) => {
     document.documentElement.style.setProperty("--sidebar-width", `${px}px`);
   }, []);

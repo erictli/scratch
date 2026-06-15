@@ -3,6 +3,10 @@ import { useTheme } from "../../context/ThemeContext";
 import { cn } from "../../lib/utils";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../../lib/sidebar";
 
+/**
+ * Drag handle rendered on the right edge of the sidebar.
+ * Supports pointer drag to resize, keyboard arrow keys (Shift = large step), and double-click to reset width.
+ */
 export function SidebarResizeHandle() {
   const { sidebarWidthPx, setSidebarWidthPx, setSidebarWidthLive } = useTheme();
 
@@ -14,6 +18,7 @@ export function SidebarResizeHandle() {
     initialWidth: number;
   } | null>(null);
 
+  /** Captures the pointer and records the drag start position and initial width. */
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
@@ -34,6 +39,7 @@ export function SidebarResizeHandle() {
     [sidebarWidthPx],
   );
 
+  /** Updates the CSS variable live during drag without persisting. */
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!dragState.current) return;
@@ -51,6 +57,7 @@ export function SidebarResizeHandle() {
     [setSidebarWidthLive],
   );
 
+  /** Releases pointer capture and persists the final width to settings. */
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
       if (!dragState.current) return;
@@ -64,6 +71,7 @@ export function SidebarResizeHandle() {
     [currentWidth, setSidebarWidthPx],
   );
 
+  /** Aborts the drag on pointer cancel without saving any width change. */
   const handlePointerCancel = useCallback(() => {
     if (!dragState.current) return;
     document.documentElement.classList.remove("sidebar-no-transition");
@@ -71,11 +79,13 @@ export function SidebarResizeHandle() {
     setIsDragging(false);
   }, []);
 
+  /** Resets the sidebar to its default width (removes the override). */
   const handleDoubleClick = useCallback(() => {
     document.documentElement.classList.remove("sidebar-no-transition");
     setSidebarWidthPx(null);
   }, [setSidebarWidthPx]);
 
+  /** Adjusts width with arrow keys (16 px step, 64 px with Shift); Home/End jump to bounds. */
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       const step = e.shiftKey ? 64 : 16;
