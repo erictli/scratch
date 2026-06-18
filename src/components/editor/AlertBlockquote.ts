@@ -19,6 +19,12 @@ function normalizeAlertType(value: unknown): AlertType {
   return (ALERT_TYPES as string[]).includes(upper) ? (upper as AlertType) : "NOTE";
 }
 
+// Built from ALERT_TYPES so the tokenizer always matches exactly the types we support
+const ALERT_TOKEN_RE = new RegExp(
+  `^> \\[!(${ALERT_TYPES.join("|")})\\][ \\t]*\\r?\\n?((?:>[ \\t]?[^\\n]*\\r?\\n?)*)`,
+  "i",
+);
+
 
 export const AlertBlockquote = Node.create({
   name: "alertBlockquote",
@@ -89,9 +95,7 @@ export const AlertBlockquote = Node.create({
     level: "block" as const,
     start: "> [!",
     tokenize(src: string, _tokens: MarkdownToken[]) {
-      const match = src.match(
-        /^> \[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\r?\n?((?:>[ \t]?[^\n]*\r?\n?)*)/i,
-      );
+      const match = src.match(ALERT_TOKEN_RE);
       if (!match) return undefined;
       const text = (match[2] || "").replace(/^>[ \t]?/gm, "").replace(/\s+$/, "");
       return {
