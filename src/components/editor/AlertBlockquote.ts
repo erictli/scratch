@@ -2,7 +2,22 @@ import { Node, mergeAttributes, InputRule, type JSONContent, type MarkdownToken 
 
 export type AlertType = "NOTE" | "TIP" | "IMPORTANT" | "WARNING" | "CAUTION";
 
-const ALERT_TYPES: AlertType[] = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"];
+export const ALERT_TYPES: AlertType[] = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"];
+
+// Single source of truth for label/color, shared by the toolbar buttons,
+// slash commands, and the accessible label rendered on each alert.
+export const ALERT_META: Record<AlertType, { label: string; color: string }> = {
+  NOTE: { label: "Note", color: "#4493f8" },
+  TIP: { label: "Tip", color: "#3fb950" },
+  IMPORTANT: { label: "Important", color: "#ab7df8" },
+  WARNING: { label: "Warning", color: "#d29922" },
+  CAUTION: { label: "Caution", color: "#f85149" },
+};
+
+function normalizeAlertType(value: unknown): AlertType {
+  const upper = typeof value === "string" ? value.toUpperCase() : "";
+  return (ALERT_TYPES as string[]).includes(upper) ? (upper as AlertType) : "NOTE";
+}
 
 
 export const AlertBlockquote = Node.create({
@@ -15,7 +30,7 @@ export const AlertBlockquote = Node.create({
     return {
       alertType: {
         default: "NOTE",
-        parseHTML: (el) => (el.getAttribute("data-alert-type") as AlertType) || "NOTE",
+        parseHTML: (el) => normalizeAlertType(el.getAttribute("data-alert-type")),
         renderHTML: (attrs) => ({ "data-alert-type": attrs.alertType }),
       },
     };
@@ -26,10 +41,14 @@ export const AlertBlockquote = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
-    const type = ((node.attrs.alertType as string) || "NOTE").toLowerCase();
+    const alertType = normalizeAlertType(node.attrs.alertType);
+    const { label } = ALERT_META[alertType];
     return [
       "blockquote",
-      mergeAttributes(HTMLAttributes, { class: `alert alert-${type}` }),
+      mergeAttributes(HTMLAttributes, {
+        class: `alert alert-${alertType.toLowerCase()}`,
+        "aria-label": `${label} callout`,
+      }),
       0,
     ];
   },
@@ -78,7 +97,7 @@ export const AlertBlockquote = Node.create({
       return {
         type: "alertBlockquote",
         raw: match[0],
-        alertType: match[1].toUpperCase(),
+        alertType: normalizeAlertType(match[1]),
         text,
       };
     },
@@ -87,7 +106,7 @@ export const AlertBlockquote = Node.create({
   parseMarkdown(token: MarkdownToken, helpers) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const t = token as any;
-    const alertType: string = t.alertType || "NOTE";
+    const alertType = normalizeAlertType(t.alertType);
     const text: string = t.text || "";
     // Split on blank lines → multiple paragraphs; soft newlines → space
     const blocks = text.split(/\n\n+/).map((p) => p.replace(/\n/g, " ").trim()).filter(Boolean);
@@ -98,7 +117,7 @@ export const AlertBlockquote = Node.create({
   },
 
   renderMarkdown(node: JSONContent, helpers) {
-    const alertType = (node.attrs?.alertType as string) || "NOTE";
+    const alertType = normalizeAlertType(node.attrs?.alertType);
     const raw = node.content ? helpers.renderChildren(node.content) : "";
     const inner = raw.replace(/\s+$/, "");
     const lines = inner.split("\n").map((l) => (l ? `> ${l}` : ">"));

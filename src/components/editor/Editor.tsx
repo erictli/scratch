@@ -69,7 +69,7 @@ import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
-import { AlertBlockquote } from "./AlertBlockquote";
+import { AlertBlockquote, ALERT_TYPES, ALERT_META } from "./AlertBlockquote";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -346,32 +346,27 @@ function FormatBar({
       >
         <QuoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
-      {(
-        [
-          { alertType: "NOTE",      label: "Note",      color: "#4493f8" },
-          { alertType: "TIP",       label: "Tip",       color: "#3fb950" },
-          { alertType: "IMPORTANT", label: "Important", color: "#ab7df8" },
-          { alertType: "WARNING",   label: "Warning",   color: "#d29922" },
-          { alertType: "CAUTION",   label: "Caution",   color: "#f85149" },
-        ] as { alertType: string; label: string; color: string }[]
-      ).map(({ alertType, label, color }) => (
-        <ToolbarButton
-          key={alertType}
-          onClick={() =>
-            editor.chain().focus().wrapIn("alertBlockquote", { alertType }).run()
-          }
-          isActive={editor.isActive("alertBlockquote", { alertType })}
-          title={`Alert: ${label}`}
-        >
-          <span className="relative flex items-center justify-center">
-            <QuoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-            <span
-              className="absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full"
-              style={{ background: color }}
-            />
-          </span>
-        </ToolbarButton>
-      ))}
+      {ALERT_TYPES.map((alertType) => {
+        const { label, color } = ALERT_META[alertType];
+        return (
+          <ToolbarButton
+            key={alertType}
+            onClick={() =>
+              editor.chain().focus().wrapIn("alertBlockquote", { alertType }).run()
+            }
+            isActive={editor.isActive("alertBlockquote", { alertType })}
+            title={`Alert: ${label}`}
+          >
+            <span className="relative flex items-center justify-center">
+              <QuoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+              <span
+                className="absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full"
+                style={{ background: color }}
+              />
+            </span>
+          </ToolbarButton>
+        );
+      })}
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleCode().run()}
         isActive={editor.isActive("code")}
