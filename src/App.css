@@ -644,7 +644,63 @@ html.dark {
   color: var(--color-text-muted);
   border-left-color: var(--color-border);
   border-inline-start-color: var(--color-border);
+  font-weight: normal;
+  font-style: normal;
 }
+
+/* Remove Tailwind Typography default quote marks on blockquote paragraphs */
+.prose
+  :where(blockquote p:first-of-type):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::before,
+.prose
+  :where(blockquote p:last-of-type):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+  )::after {
+  content: "";
+}
+
+/* Alert blockquotes */
+.prose blockquote.alert {
+  font-weight: normal;
+  font-style: normal;
+  color: var(--color-text);
+  border-left-width: 3px;
+  border-left-style: solid;
+  padding: 0.6em 1em;
+  margin: 1em 0;
+  border-radius: 0 4px 4px 0;
+  background-color: var(--color-bg-muted);
+}
+
+.prose blockquote.alert::before {
+  display: block;
+  font-weight: 600;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.4em;
+}
+
+.prose blockquote.alert p {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.prose blockquote.alert-note  { border-left-color: #4493f8; }
+.prose blockquote.alert-note::before  { content: "Note";      color: #4493f8; }
+
+.prose blockquote.alert-tip   { border-left-color: #3fb950; }
+.prose blockquote.alert-tip::before   { content: "Tip";       color: #3fb950; }
+
+.prose blockquote.alert-important { border-left-color: #ab7df8; }
+.prose blockquote.alert-important::before { content: "Important"; color: #ab7df8; }
+
+.prose blockquote.alert-warning { border-left-color: #d29922; }
+.prose blockquote.alert-warning::before { content: "Warning";  color: #d29922; }
+
+.prose blockquote.alert-caution { border-left-color: #f85149; }
+.prose blockquote.alert-caution::before { content: "Caution";  color: #f85149; }
 
 /* Search match highlighting - uses the selection color */
 .search-match {

@@ -23,6 +23,7 @@ import {
   BracketsIcon,
   WorkflowIcon,
 } from "../icons";
+import type { AlertType } from "./AlertBlockquote";
 import { SlashCommandList, type SlashCommandListRef } from "./SlashCommandList";
 
 export interface SlashCommandItem {
@@ -115,6 +116,26 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
       editor.chain().focus().toggleBlockquote().run();
     },
   },
+  ...([
+    { type: "NOTE",      label: "Note",      color: "#4493f8", aliases: ["note",      "info"] },
+    { type: "TIP",       label: "Tip",       color: "#3fb950", aliases: ["tip",       "hint"] },
+    { type: "IMPORTANT", label: "Important", color: "#ab7df8", aliases: ["important"        ] },
+    { type: "WARNING",   label: "Warning",   color: "#d29922", aliases: ["warning",   "warn"] },
+    { type: "CAUTION",   label: "Caution",   color: "#f85149", aliases: ["caution",   "danger"] },
+  ] as { type: AlertType; label: string; color: string; aliases: string[] }[]).map(({ type, label, color, aliases }) => ({
+    title: `Alert: ${label}`,
+    description: `${label} alert callout`,
+    icon: (
+      <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <QuoteIcon />
+        <span style={{ position: "absolute", bottom: -2, right: -3, width: 6, height: 6, borderRadius: "50%", background: color }} />
+      </div>
+    ),
+    aliases: [...aliases, "alert", "callout"],
+    command: (editor: TiptapEditor) => {
+      editor.chain().focus().wrapIn("alertBlockquote", { alertType: type }).run();
+    },
+  })),
   {
     title: "Code Block",
     description: "Fenced code block",
