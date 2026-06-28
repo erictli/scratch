@@ -63,6 +63,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { Frontmatter } from "./Frontmatter";
 import { BlockMathEditor } from "./BlockMathEditor";
 import { LinkEditor } from "./LinkEditor";
+import { NoteNavigator } from "./NoteNavigator";
 import { SearchToolbar } from "./SearchToolbar";
 import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
@@ -74,7 +75,7 @@ import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
-import type { Settings } from "../../types/note";
+import type { Settings, NoteMetadata } from "../../types/note";
 import {
   BoldIcon,
   ItalicIcon,
@@ -584,6 +585,7 @@ export function Editor({
   const saveTimeoutRef = useRef<number | null>(null);
   const linkPopupRef = useRef<TippyInstance | null>(null);
   const blockMathPopupRef = useRef<TippyInstance | null>(null);
+  const noteNavigatorPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
@@ -786,15 +788,27 @@ export function Editor({
     }
   }, []);
 
+  const closeLinkPopup = useCallback(() => {
+    if (linkPopupRef.current) {
+      linkPopupRef.current.destroy();
+      linkPopupRef.current = null;
+    }
+  }, []);
+
+  const closeNoteNavigatorPopup = useCallback(() => {
+    if (noteNavigatorPopupRef.current) {
+      noteNavigatorPopupRef.current.destroy();
+      noteNavigatorPopupRef.current = null;
+    }
+  }, []);
+
   const handleEditBlockMath = useCallback(
     (pos: number) => {
       const currentEditor = editorRef.current;
       if (!currentEditor) return;
 
-      if (linkPopupRef.current) {
-        linkPopupRef.current.destroy();
-        linkPopupRef.current = null;
-      }
+      closeLinkPopup();
+      closeNoteNavigatorPopup();
       closeBlockMathPopup();
 
       const node = currentEditor.state.doc.nodeAt(pos);
@@ -876,7 +890,7 @@ export function Editor({
         },
       });
     },
-    [closeBlockMathPopup],
+    [closeBlockMathPopup, closeLinkPopup, closeNoteNavigatorPopup],
   );
 
   const handleAddBlockMath = useCallback(() => {
@@ -1547,6 +1561,9 @@ export function Editor({
       if (blockMathPopupRef.current) {
         blockMathPopupRef.current.destroy();
       }
+      if (noteNavigatorPopupRef.current) {
+        noteNavigatorPopupRef.current.destroy();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run cleanup on unmount, not when saveNote changes
@@ -1555,14 +1572,12 @@ export function Editor({
   const handleAddLink = useCallback(() => {
     if (!editor) return;
 
-    // Close block math popup if open (popups are mutually exclusive)
+    // Close other popups if open (popups are mutually exclusive)
     closeBlockMathPopup();
+    closeNoteNavigatorPopup();
 
     // Destroy existing popup if any
-    if (linkPopupRef.current) {
-      linkPopupRef.current.destroy();
-      linkPopupRef.current = null;
-    }
+    closeLinkPopup();
 
     // Get existing link URL if cursor is on a link
     const existingUrl = editor.getAttributes("link").href || "";
@@ -1676,7 +1691,73 @@ export function Editor({
         component.destroy();
       },
     });
-  }, [editor, closeBlockMathPopup]);
+  }, [editor, closeBlockMathPopup, closeLinkPopup, closeNoteNavigatorPopup]);
+
+  // Navigate to note handler - show inline popup at cursor position
+  const handleGoToNote = useCallback(() => {
+    if (!editor) return;
+
+    closeBlockMathPopup();
+    closeLinkPopup();
+
+    // Toggle: second Cmd+G closes the popup
+    if (noteNavigatorPopupRef.current) {
+      noteNavigatorPopupRef.current.destroy();
+      noteNavigatorPopupRef.current = null;
+      editor.commands.focus();
+      return;
+    }
+
+    const currentNotes = notesRef.current ?? [];
+    const { from } = editor.state.selection;
+    const coords = editor.view.coordsAtPos(from);
+    const virtualElement = {
+      getBoundingClientRect: () =>
+        ({
+          width: 0,
+          height: 0,
+          top: coords.top,
+          left: coords.left,
+          right: coords.right,
+          bottom: coords.bottom,
+          x: coords.left,
+          y: coords.top,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    };
+
+    const component = new ReactRenderer(NoteNavigator, {
+      props: {
+        notes: currentNotes,
+        onSelect: (note: NoteMetadata) => {
+          noteNavigatorPopupRef.current?.destroy();
+          noteNavigatorPopupRef.current = null;
+          notesCtxRef.current?.selectNote(note.id);
+        },
+        onCancel: () => {
+          editor.commands.focus();
+          noteNavigatorPopupRef.current?.destroy();
+          noteNavigatorPopupRef.current = null;
+        },
+      },
+      editor,
+    });
+
+    noteNavigatorPopupRef.current = tippy(document.body, {
+      getReferenceClientRect: () =>
+        virtualElement.getBoundingClientRect() as DOMRect,
+      appendTo: () => document.body,
+      content: component.element,
+      showOnCreate: true,
+      interactive: true,
+      trigger: "manual",
+      placement: "bottom-start",
+      offset: [0, 8],
+      onDestroy: () => {
+        component.destroy();
+      },
+    });
+  }, [editor, closeBlockMathPopup, closeLinkPopup]);
 
   // Image handler
   const handleAddImage = useCallback(async () => {
@@ -1743,6 +1824,15 @@ export function Editor({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleAddLink, editor]);
+
+  // Cmd+G to navigate to a note (dispatched globally from App.tsx)
+  useEffect(() => {
+    const handler = () => {
+      if (editor) handleGoToNote();
+    };
+    window.addEventListener("navigate-to-note", handler);
+    return () => window.removeEventListener("navigate-to-note", handler);
+  }, [handleGoToNote, editor]);
 
   // Keyboard shortcut for Cmd+Shift+C to open copy menu
   useEffect(() => {
