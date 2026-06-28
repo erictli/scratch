@@ -172,8 +172,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const selectNote = useCallback(
     async (id: string) => {
-      setNav((prev) => navPush(prev, id));
-      await loadNoteById(id);
+      const ok = await loadNoteById(id);
+      if (ok) setNav((prev) => navPush(prev, id));
     },
     [loadNoteById],
   );
