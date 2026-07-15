@@ -33,6 +33,7 @@ interface NotesDataContextValue {
 interface NotesActionsContextValue {
   selectNote: (id: string) => Promise<void>;
   createNote: () => Promise<void>;
+  createFile: (filename: string) => Promise<void>;
   consumePendingNewNote: (id: string) => boolean;
   saveNote: (content: string, noteId?: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
@@ -175,6 +176,34 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setError(err instanceof Error ? err.message : "Failed to create note");
     }
   }, [refreshNotes]);
+
+  const createFile = useCallback(
+    async (filename: string) => {
+      // Derive target folder from the selected note's parent path
+      let targetFolder: string | undefined;
+      if (selectedNoteIdRef.current) {
+        const lastSlash = selectedNoteIdRef.current.lastIndexOf("/");
+        if (lastSlash > 0) {
+          targetFolder = selectedNoteIdRef.current.substring(0, lastSlash);
+        }
+      }
+      const note = await notesService.createFile(filename, targetFolder);
+      selectRequestIdRef.current += 1;
+      pendingNewNoteIdRef.current = note.id;
+      // Mark as recently saved to ignore file-change events from our own creation
+      recentlySavedRef.current.add(note.id);
+      await refreshNotes();
+      setCurrentNote(note);
+      setSelectedNoteId(note.id);
+      // Clear search when creating a new file
+      setSearchQuery("");
+      setSearchResults([]);
+      setTimeout(() => {
+        recentlySavedRef.current.delete(note.id);
+      }, 1000);
+    },
+    [refreshNotes],
+  );
 
   const consumePendingNewNote = useCallback((id: string) => {
     if (pendingNewNoteIdRef.current !== id) {
@@ -559,6 +588,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         preview: note.preview,
         modified: note.modified,
         score: 0,
+        extension: note.extension,
       }));
 
     // Show instant local matches immediately; clear stale results if none match.
@@ -715,6 +745,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     () => ({
       selectNote,
       createNote,
+      createFile,
       consumePendingNewNote,
       saveNote,
       deleteNote,
@@ -737,6 +768,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [
       selectNote,
       createNote,
+      createFile,
       consumePendingNewNote,
       saveNote,
       deleteNote,

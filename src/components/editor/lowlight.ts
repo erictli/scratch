@@ -1,4 +1,5 @@
 import { createLowlight } from "lowlight";
+import type { LanguageFn } from "highlight.js";
 
 // Import only common languages to keep bundle small
 import javascript from "highlight.js/lib/languages/javascript";
@@ -22,43 +23,39 @@ import php from "highlight.js/lib/languages/php";
 import diff from "highlight.js/lib/languages/diff";
 import dockerfile from "highlight.js/lib/languages/dockerfile";
 
+// Shared language-module registry, reused by both the lowlight instance below
+// (for in-editor code blocks) and codeHighlight.ts (for the plain-text/code note
+// read view) so the two never drift out of sync.
+export const LANGUAGE_MODULES: [string[], LanguageFn][] = [
+  [["javascript", "js", "jsx"], javascript],
+  [["typescript", "ts", "tsx"], typescript],
+  [["python", "py"], python],
+  [["rust", "rs"], rust],
+  [["json"], json],
+  [["sql"], sql],
+  [["css"], css],
+  [["html", "xml"], xml],
+  [["bash", "sh", "shell", "zsh"], bash],
+  [["markdown", "md"], markdown],
+  [["yaml", "yml"], yaml],
+  [["go", "golang"], go],
+  [["java"], java],
+  [["cpp"], cpp],
+  [["c"], c],
+  [["swift"], swift],
+  [["ruby", "rb"], ruby],
+  [["php"], php],
+  [["diff"], diff],
+  [["dockerfile", "docker"], dockerfile],
+];
+
 const lowlight = createLowlight();
 
-lowlight.register("javascript", javascript);
-lowlight.register("js", javascript);
-lowlight.register("jsx", javascript);
-lowlight.register("typescript", typescript);
-lowlight.register("ts", typescript);
-lowlight.register("tsx", typescript);
-lowlight.register("python", python);
-lowlight.register("py", python);
-lowlight.register("rust", rust);
-lowlight.register("rs", rust);
-lowlight.register("json", json);
-lowlight.register("sql", sql);
-lowlight.register("css", css);
-lowlight.register("html", xml);
-lowlight.register("xml", xml);
-lowlight.register("bash", bash);
-lowlight.register("sh", bash);
-lowlight.register("shell", bash);
-lowlight.register("zsh", bash);
-lowlight.register("markdown", markdown);
-lowlight.register("md", markdown);
-lowlight.register("yaml", yaml);
-lowlight.register("yml", yaml);
-lowlight.register("go", go);
-lowlight.register("golang", go);
-lowlight.register("java", java);
-lowlight.register("cpp", cpp);
-lowlight.register("c", c);
-lowlight.register("swift", swift);
-lowlight.register("ruby", ruby);
-lowlight.register("rb", ruby);
-lowlight.register("php", php);
-lowlight.register("diff", diff);
-lowlight.register("dockerfile", dockerfile);
-lowlight.register("docker", dockerfile);
+for (const [names, module] of LANGUAGE_MODULES) {
+  for (const name of names) {
+    lowlight.register(name, module);
+  }
+}
 
 export { lowlight };
 

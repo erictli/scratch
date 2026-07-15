@@ -21,9 +21,11 @@ import type {
 type ThemeMode = "light" | "dark" | "system";
 
 // Font family CSS values
-const fontFamilyMap: Record<FontFamily, string> = {
+export const fontFamilyMap: Record<FontFamily, string> = {
   "system-sans":
     '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  inter:
+    '"Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
   monospace:
     "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
@@ -146,6 +148,18 @@ function applyFontCSSVariables(fonts: Required<EditorFontSettings>) {
   root.style.setProperty("--editor-base-font-size", `${baseSize}px`);
   root.style.setProperty("--editor-bold-weight", String(boldWeight));
   root.style.setProperty("--editor-line-height", String(lineHeight));
+
+  // Inter is a geometric sans that reads loose at default tracking; pull it in
+  // slightly (more so on large headings). Other families keep normal tracking.
+  const isInter = fonts.baseFontFamily === "inter";
+  root.style.setProperty(
+    "--editor-letter-spacing",
+    isInter ? "-0.006em" : "normal"
+  );
+  root.style.setProperty(
+    "--editor-heading-letter-spacing",
+    isInter ? "-0.02em" : "normal"
+  );
 
   // Computed header sizes (based on base)
   root.style.setProperty("--editor-h1-size", `${baseSize * 2.25}px`);

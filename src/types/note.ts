@@ -3,6 +3,7 @@ export interface NoteMetadata {
   title: string;
   preview: string;
   modified: number;
+  extension: string;
 }
 
 export interface Note {
@@ -11,13 +12,14 @@ export interface Note {
   content: string;
   path: string;
   modified: number;
+  extension: string;
 }
 
 export interface ThemeSettings {
   mode: "light" | "dark" | "system";
 }
 
-export type FontFamily = "system-sans" | "serif" | "monospace";
+export type FontFamily = "system-sans" | "inter" | "serif" | "monospace";
 export type TextDirection = "auto" | "ltr" | "rtl";
 export type EditorWidth = "narrow" | "normal" | "wide" | "full" | "custom";
 
