@@ -25,6 +25,7 @@ pub struct NoteMetadata {
     pub title: String,
     pub preview: String,
     pub modified: i64,
+    pub extension: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,7 @@ pub struct Note {
     pub content: String,
     pub path: String,
     pub modified: i64,
+    pub extension: String,
 }
 
 // Theme color customization
@@ -142,6 +144,7 @@ pub struct SearchResult {
     pub preview: String,
     pub modified: i64,
     pub score: f32,
+    pub extension: String,
 }
 
 // AI execution result
@@ -170,6 +173,7 @@ pub struct SearchIndex {
     title_field: Field,
     content_field: Field,
     modified_field: Field,
+    extension_field: Field,
 }
 
 impl SearchIndex {
@@ -180,10 +184,24 @@ impl SearchIndex {
         let title_field = schema_builder.add_text_field("title", TEXT | STORED);
         let content_field = schema_builder.add_text_field("content", TEXT | STORED);
         let modified_field = schema_builder.add_i64_field("modified", INDEXED | STORED);
+        let extension_field = schema_builder.add_text_field("extension", STRING | STORED);
         let schema = schema_builder.build();
 
-        // Create or open index
         std::fs::create_dir_all(index_path)?;
+
+        // If an index already exists on disk with an older schema (e.g. pre-dating the
+        // `extension` field), wipe and recreate it — every caller of `new` immediately
+        // calls `rebuild_index` afterward, so nothing is lost. Without this, opening an
+        // old-schema index and writing documents that reference `extension_field` would fail.
+        if let Ok(existing) = Index::open_in_dir(index_path) {
+            if existing.schema() != schema {
+                drop(existing);
+                std::fs::remove_dir_all(index_path)?;
+                std::fs::create_dir_all(index_path)?;
+            }
+        }
+
+        // Create or open index
         let index = Index::create_in_dir(index_path, schema.clone())
             .or_else(|_| Index::open_in_dir(index_path))?;
 
@@ -203,10 +221,11 @@ impl SearchIndex {
             title_field,
             content_field,
             modified_field,
+            extension_field,
         })
     }
 
-    fn index_note(&self, id: &str, title: &str, content: &str, modified: i64) -> Result<()> {
+    fn index_note(&self, id: &str, title: &str, content: &str, modified: i64, extension: &str) -> Result<()> {
         let mut writer = self.writer.lock().expect("search writer mutex");
 
         // Delete existing document with this ID
@@ -219,6 +238,7 @@ impl SearchIndex {
             self.title_field => title,
             self.content_field => content,
             self.modified_field => modified,
+            self.extension_field => extension,
         ))?;
 
         writer.commit()?;
@@ -271,7 +291,13 @@ impl SearchIndex {
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
 
-            let preview = generate_preview(content);
+            let extension = doc
+                .get_first(self.extension_field)
+                .and_then(|v| v.as_str())
+                .unwrap_or("md")
+                .to_string();
+
+            let preview = generate_preview_for(content, &extension);
 
             results.push(SearchResult {
                 id,
@@ -279,6 +305,7 @@ impl SearchIndex {
                 preview,
                 modified,
                 score,
+                extension,
             });
         }
 
@@ -311,13 +338,15 @@ impl SearchIndex {
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0);
 
-                        let title = extract_title(&content);
+                        let extension = extension_from_id(&id);
+                        let title = extract_title_for(&content, &id, &extension);
 
                         writer.add_document(doc!(
                             self.id_field => id.as_str(),
                             self.title_field => title,
                             self.content_field => content.as_str(),
                             self.modified_field => modified,
+                            self.extension_field => extension.as_str(),
                         ))?;
                     }
                 }
@@ -499,6 +528,33 @@ fn generate_preview(content: &str) -> String {
     String::new()
 }
 
+/// Extract a display title for a note, dispatching on extension: markdown notes use
+/// `extract_title` (frontmatter/heading-aware); plain-text/code notes use the filename
+/// stem instead, since a first-line-of-code title (e.g. "package main") isn't meaningful.
+fn extract_title_for(content: &str, id: &str, ext: &str) -> String {
+    if is_markdown_ext(ext) {
+        extract_title(content)
+    } else {
+        let filename = id.rsplit('/').next().unwrap_or(id);
+        let stem = filename.strip_suffix(&format!(".{ext}")).unwrap_or(filename);
+        extract_title_from_id(stem)
+    }
+}
+
+/// Generate a search/list preview for a note, dispatching on extension: markdown notes
+/// strip frontmatter/formatting; plain-text/code notes use the raw first non-empty line.
+fn generate_preview_for(content: &str, ext: &str) -> String {
+    if is_markdown_ext(ext) {
+        generate_preview(content)
+    } else {
+        content
+            .lines()
+            .find(|l| !is_effectively_empty(l))
+            .map(|l| l.trim().chars().take(100).collect())
+            .unwrap_or_default()
+    }
+}
+
 // Strip common markdown formatting from text
 fn strip_markdown(text: &str) -> String {
     let mut result = text.to_string();
@@ -599,6 +655,29 @@ fn strip_markdown(text: &str) -> String {
 /// Directories to exclude from note discovery and ID resolution (app-internal, always excluded).
 const EXCLUDED_DIRS: &[&str] = &[".git", ".scratch", ".obsidian", ".trash", "assets"];
 
+/// Extensions recognized as markdown notes (rendered in the rich-text editor).
+const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown"];
+
+/// Extensions recognized as plain-text/code notes (rendered in the syntax-highlighted view).
+/// Keep in sync with the language modules registered in src/components/editor/lowlight.ts.
+const TEXT_EXTENSIONS: &[&str] = &[
+    "txt", "js", "jsx", "ts", "tsx", "py", "rs", "json", "sql", "css", "html", "xml", "sh",
+    "bash", "zsh", "yaml", "yml", "go", "java", "cpp", "cc", "cxx", "c", "h", "hpp", "swift",
+    "rb", "php", "diff", "patch",
+];
+
+fn is_markdown_ext(ext: &str) -> bool {
+    MARKDOWN_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e))
+}
+
+fn is_text_ext(ext: &str) -> bool {
+    TEXT_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e))
+}
+
+fn is_supported_note_extension(ext: &str) -> bool {
+    is_markdown_ext(ext) || is_text_ext(ext)
+}
+
 /// Default user-configurable directories to ignore (common build/dependency folders).
 const DEFAULT_IGNORED_DIRS: &[&str] = &[
     "node_modules",
@@ -637,8 +716,11 @@ fn is_visible_notes_entry(entry: &walkdir::DirEntry, ignored_dirs: &[String]) ->
     true
 }
 
-/// Convert an absolute file path to a note ID (relative path from notes root, no .md extension, POSIX separators).
-/// Returns None if the path is outside the root, not a .md file, or in an excluded/ignored directory.
+/// Convert an absolute file path to a note ID (POSIX separators).
+/// Bare `.md` files get an extension-less ID for backward compatibility; every other
+/// recognized extension (`.markdown`, code/text files) keeps its extension embedded in the ID.
+/// Returns None if the path is outside the root, not a recognized extension, or in an
+/// excluded/ignored directory.
 fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]) -> Option<String> {
     let rel = file_path.strip_prefix(notes_root).ok()?;
 
@@ -653,16 +735,19 @@ fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]
         }
     }
 
-    // Must be a .md file
-    if file_path.extension()?.to_str()? != "md" {
-        return None;
-    }
-
-    // Build ID: relative path without .md suffix, using POSIX separators.
-    // Strip .md by converting to string and trimming (avoids with_extension
-    // which breaks on stems containing dots like "meeting.2024-01-15.md").
+    let ext = file_path.extension()?.to_str()?;
     let rel_str = rel.to_str()?;
-    let id = rel_str.strip_suffix(".md")?.replace(std::path::MAIN_SEPARATOR, "/");
+
+    let id = if ext == "md" {
+        // Strip .md by converting to string and trimming (avoids with_extension
+        // which breaks on stems containing dots like "meeting.2024-01-15.md").
+        rel_str.strip_suffix(".md")?.replace(std::path::MAIN_SEPARATOR, "/")
+    } else if is_supported_note_extension(ext) {
+        // Every other recognized extension (.markdown, .go, .py, ...) keeps its extension in the ID.
+        rel_str.replace(std::path::MAIN_SEPARATOR, "/")
+    } else {
+        return None;
+    };
 
     if id.is_empty() {
         None
@@ -672,6 +757,8 @@ fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]
 }
 
 /// Convert a note ID to an absolute file path. Validates against path traversal.
+/// If the ID's own extension is a recognized non-markdown extension, it's used as-is;
+/// otherwise ".md" is appended (legacy behavior for extension-less markdown IDs).
 fn abs_path_from_id(notes_root: &Path, id: &str) -> Result<PathBuf, String> {
     if id.contains('\\') {
         return Err("Invalid note ID: backslashes not allowed".to_string());
@@ -694,18 +781,39 @@ fn abs_path_from_id(notes_root: &Path, id: &str) -> Result<PathBuf, String> {
         }
     }
 
-    // Append ".md" via OsString to avoid with_extension replacing dots in stems
-    // (e.g. "meeting.2024-01-15" would become "meeting.md" with with_extension)
+    let has_recognized_extension = rel
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(is_supported_note_extension)
+        .unwrap_or(false);
+
     let joined = notes_root.join(rel);
-    let mut file_path_os = joined.into_os_string();
-    file_path_os.push(".md");
-    let file_path = PathBuf::from(file_path_os);
+    let file_path = if has_recognized_extension {
+        joined
+    } else {
+        // Append ".md" via OsString to avoid with_extension replacing dots in stems
+        // (e.g. "meeting.2024-01-15" would become "meeting.md" with with_extension)
+        let mut file_path_os = joined.into_os_string();
+        file_path_os.push(".md");
+        PathBuf::from(file_path_os)
+    };
 
     if !file_path.starts_with(notes_root) {
         return Err("Invalid note ID: path escapes notes folder".to_string());
     }
 
     Ok(file_path)
+}
+
+/// Extension embedded in a note ID, or "md" if the ID has no recognized extension
+/// (the legacy extension-less markdown ID scheme).
+fn extension_from_id(id: &str) -> String {
+    Path::new(id)
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| is_supported_note_extension(e))
+        .unwrap_or("md")
+        .to_ascii_lowercase()
 }
 
 // Get app config file path (in app data directory)
@@ -908,7 +1016,7 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
     let path_clone = path.clone();
     let discovered = tokio::task::spawn_blocking(move || {
         use walkdir::WalkDir;
-        let mut results: Vec<(String, String, String, i64)> = Vec::new();
+        let mut results: Vec<(String, String, String, i64, String)> = Vec::new();
         for entry in WalkDir::new(&path_clone)
             .max_depth(10)
             .into_iter()
@@ -928,9 +1036,10 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
                         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
-                    let title = extract_title(&content);
-                    let preview = generate_preview(&content);
-                    results.push((id, title, preview, modified));
+                    let ext = extension_from_id(&id);
+                    let title = extract_title_for(&content, &id, &ext);
+                    let preview = generate_preview_for(&content, &ext);
+                    results.push((id, title, preview, modified, ext));
                 }
             }
         }
@@ -941,11 +1050,12 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
 
     let mut notes: Vec<NoteMetadata> = discovered
         .into_iter()
-        .map(|(id, title, preview, modified)| NoteMetadata {
+        .map(|(id, title, preview, modified, extension)| NoteMetadata {
             id,
             title,
             preview,
             modified,
+            extension,
         })
         .collect();
 
@@ -1013,12 +1123,16 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
+    let extension = extension_from_id(&id);
+    let title = extract_title_for(&content, &id, &extension);
+
     Ok(Note {
         id,
-        title: extract_title(&content),
+        title,
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
+        extension,
     })
 }
 
@@ -1036,6 +1150,48 @@ async fn save_note(
             .ok_or("Notes folder not set")?
     };
     let folder_path = PathBuf::from(&folder);
+
+    // Plain-text/code notes (identified by a non-markdown extension embedded in their ID)
+    // are written in place and never renamed based on content — unlike markdown notes,
+    // whose filename follows their `# ` heading. This branch is keyed purely off the ID's
+    // own extension, not any client-supplied flag.
+    if let Some(ref existing_id) = id {
+        let ext = extension_from_id(existing_id);
+        if !is_markdown_ext(&ext) {
+            let file_path = abs_path_from_id(&folder_path, existing_id)?;
+            fs::write(&file_path, &content)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let metadata = fs::metadata(&file_path)
+                .await
+                .map_err(|e| e.to_string())?;
+            let modified = metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+
+            let title = extract_title_for(&content, existing_id, &ext);
+
+            {
+                let index = state.search_index.lock().expect("search index mutex");
+                if let Some(ref search_index) = *index {
+                    let _ = search_index.index_note(existing_id, &title, &content, modified, &ext);
+                }
+            }
+
+            return Ok(Note {
+                id: existing_id.clone(),
+                title,
+                content,
+                path: file_path.to_string_lossy().into_owned(),
+                modified,
+                extension: ext,
+            });
+        }
+    }
 
     let title = extract_title(&content);
     let sanitized_leaf = sanitize_filename(&title);
@@ -1120,7 +1276,7 @@ async fn save_note(
             if let Some((ref old_id_str, _)) = old_id {
                 let _ = search_index.delete_note(old_id_str);
             }
-            let _ = search_index.index_note(&final_id, &title, &content, modified);
+            let _ = search_index.index_note(&final_id, &title, &content, modified, "md");
         }
     }
 
@@ -1136,6 +1292,7 @@ async fn save_note(
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
+        extension: "md".to_string(),
     })
 }
 
@@ -1261,7 +1418,7 @@ async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) 
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.index_note(&final_id, &display_title, &content, modified);
+            let _ = search_index.index_note(&final_id, &display_title, &content, modified, "md");
         }
     }
 
@@ -1271,6 +1428,198 @@ async fn create_note(target_folder: Option<String>, state: State<'_, AppState>) 
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
+        extension: "md".to_string(),
+    })
+}
+
+#[tauri::command]
+async fn create_file(
+    target_folder: Option<String>,
+    filename: String,
+    state: State<'_, AppState>,
+) -> Result<Note, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+    let folder_path = PathBuf::from(&folder);
+
+    if filename.contains('/') || filename.contains('\\') {
+        return Err("Filename cannot contain path separators".to_string());
+    }
+
+    let (stem, ext) = filename
+        .rsplit_once('.')
+        .ok_or_else(|| "Please include a file extension (e.g. \"notes.go\")".to_string())?;
+    if !is_supported_note_extension(ext) {
+        return Err(format!(
+            "Unsupported file extension \".{}\"",
+            ext.to_ascii_lowercase()
+        ));
+    }
+    let ext = ext.to_ascii_lowercase();
+    let sanitized_stem = sanitize_filename(stem);
+
+    let build_id = |s: &str| -> String {
+        let leaf = if is_markdown_ext(&ext) {
+            s.to_string()
+        } else {
+            format!("{}.{}", s, ext)
+        };
+        match target_folder.as_deref() {
+            Some(prefix) if !prefix.is_empty() => format!("{}/{}", prefix.trim_end_matches('/'), leaf),
+            _ => leaf,
+        }
+    };
+
+    let mut final_stem = sanitized_stem.clone();
+    let mut final_id = build_id(&final_stem);
+    let mut counter = 1;
+    while abs_path_from_id(&folder_path, &final_id)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+    {
+        final_stem = format!("{}-{}", sanitized_stem, counter);
+        final_id = build_id(&final_stem);
+        counter += 1;
+    }
+
+    let content = if is_markdown_ext(&ext) {
+        format!("# {}\n\n", extract_title_from_id(&final_stem))
+    } else {
+        String::new()
+    };
+
+    let file_path = abs_path_from_id(&folder_path, &final_id)?;
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    fs::write(&file_path, &content)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Derive the returned ID from the actual path via id_from_abs_path, so it can never
+    // drift from how list_notes/the watcher/the indexer will independently rediscover this file.
+    let ignored_dirs = {
+        let settings = state.settings.read().expect("settings read lock");
+        get_effective_ignored_dirs(&settings)
+    };
+    let derived_id = id_from_abs_path(&folder_path, &file_path, &ignored_dirs)
+        .ok_or_else(|| "Failed to create file".to_string())?;
+
+    let modified = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let title = extract_title_for(&content, &derived_id, &ext);
+
+    {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let _ = search_index.index_note(&derived_id, &title, &content, modified, &ext);
+        }
+    }
+
+    Ok(Note {
+        id: derived_id,
+        title,
+        content,
+        path: file_path.to_string_lossy().into_owned(),
+        modified,
+        extension: ext,
+    })
+}
+
+#[tauri::command]
+async fn duplicate_note(id: String, state: State<'_, AppState>) -> Result<Note, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+    let folder_path = PathBuf::from(&folder);
+
+    let source_path = abs_path_from_id(&folder_path, &id)?;
+    if !source_path.exists() {
+        return Err("Note not found".to_string());
+    }
+
+    let content = fs::read_to_string(&source_path)
+        .await
+        .map_err(|e| e.to_string())?;
+    let ext = extension_from_id(&id);
+
+    let (dir_prefix, leaf) = match id.rfind('/') {
+        Some(pos) => (Some(id[..pos].to_string()), id[pos + 1..].to_string()),
+        None => (None, id.clone()),
+    };
+    let stem = if is_markdown_ext(&ext) {
+        leaf
+    } else {
+        leaf.strip_suffix(&format!(".{ext}")).unwrap_or(&leaf).to_string()
+    };
+
+    let build_id = |s: &str| -> String {
+        let leaf = if is_markdown_ext(&ext) {
+            s.to_string()
+        } else {
+            format!("{}.{}", s, ext)
+        };
+        match &dir_prefix {
+            Some(prefix) => format!("{}/{}", prefix, leaf),
+            None => leaf,
+        }
+    };
+
+    let mut new_stem = format!("{}-copy", stem);
+    let mut new_id = build_id(&new_stem);
+    let mut counter = 1;
+    while abs_path_from_id(&folder_path, &new_id)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+    {
+        new_stem = format!("{}-copy-{}", stem, counter);
+        new_id = build_id(&new_stem);
+        counter += 1;
+    }
+
+    let dest_path = abs_path_from_id(&folder_path, &new_id)?;
+    fs::write(&dest_path, &content)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let metadata = fs::metadata(&dest_path)
+        .await
+        .map_err(|e| e.to_string())?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let title = extract_title_for(&content, &new_id, &ext);
+
+    {
+        let index = state.search_index.lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let _ = search_index.index_note(&new_id, &title, &content, modified, &ext);
+        }
+    }
+
+    Ok(Note {
+        id: new_id,
+        title,
+        content,
+        path: dest_path.to_string_lossy().into_owned(),
+        modified,
+        extension: ext,
     })
 }
 
@@ -1981,7 +2330,7 @@ async fn import_file_to_folder(
     {
         let index = state.search_index.lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.index_note(&final_id, &extracted_title, &content, modified);
+            let _ = search_index.index_note(&final_id, &extracted_title, &content, modified, "md");
         }
     }
 
@@ -1998,6 +2347,7 @@ async fn import_file_to_folder(
         title: extracted_title,
         preview,
         modified,
+        extension: "md".to_string(),
     };
 
     // Update notes cache so fallback search sees the imported note immediately
@@ -2060,7 +2410,7 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
     };
 
     // Collect cache data upfront to avoid holding lock during async operations
-    let cache_data: Vec<(String, String, String, i64)> = {
+    let cache_data: Vec<(String, String, String, i64, String)> = {
         let cache = state.notes_cache.read().expect("cache read lock");
         cache
             .values()
@@ -2070,6 +2420,7 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
                     note.title.clone(),
                     note.preview.clone(),
                     note.modified,
+                    note.extension.clone(),
                 )
             })
             .collect()
@@ -2079,7 +2430,7 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
     let query_lower = query.to_lowercase();
     let mut results: Vec<SearchResult> = Vec::new();
 
-    for (id, title, preview, modified) in cache_data {
+    for (id, title, preview, modified, extension) in cache_data {
         let title_lower = title.to_lowercase();
 
         let mut score = 0.0f32;
@@ -2111,6 +2462,7 @@ async fn fallback_search(query: &str, state: &State<'_, AppState>) -> Result<Vec
                 preview,
                 modified,
                 score,
+                extension,
             });
         }
     }
@@ -2189,14 +2541,15 @@ fn setup_file_watcher(
                                 "created" | "modified" => {
                                     match std::fs::read_to_string(path) {
                                         Ok(content) => {
-                                            let title = extract_title(&content);
+                                            let extension = extension_from_id(&note_id);
+                                            let title = extract_title_for(&content, &note_id, &extension);
                                             let modified = std::fs::metadata(path)
                                                 .ok()
                                                 .and_then(|m| m.modified().ok())
                                                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                                                 .map(|d| d.as_secs() as i64)
                                                 .unwrap_or(0);
-                                            let _ = search_index.index_note(&note_id, &title, &content, modified);
+                                            let _ = search_index.index_note(&note_id, &title, &content, modified, &extension);
                                         }
                                         Err(_) => {
                                             // File gone between event and read — treat as deletion
@@ -2239,7 +2592,7 @@ fn setup_file_watcher(
 
     let mut watcher = watcher;
 
-    // Watch the notes folder recursively for .md files in subfolders
+    // Watch the notes folder recursively for recognized note files in subfolders
     watcher
         .watch(&folder_path, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
@@ -3548,10 +3901,7 @@ fn try_select_in_notes_folder(app: &AppHandle, path: &Path) -> bool {
 fn is_markdown_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(|s| {
-            let lower = s.to_ascii_lowercase();
-            lower == "md" || lower == "markdown"
-        })
+        .map(is_markdown_ext)
         .unwrap_or(false)
 }
 
@@ -3814,6 +4164,8 @@ pub fn run() {
             save_note,
             delete_note,
             create_note,
+            create_file,
+            duplicate_note,
             list_folders,
             create_folder,
             delete_folder,

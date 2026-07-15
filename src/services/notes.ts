@@ -29,6 +29,10 @@ export async function createNote(targetFolder?: string): Promise<Note> {
   return invoke("create_note", { targetFolder: targetFolder ?? null });
 }
 
+export async function createFile(filename: string, targetFolder?: string): Promise<Note> {
+  return invoke("create_file", { targetFolder: targetFolder ?? null, filename });
+}
+
 export async function listFolders(): Promise<string[]> {
   return invoke("list_folders");
 }
@@ -54,14 +58,7 @@ export async function moveFolder(path: string, targetParent: string): Promise<vo
 }
 
 export async function duplicateNote(id: string): Promise<Note> {
-  // Read the original note, then create a new one in the same folder
-  const original = await readNote(id);
-  const lastSlash = id.lastIndexOf("/");
-  const folder = lastSlash > 0 ? id.substring(0, lastSlash) : undefined;
-  const newNote = await createNote(folder);
-  // Save with the original content (title will be extracted from content)
-  const duplicatedContent = original.content.replace(/^# (.+)$/m, (_, title) => `# ${title} (Copy)`);
-  return saveNote(newNote.id, duplicatedContent || original.content);
+  return invoke("duplicate_note", { id });
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -88,6 +85,7 @@ export interface SearchResult {
   preview: string;
   modified: number;
   score: number;
+  extension: string;
 }
 
 export async function searchNotes(query: string): Promise<SearchResult[]> {

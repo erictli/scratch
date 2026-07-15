@@ -136,12 +136,18 @@ const FileItem = memo(function FileItem({
     try {
       const folder = await notesService.getNotesFolder();
       if (folder) {
-        await invoke("copy_to_clipboard", { text: `${folder}/${note.id}.md` });
+        // Markdown IDs are extension-less; every other recognized extension
+        // (e.g. .go, .py) is already embedded in the ID.
+        const filepath =
+          note.extension.toLowerCase() === "md"
+            ? `${folder}/${note.id}.md`
+            : `${folder}/${note.id}`;
+        await invoke("copy_to_clipboard", { text: filepath });
       }
     } catch (error) {
       console.error("Failed to copy filepath:", error);
     }
-  }, [note.id]);
+  }, [note.id, note.extension]);
 
   return (
     <ContextMenu.Root>
