@@ -129,6 +129,7 @@ interface NoteItemWithMenuProps {
   title: string;
   preview?: string;
   modified: number;
+  extension: string;
   isSelected: boolean;
   isPinned: boolean;
   onSelect: (id: string) => void;
@@ -144,6 +145,7 @@ const NoteItemWithMenu = memo(function NoteItemWithMenu({
   title,
   preview,
   modified,
+  extension,
   isSelected,
   isPinned,
   onSelect,
@@ -166,13 +168,16 @@ const NoteItemWithMenu = memo(function NoteItemWithMenu({
     try {
       const folder = await notesService.getNotesFolder();
       if (folder) {
-        const filepath = `${folder}/${id}.md`;
+        // Markdown IDs are extension-less; every other recognized extension
+        // (e.g. .go, .py) is already embedded in the ID.
+        const filepath =
+          extension.toLowerCase() === "md" ? `${folder}/${id}.md` : `${folder}/${id}`;
         await invoke("copy_to_clipboard", { text: filepath });
       }
     } catch (error) {
       console.error("Failed to copy filepath:", error);
     }
-  }, [id]);
+  }, [id, extension]);
 
   return (
     <ContextMenu.Root>
@@ -302,6 +307,7 @@ export function NoteList({
         title: r.title,
         preview: r.preview,
         modified: r.modified,
+        extension: r.extension,
       }));
     }
     return notes;
@@ -410,6 +416,7 @@ export function NoteList({
             title={item.title}
             preview={item.preview}
             modified={item.modified}
+            extension={item.extension}
             isSelected={selectedNoteId === item.id}
             isPinned={pinnedIds.has(item.id)}
             onSelect={selectNote}

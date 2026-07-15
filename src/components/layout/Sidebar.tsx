@@ -22,6 +22,7 @@ import {
   AddNoteIcon,
   FolderPlusIcon,
   NoteIcon,
+  CodeIcon,
 } from "../icons";
 import { mod, shift, isMac } from "../../lib/platform";
 import * as notesService from "../../services/notes";
@@ -34,6 +35,7 @@ interface SidebarProps {
 export function Sidebar({ onOpenSettings }: SidebarProps) {
   const {
     createNote,
+    createFile,
     createFolder,
     notes,
     search,
@@ -48,6 +50,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDialogParent, setFolderDialogParent] = useState("");
+  const [fileDialogOpen, setFileDialogOpen] = useState(false);
   const [foldersEnabled, setFoldersEnabled] = useState(true);
   const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [dragCount, setDragCount] = useState(1);
@@ -287,6 +290,25 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     [createFolder, folderDialogParent],
   );
 
+  const handleNewFile = useCallback(() => {
+    setFileDialogOpen(true);
+  }, []);
+
+  const handleFileDialogConfirm = useCallback(
+    async (filename: string) => {
+      try {
+        await createFile(filename);
+        setFileDialogOpen(false);
+      } catch (error) {
+        console.error("Failed to create file:", error);
+        toast.error(
+          error instanceof Error ? error.message : "Failed to create file",
+        );
+      }
+    },
+    [createFile],
+  );
+
   // Listen for create-new-folder event (from command palette / keyboard shortcut)
   useEffect(() => {
     const handleCreateFolder = () => {
@@ -364,6 +386,13 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   </DropdownMenu.Item>
                   <DropdownMenu.Item
                     className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
+                    onSelect={handleNewFile}
+                  >
+                    <CodeIcon className="w-4 h-4 stroke-[1.6]" />
+                    New File...
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
                     onSelect={handleNewFolder}
                   >
                     <FolderPlusIcon className="w-4 h-4 stroke-[1.6]" />
@@ -431,6 +460,17 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         title="Create new folder"
         description="Enter a name for your new folder"
         confirmLabel="Create"
+      />
+
+      {/* New file dialog */}
+      <FolderNameDialog
+        open={fileDialogOpen}
+        onOpenChange={setFileDialogOpen}
+        onConfirm={handleFileDialogConfirm}
+        title="Create new file"
+        description="Enter a filename with extension (e.g. exercise.go)"
+        confirmLabel="Create"
+        placeholder="filename.ext"
       />
     </div>
 

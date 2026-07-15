@@ -22,6 +22,7 @@ import { TableKit } from "@tiptap/extension-table";
 import { Markdown } from "@tiptap/markdown";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { lowlight } from "./lowlight";
+import { highlightCode } from "./codeHighlight";
 import { CodeBlockView } from "./CodeBlockView";
 import { Extension, InputRule } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
@@ -522,9 +523,18 @@ export function Editor({
           content: previewMode.content,
           path: previewMode.filePath,
           modified: previewMode.modified,
+          // Preview windows (opened via CLI/drag-drop/"Open With") only ever open markdown files.
+          extension: "md",
         }
       : null
     : (notesCtx?.currentNote ?? null);
+
+  // Plain-text/code notes (any recognized extension other than markdown) bypass the
+  // TipTap/markdown-manager pipeline entirely: they're read via the syntax-highlighted
+  // <pre> view and edited via the same raw textarea used for markdown "source mode".
+  const isPlainTextNote = !["md", "markdown"].includes(
+    (currentNote?.extension ?? "md").toLowerCase(),
+  );
 
   const saveNote = previewMode
     ? async (content: string, _noteId?: string) => {
@@ -1389,6 +1399,45 @@ export function Editor({
       return;
     }
 
+    // Plain-text/code notes never touch the TipTap document — sync sourceContent
+    // directly and skip all markdown-specific rename-detection/parsing below (rename
+    // detection doesn't apply since save_note never renames these notes by content).
+    if (isPlainTextNote) {
+      const isSameNote = currentNote.id === loadedNoteIdRef.current;
+      const isManualReload = reloadVersion !== lastReloadVersionRef.current;
+
+      if (isSameNote) {
+        if (isManualReload) {
+          lastReloadVersionRef.current = reloadVersion;
+          loadedModifiedRef.current = currentNote.modified;
+          setSourceContent(currentNote.content);
+        } else {
+          // Just a save - update refs but don't reload content
+          loadedModifiedRef.current = currentNote.modified;
+        }
+        return;
+      }
+
+      if (needsSaveRef.current) {
+        flushPendingSave();
+      }
+      if (sourceTimeoutRef.current) {
+        clearTimeout(sourceTimeoutRef.current);
+        sourceTimeoutRef.current = null;
+      }
+
+      const loadingNoteId = currentNote.id;
+      loadedNoteIdRef.current = loadingNoteId;
+      loadedModifiedRef.current = currentNote.modified;
+      lastReloadVersionRef.current = reloadVersion;
+      setSourceContent(currentNote.content);
+      scrollContainerRef.current?.scrollTo(0, 0);
+
+      // A freshly-created file opens straight into the edit textarea.
+      setSourceMode(consumePendingNewNote?.(loadingNoteId) ?? false);
+      return;
+    }
+
     const isSameNote = currentNote.id === loadedNoteIdRef.current;
 
     // Detect rename BEFORE flush to prevent stale-ID saves from creating duplicates.
@@ -1518,6 +1567,7 @@ export function Editor({
     flushPendingSave,
     reloadVersion,
     consumePendingNewNote,
+    isPlainTextNote,
   ]);
 
   // Scroll to top on mount (e.g., when returning from settings)
@@ -1772,7 +1822,7 @@ export function Editor({
         !e.shiftKey &&
         e.key.toLowerCase() === "f"
       ) {
-        if (!currentNote || !editor) return;
+        if (!currentNote || !editor || isPlainTextNote) return;
 
         const target = e.target as HTMLElement;
         const tagName = target.tagName.toLowerCase();
@@ -1797,7 +1847,7 @@ export function Editor({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [editor, currentNote, openEditorSearch]);
+  }, [editor, currentNote, openEditorSearch, isPlainTextNote]);
 
   // Clear search on note switch
   useEffect(() => {
@@ -1853,14 +1903,14 @@ export function Editor({
 
   // Download handlers
   const handleDownloadPdf = useCallback(async () => {
-    if (!editor || !currentNote) return;
+    if (!editor || !currentNote || isPlainTextNote) return;
     try {
       await downloadPdf(editor, currentNote.title);
     } catch (error) {
       console.error("Failed to open print dialog:", error);
       toast.error("Failed to open print dialog");
     }
-  }, [editor, currentNote]);
+  }, [editor, currentNote, isPlainTextNote]);
 
   // Listen for Cmd+P print shortcut
   useEffect(() => {
@@ -1887,6 +1937,14 @@ export function Editor({
   // focus/scroll restoration happens in the useLayoutEffect below.
   const toggleSourceMode = useCallback(() => {
     if (!editor) return;
+
+    // Plain-text/code notes have no TipTap document to anchor against — content
+    // never round-trips through a parser, so this is a plain read/edit toggle.
+    if (isPlainTextNote) {
+      setSourceMode((prev) => !prev);
+      return;
+    }
+
     const container = scrollContainerRef.current;
 
     if (!sourceMode) {
@@ -1969,7 +2027,7 @@ export function Editor({
       }
       setSourceMode(false);
     }
-  }, [editor, sourceMode, sourceContent, getMarkdown]);
+  }, [editor, sourceMode, sourceContent, getMarkdown, isPlainTextNote]);
 
   // Restore focus and scroll position after source mode transitions.
   // useLayoutEffect runs synchronously after React commits DOM changes,
@@ -2041,6 +2099,17 @@ export function Editor({
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, [sourceMode, editor]);
+
+  // Auto-focus the textarea when entering edit mode for plain-text/code notes.
+  // (The transition-ref-based focus restoration above only fires for markdown
+  // source mode, since plain-text notes never populate sourceModeTransitionRef.)
+  useEffect(() => {
+    if (!isPlainTextNote || !sourceMode) return;
+    const textarea = scrollContainerRef.current?.querySelector(
+      "textarea",
+    ) as HTMLTextAreaElement | null;
+    textarea?.focus();
+  }, [isPlainTextNote, sourceMode]);
 
   // Listen for toggle-source-mode custom event (from App.tsx shortcut / command palette)
   useEffect(() => {
@@ -2250,7 +2319,7 @@ export function Editor({
               </IconButton>
             </Tooltip>
           )}
-          {currentNote && (
+          {currentNote && !isPlainTextNote && (
             <Tooltip content={`Find in note (${mod}${isMac ? "" : "+"}F)`}>
               <IconButton onClick={openEditorSearch}>
                 <SearchIcon className="w-4.25 h-4.25 stroke-[1.6]" />
@@ -2260,9 +2329,13 @@ export function Editor({
           {currentNote && (
             <Tooltip
               content={
-                sourceMode
-                  ? `View Formatted (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}M)`
-                  : `View Markdown Source (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}M)`
+                isPlainTextNote
+                  ? sourceMode
+                    ? "Done editing"
+                    : "Edit"
+                  : sourceMode
+                    ? `View Formatted (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}M)`
+                    : `View Markdown Source (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}M)`
               }
             >
               <IconButton onClick={toggleSourceMode}>
@@ -2274,6 +2347,7 @@ export function Editor({
               </IconButton>
             </Tooltip>
           )}
+          {!isPlainTextNote && (
           <DropdownMenu.Root open={copyMenuOpen} onOpenChange={setCopyMenuOpen}>
             <Tooltip
               content={`Export (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}C)`}
@@ -2339,6 +2413,7 @@ export function Editor({
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+          )}
           {onSaveToFolder && (
             <Tooltip content="Save in Folder">
               <IconButton
@@ -2360,7 +2435,7 @@ export function Editor({
       {/* Format Bar – transition only after initial mount to avoid height animation on note load */}
       <div
         data-format-bar
-        className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? `transition-all duration-400 ${needsSidebarDelay ? "delay-200" : ""}` : ""}`}
+        className={`${focusMode || sourceMode || isPlainTextNote ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? `transition-all duration-400 ${needsSidebarDelay ? "delay-200" : ""}` : ""}`}
       >
         <FormatBar
           editor={editor}
@@ -2372,7 +2447,7 @@ export function Editor({
 
       {/* Editor content area with resize handles overlay */}
       <div data-editor-content-area className="flex-1 relative overflow-hidden">
-        {!focusMode && !sourceMode && (
+        {!focusMode && !sourceMode && !isPlainTextNote && (
           <EditorWidthHandles containerRef={scrollContainerRef} />
         )}
         <div
@@ -2400,6 +2475,31 @@ export function Editor({
                 }}
                 spellCheck={false}
               />
+            </div>
+          ) : isPlainTextNote ? (
+            /* Read-only syntax-highlighted view for plain-text/code notes; click to edit */
+            <div
+              className="h-full overflow-auto cursor-text"
+              onClick={toggleSourceMode}
+            >
+              <pre
+                className="w-full min-h-full bg-transparent text-text px-6 pt-8 pb-24 mx-auto"
+                style={{
+                  maxWidth: "var(--editor-max-width, 48rem)",
+                  fontFamily:
+                    "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Courier New', monospace",
+                  fontSize: "0.875em",
+                  lineHeight: "var(--editor-line-height)",
+                  tabSize: 2,
+                  whiteSpace: "pre",
+                }}
+              >
+                <code
+                  dangerouslySetInnerHTML={{
+                    __html: highlightCode(sourceContent, currentNote.extension),
+                  }}
+                />
+              </pre>
             </div>
           ) : (
             <>

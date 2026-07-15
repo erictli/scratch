@@ -316,6 +316,8 @@ html.dark {
   font-size: var(--editor-base-font-size);
   font-weight: 400;
   line-height: var(--editor-line-height);
+  letter-spacing: var(--editor-letter-spacing, normal);
+  font-optical-sizing: auto;
   color: var(--color-text);
 }
 
@@ -332,6 +334,7 @@ html.dark {
     :where([class~="not-prose"], [class~="not-prose"] *)
   ) {
   color: var(--color-text);
+  letter-spacing: var(--editor-heading-letter-spacing, normal);
 }
 
 /* Headings - all use the same font family with computed sizes */
@@ -671,8 +674,8 @@ html.dark {
 .prose ol {
   margin-top: 0;
   margin-bottom: var(--editor-paragraph-spacing);
-  padding-left: 1.25em;
-  padding-inline-start: 1.25em;
+  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
 }
 
 /* Remove extra margins from nested lists */
@@ -685,8 +688,13 @@ html.dark {
 .prose li {
   margin-top: 0;
   margin-bottom: 0;
-  padding-left: 0.25em;
-  padding-inline-start: 0.25em;
+  padding-left: 0.1em;
+  padding-inline-start: 0.1em;
+}
+
+/* Breathing room between sibling list items (not before the first) */
+.prose li + li {
+  margin-top: 0.3em;
 }
 
 /* List markers - use muted stone color */
