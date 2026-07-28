@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { cn } from "../../lib/utils";
-import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../../lib/sidebar";
+import { SIDEBAR_DEFAULT_PX, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../../lib/sidebar";
 
 /** Pointer movement below this many px counts as a click, not a drag. */
 const DRAG_THRESHOLD_PX = 3;
@@ -122,7 +122,6 @@ export function SidebarResizeHandle() {
 
   /** Resets the sidebar to its default width (removes the override). */
   const handleDoubleClick = useCallback(() => {
-    document.documentElement.classList.remove("sidebar-no-transition");
     setSidebarWidthPx(null);
   }, [setSidebarWidthPx]);
 
@@ -162,7 +161,7 @@ export function SidebarResizeHandle() {
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize sidebar width"
-      aria-valuenow={sidebarWidthPx ?? undefined}
+      aria-valuenow={sidebarWidthPx ?? SIDEBAR_DEFAULT_PX}
       aria-valuemin={SIDEBAR_MIN_PX}
       aria-valuemax={SIDEBAR_MAX_PX}
       tabIndex={0}
@@ -182,7 +181,7 @@ export function SidebarResizeHandle() {
           "absolute left-1/2 -translate-x-1/2 top-0 h-full w-0.75 rounded-full bg-border transition-opacity duration-150",
           isDragging
             ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100 group-focus:opacity-100",
+            : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
         )}
       />
       {isDragging && (

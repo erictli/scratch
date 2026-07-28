@@ -491,7 +491,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const setSidebarWidthPx = useCallback(async (px: number | null) => {
     if (px === null) {
       setSidebarWidthPxState(null);
-      document.documentElement.style.removeProperty("--sidebar-width");
       try {
         const settings = await getSettings();
         await updateSettings({ ...settings, sidebarWidthPx: undefined });
