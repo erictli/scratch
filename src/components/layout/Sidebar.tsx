@@ -197,6 +197,16 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     [search],
   );
 
+  // Sync highlighting / selection when note changes 
+  useEffect(() => {
+    if (selectedNoteId) {
+      setMultiSelectedNoteIds(new Set([selectedNoteId]));
+      setLastClickedNoteId(selectedNoteId);
+    } else {
+      setMultiSelectedNoteIds(new Set());
+    }
+  }, [selectedNoteId]);
+
   const toggleSearch = useCallback(() => {
     setSearchOpen((prev) => {
       if (prev) {

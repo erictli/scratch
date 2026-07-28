@@ -12,6 +12,7 @@ import { Editor } from "./components/editor/Editor";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
+import { NoteNavigator } from "./components/editor/NoteNavigator";
 import { SettingsPage } from "./components/settings";
 import {
   SpinnerIcon,
@@ -70,6 +71,7 @@ function AppContent() {
   const currentNoteRef = useRef(currentNote);
   currentNoteRef.current = currentNote;
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [noteNavigatorOpen, setNoteNavigatorOpen] = useState(false);
   const [view, setView] = useState<ViewState>("notes");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -288,6 +290,17 @@ function AppContent() {
         return;
       }
 
+      // Cmd+G - Go to note
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "g") {
+        e.preventDefault();
+        if (currentNoteRef.current) {
+          window.dispatchEvent(new CustomEvent("navigate-to-note"));
+        } else {
+          setNoteNavigatorOpen(true);
+        }
+        return;
+      }
+
       // Cmd+Shift+P - Print
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
@@ -502,6 +515,28 @@ function AppContent() {
             if (aiModalOpen) setAiModalOpen(false);
           }}
         />
+      )}
+
+      {/* Note navigator overlay (used when no note is open and editor is unavailable) */}
+      {noteNavigatorOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-text/50 backdrop-blur-sm z-40 animate-fade-in"
+            onClick={() => setNoteNavigatorOpen(false)}
+          />
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 pointer-events-none">
+            <div className="pointer-events-auto">
+              <NoteNavigator
+                notes={notes}
+                onSelect={(note) => {
+                  setNoteNavigatorOpen(false);
+                  selectNote(note.id);
+                }}
+                onCancel={() => setNoteNavigatorOpen(false)}
+              />
+            </div>
+          </div>
+        </>
       )}
 
       <KeyboardShortcutsModal
