@@ -69,6 +69,7 @@ import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
+import { AlertBlockquote, ALERT_TYPES, ALERT_META } from "./AlertBlockquote";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -345,6 +346,27 @@ function FormatBar({
       >
         <QuoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
+      {ALERT_TYPES.map((alertType) => {
+        const { label, color } = ALERT_META[alertType];
+        return (
+          <ToolbarButton
+            key={alertType}
+            onClick={() =>
+              editor.chain().focus().wrapIn("alertBlockquote", { alertType }).run()
+            }
+            isActive={editor.isActive("alertBlockquote", { alertType })}
+            title={`Alert: ${label}`}
+          >
+            <span className="relative flex items-center justify-center">
+              <QuoteIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+              <span
+                className="absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full"
+                style={{ background: color }}
+              />
+            </span>
+          </ToolbarButton>
+        );
+      })}
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleCode().run()}
         isActive={editor.isActive("code")}
@@ -1111,6 +1133,7 @@ export function Editor({
         },
       }),
       Frontmatter,
+      AlertBlockquote,
       Markdown.configure({}),
       SearchHighlight.configure({
         matches: [],

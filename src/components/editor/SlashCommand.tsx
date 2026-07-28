@@ -23,6 +23,15 @@ import {
   BracketsIcon,
   WorkflowIcon,
 } from "../icons";
+import { ALERT_TYPES, ALERT_META, type AlertType } from "./AlertBlockquote";
+
+const ALERT_ALIASES: Record<AlertType, string[]> = {
+  NOTE: ["note", "info"],
+  TIP: ["tip", "hint"],
+  IMPORTANT: ["important"],
+  WARNING: ["warning", "warn"],
+  CAUTION: ["caution", "danger"],
+};
 import { SlashCommandList, type SlashCommandListRef } from "./SlashCommandList";
 
 export interface SlashCommandItem {
@@ -115,6 +124,23 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
       editor.chain().focus().toggleBlockquote().run();
     },
   },
+  ...ALERT_TYPES.map((type) => {
+    const { label, color } = ALERT_META[type];
+    return {
+      title: `Alert: ${label}`,
+      description: `${label} alert callout`,
+      icon: (
+        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <QuoteIcon />
+          <span style={{ position: "absolute", bottom: -2, right: -3, width: 6, height: 6, borderRadius: "50%", background: color }} />
+        </div>
+      ),
+      aliases: [...ALERT_ALIASES[type], "alert", "callout"],
+      command: (editor: TiptapEditor) => {
+        editor.chain().focus().wrapIn("alertBlockquote", { alertType: type }).run();
+      },
+    };
+  }),
   {
     title: "Code Block",
     description: "Fenced code block",
