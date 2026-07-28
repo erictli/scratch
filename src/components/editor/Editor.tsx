@@ -1815,16 +1815,22 @@ export function Editor({
     });
   }, []);
 
-  // Cmd+F to open search, Cmd+H to open replace (works when document/editor area is focused)
+  // Cmd/Ctrl+F to open search, ⌥⌘F (macOS) / Ctrl+H to open replace
+  // (works when document/editor area is focused)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isF = e.key.toLowerCase() === "f";
-      const isH = e.key.toLowerCase() === "h";
-      if (
+      const openFind =
         (e.metaKey || e.ctrlKey) &&
         !e.shiftKey &&
-        (isF || isH)
-      ) {
+        !e.altKey &&
+        e.key.toLowerCase() === "f";
+      // Cmd+H is reserved by macOS (Hide), so replace uses the platform
+      // convention: ⌥⌘F on macOS, Ctrl+H elsewhere. e.code is checked on
+      // macOS because ⌥ changes e.key to a special character ("ƒ").
+      const openReplace = isMac
+        ? e.metaKey && e.altKey && !e.shiftKey && e.code === "KeyF"
+        : e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "h";
+      if (openFind || openReplace) {
         if (!currentNote || !editor) return;
 
         const target = e.target as HTMLElement;
@@ -1846,18 +1852,15 @@ export function Editor({
 
         // Open search for the editor
         e.preventDefault();
-        setSearchOpen(true);
-        if (isH) {
+        if (openReplace) {
           setIsReplaceOpen(true);
         }
-        requestAnimationFrame(() => {
-          searchInputRef.current?.focus();
-        });
+        openEditorSearch();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [editor, currentNote]);
+  }, [editor, currentNote, openEditorSearch]);
 
   // Clear search on note switch
   useEffect(() => {
