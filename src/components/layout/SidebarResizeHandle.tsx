@@ -1,7 +1,19 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { cn } from "../../lib/utils";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../../lib/sidebar";
+
+/** Pointer movement below this many px counts as a click, not a drag. */
+const DRAG_THRESHOLD_PX = 3;
+
+/** Applies the `--sidebar-width` override; `null` falls back to the CSS default. */
+function applyWidthVar(px: number | null) {
+  if (px === null) {
+    document.documentElement.style.removeProperty("--sidebar-width");
+  } else {
+    document.documentElement.style.setProperty("--sidebar-width", `${px}px`);
+  }
+}
 
 /**
  * Drag handle rendered on the right edge of the sidebar.
@@ -16,7 +28,26 @@ export function SidebarResizeHandle() {
   const dragState = useRef<{
     startX: number;
     initialWidth: number;
+    moved: boolean;
   } | null>(null);
+
+  // Latest persisted width, readable from the unmount cleanup below
+  const persistedWidthRef = useRef(sidebarWidthPx);
+  useEffect(() => {
+    persistedWidthRef.current = sidebarWidthPx;
+  }, [sidebarWidthPx]);
+
+  // If unmounted mid-drag (e.g. focus mode toggled via shortcut), restore the
+  // transition class and the persisted width so the live drag value doesn't stick
+  useEffect(
+    () => () => {
+      if (dragState.current) {
+        document.documentElement.classList.remove("sidebar-no-transition");
+        applyWidthVar(persistedWidthRef.current);
+      }
+    },
+    [],
+  );
 
   /** Captures the pointer and records the drag start position and initial width. */
   const handlePointerDown = useCallback(
@@ -31,6 +62,7 @@ export function SidebarResizeHandle() {
       dragState.current = {
         startX: e.clientX,
         initialWidth,
+        moved: false,
       };
       setIsDragging(true);
       setCurrentWidth(initialWidth);
@@ -43,9 +75,12 @@ export function SidebarResizeHandle() {
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!dragState.current) return;
-      const { startX, initialWidth } = dragState.current;
+      const { startX, initialWidth, moved } = dragState.current;
 
       const delta = e.clientX - startX;
+      if (!moved && Math.abs(delta) < DRAG_THRESHOLD_PX) return;
+      dragState.current.moved = true;
+
       const newWidth = initialWidth + delta;
       const clamped = Math.round(
         Math.min(Math.max(newWidth, SIDEBAR_MIN_PX), SIDEBAR_MAX_PX),
@@ -61,23 +96,29 @@ export function SidebarResizeHandle() {
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
       if (!dragState.current) return;
+      const { moved } = dragState.current;
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
       document.documentElement.classList.remove("sidebar-no-transition");
 
-      setSidebarWidthPx(currentWidth);
+      // A stationary click must not persist: the two clicks of a double-click
+      // reset would otherwise issue settings writes that race the reset itself
+      if (moved) {
+        setSidebarWidthPx(currentWidth);
+      }
       dragState.current = null;
       setIsDragging(false);
     },
     [currentWidth, setSidebarWidthPx],
   );
 
-  /** Aborts the drag on pointer cancel without saving any width change. */
+  /** Aborts the drag on pointer cancel, restoring the last persisted width. */
   const handlePointerCancel = useCallback(() => {
     if (!dragState.current) return;
     document.documentElement.classList.remove("sidebar-no-transition");
+    applyWidthVar(sidebarWidthPx);
     dragState.current = null;
     setIsDragging(false);
-  }, []);
+  }, [sidebarWidthPx]);
 
   /** Resets the sidebar to its default width (removes the override). */
   const handleDoubleClick = useCallback(() => {
