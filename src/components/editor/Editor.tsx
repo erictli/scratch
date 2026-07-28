@@ -31,6 +31,7 @@ import {
   PluginKey,
   TextSelection,
 } from "@tiptap/pm/state";
+import type { Slice } from "@tiptap/pm/model";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -108,6 +109,24 @@ import {
   MarkdownOffIcon,
   FolderPlusIcon,
 } from "../icons";
+
+function serializeSliceToMarkdown(
+  editor: TiptapEditor | null,
+  slice: Slice,
+): string | null {
+  const manager = editor?.storage.markdown?.manager;
+  if (!manager) return null;
+
+  try {
+    const markdown = manager.serialize({
+      type: "doc",
+      content: slice.content.toJSON(),
+    });
+    return markdown.replace(/&nbsp;|&#160;/g, " ");
+  } catch {
+    return null;
+  }
+}
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -1138,25 +1157,36 @@ export function Editor({
         autocorrect: "on",
         autocapitalize: "sentences",
       },
-      // Serialize copied text as markdown instead of plain text
-      clipboardTextSerializer: (slice) => {
-        const fallback = slice.content.textBetween(
-          0,
-          slice.content.size,
-          "\n\n",
-        );
-        const currentEditor = editorRef.current;
-        const manager = currentEditor?.storage.markdown?.manager;
-        if (!currentEditor || !manager) return fallback;
-        try {
-          const doc = currentEditor.schema.topNodeType.create(
-            null,
-            slice.content,
+      handleDOMEvents: {
+        copy: (view, event) => {
+          const clipboardData = event.clipboardData;
+          const { selection } = view.state;
+          if (!clipboardData || selection.empty) return false;
+
+          const { dom, slice } = view.serializeForClipboard(
+            selection.content(),
           );
-          return manager.serialize(doc.toJSON());
-        } catch {
-          return fallback;
-        }
+          const plainText = slice.content.textBetween(
+            0,
+            slice.content.size,
+            "\n\n",
+          );
+          const markdown = serializeSliceToMarkdown(editorRef.current, slice);
+
+          event.preventDefault();
+          clipboardData.clearData();
+          clipboardData.setData("text/html", dom.innerHTML);
+          clipboardData.setData("text/plain", plainText);
+          if (markdown !== null) {
+            try {
+              clipboardData.setData("text/markdown", markdown);
+            } catch {
+              // Some platform clipboards only accept plain text and HTML.
+            }
+          }
+
+          return true;
+        },
       },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
@@ -1218,14 +1248,15 @@ export function Editor({
           }
         }
 
-        // Handle markdown text paste
-        const text = clipboardData.getData("text/plain");
+        // Prefer an explicitly labelled Markdown representation when present.
+        const markdownText = clipboardData.getData("text/markdown");
+        const text = markdownText || clipboardData.getData("text/plain");
         if (!text) return false;
 
-        // Check if text looks like markdown (has common markdown patterns)
+        // Plain text still supports pasting Markdown copied from other apps.
         const markdownPatterns =
           /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|```|^\s*\[.*\]\(.*\)|^\s*!\[|\*\*.*\*\*|__.*__|~~.*~~|^\s*[-*_]{3,}\s*$|^\|.+\||\$\$[\s\S]+?\$\$/m;
-        if (!markdownPatterns.test(text)) {
+        if (!markdownText && !markdownPatterns.test(text)) {
           // Not markdown, let TipTap handle it normally
           return false;
         }
