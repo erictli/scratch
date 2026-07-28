@@ -23,6 +23,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { keys: [mod, "="], description: "Zoom in" },
       { keys: [mod, "-"], description: "Zoom out" },
       { keys: [mod, "0"], description: "Reset zoom" },
+      { keys: [mod, "["], description: "Navigate back" },
+      { keys: [mod, "]"], description: "Navigate forward" },
     ],
   },
   {

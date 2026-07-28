@@ -27,6 +27,8 @@ interface NotesDataContextValue {
   isSearching: boolean;
   hasExternalChanges: boolean;
   reloadVersion: number;
+  canGoBack: boolean;
+  canGoForward: boolean;
 }
 
 // Actions context: stable references, rarely causes re-renders
@@ -51,10 +53,36 @@ interface NotesActionsContextValue {
   renameFolder: (oldPath: string, newName: string) => Promise<void>;
   moveNote: (id: string, targetFolder: string) => Promise<void>;
   moveFolder: (path: string, targetParent: string) => Promise<void>;
+  goBack: () => Promise<void>;
+  goForward: () => Promise<void>;
 }
 
 const NotesDataContext = createContext<NotesDataContextValue | null>(null);
 const NotesActionsContext = createContext<NotesActionsContextValue | null>(null);
+
+type NavState = { history: string[]; index: number };
+
+function navPush(prev: NavState, id: string): NavState {
+  if (prev.history[prev.index] === id) return prev;
+  const newHistory = [...prev.history.slice(0, prev.index + 1), id];
+  return { history: newHistory, index: newHistory.length - 1 };
+}
+
+function navRemove(prev: NavState, shouldRemove: (id: string) => boolean): NavState {
+  if (!prev.history.some(shouldRemove)) return prev;
+  if (prev.history[prev.index] != null && shouldRemove(prev.history[prev.index])) {
+    return { history: [], index: -1 };
+  }
+  const newHistory = prev.history.filter((h) => !shouldRemove(h));
+  if (newHistory.length === 0) return { history: [], index: -1 };
+  const keptBeforeOrAt = prev.history
+    .slice(0, prev.index + 1)
+    .filter((h) => !shouldRemove(h)).length;
+  return {
+    history: newHistory,
+    index: Math.max(0, Math.min(keptBeforeOrAt - 1, newHistory.length - 1)),
+  };
+}
 
 export function NotesProvider({ children }: { children: ReactNode }) {
   const [notes, setNotes] = useState<NoteMetadata[]>([]);
@@ -86,6 +114,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const searchRequestIdRef = useRef(0);
   // Tracks the ID of a newly created note so Editor can focus its title.
   const pendingNewNoteIdRef = useRef<string | null>(null);
+  // Navigation history: stack of note IDs with a current position index
+  const [nav, setNav] = useState<{ history: string[]; index: number }>({
+    history: [],
+    index: -1,
+  });
+  const navRef = useRef(nav);
+  navRef.current = nav;
 
   const refreshNotes = useCallback(async () => {
     if (!notesFolder) return;
@@ -108,16 +143,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     }, 300);
   }, [refreshNotes]);
 
-  const selectNote = useCallback(async (id: string) => {
+  // Internal: load and display a note without touching navigation history
+  const loadNoteById = useCallback(async (id: string) => {
     const requestId = ++selectRequestIdRef.current;
     try {
       if (pendingNewNoteIdRef.current !== id) {
         pendingNewNoteIdRef.current = null;
       }
-      // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
       setHasExternalChanges(false);
-      // Expand parent folders so the note is visible in the tree
       const lastSlash = id.lastIndexOf("/");
       if (lastSlash > 0) {
         window.dispatchEvent(
@@ -129,11 +163,36 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       const note = await notesService.readNote(id);
       if (requestId !== selectRequestIdRef.current) return;
       setCurrentNote(note);
+      return true;
     } catch (err) {
       if (requestId !== selectRequestIdRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load note");
     }
   }, []);
+
+  const selectNote = useCallback(
+    async (id: string) => {
+      const ok = await loadNoteById(id);
+      if (ok) setNav((prev) => navPush(prev, id));
+    },
+    [loadNoteById],
+  );
+
+  const goBack = useCallback(async () => {
+    const { history, index } = navRef.current;
+    if (index <= 0) return;
+    const newIndex = index - 1;
+    const ok = await loadNoteById(history[newIndex]);
+    if (ok) setNav((prev) => ({ ...prev, index: newIndex }));
+  }, [loadNoteById]);
+
+  const goForward = useCallback(async () => {
+    const { history, index } = navRef.current;
+    if (index >= history.length - 1) return;
+    const newIndex = index + 1;
+    const ok = await loadNoteById(history[newIndex]);
+    if (ok) setNav((prev) => ({ ...prev, index: newIndex }));
+  }, [loadNoteById]);
 
   const reloadCurrentNote = useCallback(async () => {
     if (!selectedNoteIdRef.current) return;
@@ -165,6 +224,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       await refreshNotes();
       setCurrentNote(note);
       setSelectedNoteId(note.id);
+      setNav((prev) => navPush(prev, note.id));
       // Clear search when creating a new note
       setSearchQuery("");
       setSearchResults([]);
@@ -215,6 +275,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
             };
             await notesService.updateSettings(updatedSettings);
           }
+
+          // Update navigation history to reflect the new ID
+          setNav((prev) => ({
+            ...prev,
+            history: prev.history.map((h) =>
+              h === savingNoteId ? updated.id : h,
+            ),
+          }));
         }
 
         // Clear external changes flag - if it was set by our own save, we want to ignore it
@@ -275,6 +343,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           }
           return prevId;
         });
+
+        // Remove deleted note from navigation history
+        setNav((prev) => navRemove(prev, (h) => h === id));
+
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to delete note");
@@ -293,6 +365,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         await refreshNotes();
         setCurrentNote(newNote);
         setSelectedNoteId(newNote.id);
+        setNav((prev) => navPush(prev, newNote.id));
         setTimeout(() => {
           recentlySavedRef.current.delete(newNote.id);
         }, 1000);
@@ -353,6 +426,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         await refreshNotes();
         setCurrentNote(note);
         setSelectedNoteId(note.id);
+        setNav((prev) => navPush(prev, note.id));
         setSearchQuery("");
         setSearchResults([]);
         setTimeout(() => {
@@ -394,6 +468,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           }
           return prevId;
         });
+
+        // Remove notes inside the deleted folder from navigation history
+        const deletedPrefix = path + "/";
+        setNav((prev) => navRemove(prev, (h) => h.startsWith(deletedPrefix)));
+
         await refreshNotes();
       } catch (err) {
         setError(
@@ -432,6 +511,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           return prevId;
         });
 
+        // Update navigation history IDs for notes inside the renamed folder
+        setNav((prev) => ({
+          ...prev,
+          history: prev.history.map((h) =>
+            h.startsWith(oldPrefix)
+              ? newPrefix + h.substring(oldPrefix.length)
+              : h,
+          ),
+        }));
+
         await refreshNotes();
       } catch (err) {
         setError(
@@ -458,6 +547,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           }
           return prevId;
         });
+
+        // Update navigation history to reflect the new ID
+        setNav((prev) => ({
+          ...prev,
+          history: prev.history.map((h) => (h === id ? newId : h)),
+        }));
+
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to move note");
@@ -495,6 +591,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           return prevId;
         });
 
+        // Update navigation history IDs for notes inside the moved folder
+        setNav((prev) => ({
+          ...prev,
+          history: prev.history.map((h) =>
+            h.startsWith(oldPrefix)
+              ? newPrefix + h.substring(oldPrefix.length)
+              : h,
+          ),
+        }));
+
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to move folder");
@@ -507,6 +613,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     try {
       await notesService.setNotesFolder(path);
       setNotesFolderState(path);
+      setNav({ history: [], index: -1 });
       // Start file watcher after setting folder
       await notesService.startFileWatcher();
     } catch (err) {
@@ -523,6 +630,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setNotesFolderState(path);
       setSelectedNoteId(null);
       setCurrentNote(null);
+      setNav({ history: [], index: -1 });
       const notesList = await notesService.listNotes();
       setNotes(notesList);
       await notesService.startFileWatcher();
@@ -681,6 +789,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, [notesFolder, refreshNotes]);
 
   // Memoize data context value to prevent unnecessary re-renders
+  const canGoBack = nav.index > 0;
+  const canGoForward = nav.index < nav.history.length - 1;
+
   const dataValue = useMemo<NotesDataContextValue>(
     () => ({
       notes,
@@ -694,6 +805,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       isSearching,
       hasExternalChanges,
       reloadVersion,
+      canGoBack,
+      canGoForward,
     }),
     [
       notes,
@@ -707,6 +820,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       isSearching,
       hasExternalChanges,
       reloadVersion,
+      canGoBack,
+      canGoForward,
     ]
   );
 
@@ -733,6 +848,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       renameFolder: renameFolderAction,
       moveNote: moveNoteAction,
       moveFolder: moveFolderAction,
+      goBack,
+      goForward,
     }),
     [
       selectNote,
@@ -755,6 +872,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       renameFolderAction,
       moveNoteAction,
       moveFolderAction,
+      goBack,
+      goForward,
     ]
   );
 
