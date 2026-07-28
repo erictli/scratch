@@ -575,6 +575,11 @@ html.dark {
   color: var(--color-text);
 }
 
+.prose .tiptap-mathematics-render[data-type="inline-math"] {
+  display: inline-block;
+  vertical-align: 0.01em;
+}
+
 .prose .tiptap-mathematics-render[data-type="block-math"] {
   display: block;
   margin: 0.75rem 0;
@@ -585,7 +590,9 @@ html.dark {
 }
 
 .prose
-  .tiptap-mathematics-render[data-type="block-math"].ProseMirror-selectednode {
+  .tiptap-mathematics-render[data-type="block-math"].ProseMirror-selectednode,
+.prose
+  .tiptap-mathematics-render[data-type="inline-math"].ProseMirror-selectednode {
   outline: 2px solid var(--color-bg-emphasis);
   outline-offset: 2px;
   border-radius: 0.25rem;

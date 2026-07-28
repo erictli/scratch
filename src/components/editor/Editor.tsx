@@ -31,6 +31,7 @@ import {
   PluginKey,
   TextSelection,
 } from "@tiptap/pm/state";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -68,7 +69,12 @@ import { SlashCommand } from "./SlashCommand";
 import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
-import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
+import {
+  ScratchBlockMath,
+  ScratchInlineMath,
+  normalizeBlockMath,
+  normalizeInlineMath,
+} from "./MathExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -145,6 +151,36 @@ function focusAndSelectTitle(editor: TiptapEditor): boolean {
     .run();
 
   return true;
+}
+
+function getMathNodeRect(
+  editor: TiptapEditor,
+  pos: number,
+  node: ProseMirrorNode,
+): DOMRect {
+  const nodeDom = editor.view.nodeDOM(pos);
+  if (nodeDom instanceof HTMLElement) {
+    return nodeDom.getBoundingClientRect();
+  }
+
+  const start = editor.view.coordsAtPos(pos);
+  const end = editor.view.coordsAtPos(pos + node.nodeSize);
+  const left = Math.min(start.left, end.left);
+  const top = Math.min(start.top, end.top);
+  const right = Math.max(start.right, end.right);
+  const bottom = Math.max(start.bottom, end.bottom);
+
+  return {
+    width: Math.max(2, right - left),
+    height: Math.max(20, bottom - top),
+    top,
+    left,
+    right,
+    bottom,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
 }
 
 // Standard number-field shortcuts for KaTeX (shared between inline and block math)
@@ -585,7 +621,7 @@ export function Editor({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const saveTimeoutRef = useRef<number | null>(null);
   const linkPopupRef = useRef<TippyInstance | null>(null);
-  const blockMathPopupRef = useRef<TippyInstance | null>(null);
+  const mathPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
@@ -781,91 +817,38 @@ export function Editor({
     }, 500);
   }, [saveImmediately, getMarkdown, currentNote?.id]);
 
-  const closeBlockMathPopup = useCallback(() => {
-    if (blockMathPopupRef.current) {
-      blockMathPopupRef.current.destroy();
-      blockMathPopupRef.current = null;
+  const closeMathPopup = useCallback(() => {
+    if (mathPopupRef.current) {
+      mathPopupRef.current.destroy();
+      mathPopupRef.current = null;
     }
   }, []);
 
-  const handleEditBlockMath = useCallback(
-    (pos: number) => {
-      const currentEditor = editorRef.current;
-      if (!currentEditor) return;
-
+  const openMathPopup = useCallback(
+    (
+      currentEditor: TiptapEditor,
+      anchorRect: DOMRect,
+      initialLatex: string,
+      onSubmit: (latex: string) => void,
+      onCancel: () => void,
+    ) => {
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
         linkPopupRef.current = null;
       }
-      closeBlockMathPopup();
-
-      const node = currentEditor.state.doc.nodeAt(pos);
-      if (!node || node.type.name !== "blockMath") {
-        return;
-      }
-
-      const virtualElement = {
-        getBoundingClientRect: () => {
-          const nodeDom = currentEditor.view.nodeDOM(pos);
-          if (nodeDom instanceof HTMLElement) {
-            return nodeDom.getBoundingClientRect();
-          }
-
-          const start = currentEditor.view.coordsAtPos(pos);
-          const end = currentEditor.view.coordsAtPos(pos + node.nodeSize);
-          const left = Math.min(start.left, end.left);
-          const top = Math.min(start.top, end.top);
-          const right = Math.max(start.right, end.right);
-          const bottom = Math.max(start.bottom, end.bottom);
-
-          return {
-            width: Math.max(2, right - left),
-            height: Math.max(20, bottom - top),
-            top,
-            left,
-            right,
-            bottom,
-            x: left,
-            y: top,
-            toJSON: () => ({}),
-          } as DOMRect;
-        },
-      };
+      closeMathPopup();
 
       const component = new ReactRenderer(BlockMathEditor, {
         props: {
-          initialLatex: String(node.attrs.latex ?? ""),
-          onSubmit: (latex: string) => {
-            const trimmed = latex.trim();
-            if (!trimmed) {
-              toast.error("Please enter a formula.");
-              return;
-            }
-            currentEditor
-              .chain()
-              .focus()
-              .updateBlockMath({ pos, latex: trimmed })
-              .setTextSelection(pos + node.nodeSize)
-              .run();
-            closeBlockMathPopup();
-          },
-          onCancel: () => {
-            // Move cursor after the node instead of restoring the NodeSelection,
-            // which would re-trigger native DOM selection highlight bleed
-            currentEditor
-              .chain()
-              .focus()
-              .setTextSelection(pos + node.nodeSize)
-              .run();
-            closeBlockMathPopup();
-          },
+          initialLatex,
+          onSubmit,
+          onCancel,
         },
         editor: currentEditor,
       });
 
-      blockMathPopupRef.current = tippy(document.body, {
-        getReferenceClientRect: () =>
-          virtualElement.getBoundingClientRect() as DOMRect,
+      mathPopupRef.current = tippy(document.body, {
+        getReferenceClientRect: () => anchorRect,
         appendTo: () => document.body,
         content: component.element,
         showOnCreate: true,
@@ -875,17 +858,106 @@ export function Editor({
         offset: [0, 8],
         onDestroy: () => {
           component.destroy();
+          mathPopupRef.current = null;
         },
       });
     },
-    [closeBlockMathPopup],
+    [closeMathPopup],
+  );
+
+  const handleEditBlockMath = useCallback(
+    (pos: number) => {
+      const currentEditor = editorRef.current;
+      if (!currentEditor) return;
+
+      const node = currentEditor.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== "blockMath") {
+        return;
+      }
+
+      const anchorRect = getMathNodeRect(currentEditor, pos, node);
+      openMathPopup(
+        currentEditor,
+        anchorRect,
+        String(node.attrs.latex ?? ""),
+        (latex: string) => {
+          const trimmed = latex.trim();
+          if (!trimmed) {
+            toast.error("Please enter a formula.");
+            return;
+          }
+
+          currentEditor
+            .chain()
+            .focus()
+            .updateBlockMath({ pos, latex: trimmed })
+            .setTextSelection(pos + node.nodeSize)
+            .run();
+          closeMathPopup();
+        },
+        () => {
+          // Move cursor after the node instead of restoring the NodeSelection,
+          // which would re-trigger native DOM selection highlight bleed
+          currentEditor
+            .chain()
+            .focus()
+            .setTextSelection(pos + node.nodeSize)
+            .run();
+          closeMathPopup();
+        },
+      );
+    },
+    [closeMathPopup, openMathPopup],
+  );
+
+  const handleEditInlineMath = useCallback(
+    (pos: number) => {
+      const currentEditor = editorRef.current;
+      if (!currentEditor) return;
+
+      const node = currentEditor.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== "inlineMath") {
+        return;
+      }
+
+      const anchorRect = getMathNodeRect(currentEditor, pos, node);
+      openMathPopup(
+        currentEditor,
+        anchorRect,
+        String(node.attrs.latex ?? ""),
+        (latex: string) => {
+          const trimmed = latex.trim();
+          if (!trimmed) {
+            toast.error("Please enter a formula.");
+            return;
+          }
+
+          currentEditor
+            .chain()
+            .focus()
+            .updateInlineMath({ pos, latex: trimmed })
+            .setTextSelection(pos + node.nodeSize)
+            .run();
+          closeMathPopup();
+        },
+        () => {
+          currentEditor
+            .chain()
+            .focus()
+            .setTextSelection(pos + node.nodeSize)
+            .run();
+          closeMathPopup();
+        },
+      );
+    },
+    [closeMathPopup, openMathPopup],
   );
 
   const handleAddBlockMath = useCallback(() => {
     const currentEditor = editorRef.current;
     if (!currentEditor) return;
 
-    closeBlockMathPopup();
+    closeMathPopup();
     if (linkPopupRef.current) {
       linkPopupRef.current.destroy();
       linkPopupRef.current = null;
@@ -930,7 +1002,7 @@ export function Editor({
     const targetRange = { from, to };
     const hasSelection = from !== to;
 
-    const virtualElement = {
+    const anchorRect = {
       getBoundingClientRect: () => {
         if (hasSelection) {
           const startPos = currentEditor.view.domAtPos(from);
@@ -963,87 +1035,183 @@ export function Editor({
       },
     };
 
-    const component = new ReactRenderer(BlockMathEditor, {
-      props: {
-        initialLatex,
-        onSubmit: (latex: string) => {
-          const normalizedLatex = latex.trim();
-          if (!normalizedLatex) {
-            toast.error("Please enter a formula.");
-            return;
-          }
+    openMathPopup(
+      currentEditor,
+      anchorRect.getBoundingClientRect() as DOMRect,
+      initialLatex,
+      (latex: string) => {
+        const normalizedLatex = latex.trim();
+        if (!normalizedLatex) {
+          toast.error("Please enter a formula.");
+          return;
+        }
 
-          const inserted = currentEditor
-            .chain()
-            .focus()
-            .insertContentAt(targetRange, {
-              type: "blockMath",
-              attrs: { latex: normalizedLatex },
-            })
-            .command(({ state, tr, dispatch }) => {
-              if (!dispatch) return true;
+        const inserted = currentEditor
+          .chain()
+          .focus()
+          .insertContentAt(targetRange, {
+            type: "blockMath",
+            attrs: { latex: normalizedLatex },
+          })
+          .command(({ state, tr, dispatch }) => {
+            if (!dispatch) return true;
 
-              const { $to } = tr.selection;
-              if ($to.nodeAfter?.isTextblock) {
-                tr.setSelection(TextSelection.create(tr.doc, $to.pos + 1));
+            const { $to } = tr.selection;
+            if ($to.nodeAfter?.isTextblock) {
+              tr.setSelection(TextSelection.create(tr.doc, $to.pos + 1));
+              tr.scrollIntoView();
+              return true;
+            }
+
+            const paragraphType =
+              state.schema.nodes.paragraph ??
+              $to.parent.type.contentMatch.defaultType;
+            const paragraphNode = paragraphType?.create();
+            const insertPos = $to.nodeAfter ? $to.pos : $to.end();
+
+            if (paragraphNode) {
+              const $insertPos = tr.doc.resolve(insertPos);
+              if (
+                $insertPos.parent.canReplaceWith(
+                  $insertPos.index(),
+                  $insertPos.index(),
+                  paragraphNode.type,
+                )
+              ) {
+                tr.insert(insertPos, paragraphNode);
+                tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
                 tr.scrollIntoView();
                 return true;
               }
+            }
 
-              const paragraphType =
-                state.schema.nodes.paragraph ??
-                $to.parent.type.contentMatch.defaultType;
-              const paragraphNode = paragraphType?.create();
-              const insertPos = $to.nodeAfter ? $to.pos : $to.end();
+            tr.scrollIntoView();
+            return true;
+          })
+          .run();
 
-              if (paragraphNode) {
-                const $insertPos = tr.doc.resolve(insertPos);
-                if (
-                  $insertPos.parent.canReplaceWith(
-                    $insertPos.index(),
-                    $insertPos.index(),
-                    paragraphNode.type,
-                  )
-                ) {
-                  tr.insert(insertPos, paragraphNode);
-                  tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
-                  tr.scrollIntoView();
-                  return true;
-                }
-              }
+        if (inserted) {
+          closeMathPopup();
+        }
+      },
+      () => {
+        currentEditor.commands.focus();
+        closeMathPopup();
+      },
+    );
+  }, [closeMathPopup, handleEditBlockMath, openMathPopup]);
 
-              tr.scrollIntoView();
-              return true;
-            })
-            .run();
+  const handleAddInlineMath = useCallback(() => {
+    const currentEditor = editorRef.current;
+    if (!currentEditor) return;
 
-          if (inserted) {
-            closeBlockMathPopup();
+    closeMathPopup();
+    if (linkPopupRef.current) {
+      linkPopupRef.current.destroy();
+      linkPopupRef.current = null;
+    }
+
+    const { selection, doc } = currentEditor.state;
+    const { from, to, empty, $from } = selection;
+
+    if (
+      selection instanceof NodeSelection &&
+      selection.node.type.name === "inlineMath"
+    ) {
+      handleEditInlineMath(from);
+      return;
+    }
+
+    if (!empty) {
+      const selectedNode = doc.nodeAt(from);
+      if (
+        selectedNode?.type.name === "inlineMath" &&
+        from + selectedNode.nodeSize === to
+      ) {
+        handleEditInlineMath(from);
+        return;
+      }
+    }
+
+    if (empty) {
+      const nodeBefore = $from.nodeBefore;
+      if (nodeBefore?.type.name === "inlineMath") {
+        handleEditInlineMath(from - nodeBefore.nodeSize);
+        return;
+      }
+      const nodeAfter = $from.nodeAfter;
+      if (nodeAfter?.type.name === "inlineMath") {
+        handleEditInlineMath(from);
+        return;
+      }
+    }
+
+    const selectedText = empty ? "" : doc.textBetween(from, to, "\n");
+    const initialLatex = normalizeInlineMath(selectedText);
+    const targetRange = { from, to };
+    const hasSelection = from !== to;
+
+    const anchorRect = {
+      getBoundingClientRect: () => {
+        if (hasSelection) {
+          const startPos = currentEditor.view.domAtPos(from);
+          const endPos = currentEditor.view.domAtPos(to);
+
+          if (startPos && endPos) {
+            try {
+              const range = document.createRange();
+              range.setStart(startPos.node, startPos.offset);
+              range.setEnd(endPos.node, endPos.offset);
+              return range.getBoundingClientRect();
+            } catch (error) {
+              console.error("Inline math range creation failed:", error);
+            }
           }
-        },
-        onCancel: () => {
-          currentEditor.commands.focus();
-          closeBlockMathPopup();
-        },
-      },
-      editor: currentEditor,
-    });
+        }
 
-    blockMathPopupRef.current = tippy(document.body, {
-      getReferenceClientRect: () =>
-        virtualElement.getBoundingClientRect() as DOMRect,
-      appendTo: () => document.body,
-      content: component.element,
-      showOnCreate: true,
-      interactive: true,
-      trigger: "manual",
-      placement: "bottom-start",
-      offset: [0, 8],
-      onDestroy: () => {
-        component.destroy();
+        const coords = currentEditor.view.coordsAtPos(from);
+        return {
+          width: 2,
+          height: 20,
+          top: coords.top,
+          left: coords.left,
+          right: coords.right,
+          bottom: coords.bottom,
+          x: coords.left,
+          y: coords.top,
+          toJSON: () => ({}),
+        } as DOMRect;
       },
-    });
-  }, [closeBlockMathPopup, handleEditBlockMath]);
+    };
+
+    openMathPopup(
+      currentEditor,
+      anchorRect.getBoundingClientRect() as DOMRect,
+      initialLatex,
+      (latex: string) => {
+        const normalizedLatex = latex.trim();
+        if (!normalizedLatex) {
+          toast.error("Please enter a formula.");
+          return;
+        }
+
+        currentEditor
+          .chain()
+          .focus()
+          .insertContentAt(targetRange, {
+            type: "inlineMath",
+            attrs: { latex: normalizedLatex },
+          })
+          .setTextSelection(targetRange.from + 1)
+          .run();
+        closeMathPopup();
+      },
+      () => {
+        currentEditor.commands.focus();
+        closeMathPopup();
+      },
+    );
+  }, [closeMathPopup, handleEditInlineMath, openMathPopup]);
 
   const editor = useEditor({
     textDirection,
@@ -1127,6 +1295,16 @@ export function Editor({
         },
         onClick: (_node, pos) => {
           handleEditBlockMath(pos);
+        },
+      }),
+      ScratchInlineMath.configure({
+        katexOptions: {
+          throwOnError: false,
+          displayMode: false,
+          macros: katexMacros,
+        },
+        onClick: (_node, pos) => {
+          handleEditInlineMath(pos);
         },
       }),
     ],
@@ -1224,7 +1402,7 @@ export function Editor({
 
         // Check if text looks like markdown (has common markdown patterns)
         const markdownPatterns =
-          /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|```|^\s*\[.*\]\(.*\)|^\s*!\[|\*\*.*\*\*|__.*__|~~.*~~|^\s*[-*_]{3,}\s*$|^\|.+\||\$\$[\s\S]+?\$\$/m;
+          /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|```|^\s*\[.*\]\(.*\)|^\s*!\[|\*\*.*\*\*|__.*__|~~.*~~|^\s*[-*_]{3,}\s*$|\|.+\||\$\$[\s\S]+?\$\$|(^|[^\w$])\$(?!\d)([^$\n]+?)\$(?!\$)/m;
         if (!markdownPatterns.test(text)) {
           // Not markdown, let TipTap handle it normally
           return false;
@@ -1598,8 +1776,8 @@ export function Editor({
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
       }
-      if (blockMathPopupRef.current) {
-        blockMathPopupRef.current.destroy();
+      if (mathPopupRef.current) {
+        mathPopupRef.current.destroy();
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1609,8 +1787,8 @@ export function Editor({
   const handleAddLink = useCallback(() => {
     if (!editor) return;
 
-    // Close block math popup if open (popups are mutually exclusive)
-    closeBlockMathPopup();
+    // Close math popup if open (popups are mutually exclusive)
+    closeMathPopup();
 
     // Destroy existing popup if any
     if (linkPopupRef.current) {
@@ -1730,7 +1908,7 @@ export function Editor({
         component.destroy();
       },
     });
-  }, [editor, closeBlockMathPopup]);
+  }, [editor, closeMathPopup]);
 
   // Image handler
   const handleAddImage = useCallback(async () => {
@@ -1780,6 +1958,14 @@ export function Editor({
     return () =>
       window.removeEventListener("slash-command-block-math", handler);
   }, [handleAddBlockMath]);
+
+  // Listen for slash command inline math insertion
+  useEffect(() => {
+    const handler = () => handleAddInlineMath();
+    window.addEventListener("slash-command-inline-math", handler);
+    return () =>
+      window.removeEventListener("slash-command-inline-math", handler);
+  }, [handleAddInlineMath]);
 
   // Keyboard shortcut for Cmd+K to add link (only when editor is focused)
   useEffect(() => {

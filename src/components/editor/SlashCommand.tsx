@@ -144,6 +144,16 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
     },
   },
   {
+    title: "Inline Math",
+    description: "Inline math expression",
+    icon: <BlockMathIcon />,
+    aliases: ["inline math", "latex"],
+    command: (editor) => {
+      editor.chain().focus().run();
+      window.dispatchEvent(new CustomEvent("slash-command-inline-math"));
+    },
+  },
+  {
     title: "Horizontal Rule",
     description: "Visual divider",
     icon: <SeparatorIcon />,

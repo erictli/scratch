@@ -550,6 +550,25 @@ fn strip_markdown(text: &str) -> String {
         }
     }
 
+    // Remove block math ($$...$$) and inline math ($...$), but only if not starting with a digit (to avoid stripping prices like $19.99)
+    let block_math_re = regex::Regex::new(r"\$\$([\s\S]+?)\$\$").unwrap();
+    result = block_math_re.replace_all(&result, "$1").to_string();
+    let inline_math_re = regex::Regex::new(r"(^|[^\w$])\$([^\$\n]+)\$").unwrap();
+    result = inline_math_re
+        .replace_all(&result, |caps: &regex::Captures<'_>| {
+            let latex = &caps[2];
+            if latex
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_digit())
+            {
+                caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
+            } else {
+                format!("{}{}", &caps[1], latex)
+            }
+        })
+        .to_string();
+
     // Remove images ![alt](url) - must come before links
     let img_re = regex::Regex::new(r"!\[([^\]]*)\]\([^)]+\)").unwrap();
     result = img_re.replace_all(&result, "$1").to_string();
