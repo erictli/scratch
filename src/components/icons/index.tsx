@@ -1530,10 +1530,13 @@ export function ReplaceIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M14 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9" />
-      <path d="M21 3l-7 7" />
-      <path d="M21 3h-5" />
-      <path d="M21 3v5" />
+      <path d="M14 4a1 1 0 0 1 1-1" />
+      <path d="M15 10a1 1 0 0 1-1-1" />
+      <path d="M21 4a1 1 0 0 0-1-1" />
+      <path d="M21 9a1 1 0 0 1-1 1" />
+      <path d="m3 7 3 3 3-3" />
+      <path d="M6 10V5a2 2 0 0 1 2-2h2" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
     </svg>
   );
 }
@@ -1549,13 +1552,15 @@ export function ReplaceAllIcon({ className = "w-4.5 h-4.5" }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M14 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9" />
-      <path d="M21 3l-7 7" />
-      <path d="M21 3h-5" />
-      <path d="M21 3v5" />
-      <path d="M7 14h6" />
-      <path d="M7 10h4" />
+      <path d="M14 14a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1" />
+      <path d="M14 4a1 1 0 0 1 1-1" />
+      <path d="M15 10a1 1 0 0 1-1-1" />
+      <path d="M19 14a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1" />
+      <path d="M21 4a1 1 0 0 0-1-1" />
+      <path d="M21 9a1 1 0 0 1-1 1" />
+      <path d="m3 7 3 3 3-3" />
+      <path d="M6 10V5a2 2 0 0 1 2-2h2" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
     </svg>
   );
 }
-
