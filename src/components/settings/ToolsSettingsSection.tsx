@@ -1,7 +1,7 @@
 import { useState, useEffect, useReducer } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import { Button } from "../ui";
+import { Button, Select } from "../ui";
 import {
   SpinnerIcon,
   CheckIcon,
@@ -15,6 +15,8 @@ import * as aiService from "../../services/ai";
 import { mod } from "../../lib/platform";
 import * as cliService from "../../services/cli";
 import type { CliStatus } from "../../services/cli";
+import type { Settings } from "../../types/note";
+import { QuickActionsEditor } from "./QuickActionsEditor";
 
 type CliState = {
   status: CliStatus | null;
@@ -68,27 +70,37 @@ const AI_PROVIDER_INFO: Record<
   AiProvider,
   {
     name: string;
+    vendor: string;
+    blurb: string;
     icon: React.ComponentType<{ className?: string }>;
     installUrl: string;
   }
 > = {
   claude: {
     name: "Claude Code",
+    vendor: "Anthropic",
+    blurb: "Anthropic's coding agent in your terminal.",
     icon: ClaudeIcon,
     installUrl: "https://code.claude.com/docs/en/quickstart",
   },
   codex: {
     name: "OpenAI Codex",
+    vendor: "OpenAI",
+    blurb: "OpenAI's coding agent in your terminal.",
     icon: CodexIcon,
     installUrl: "https://github.com/openai/codex",
   },
   opencode: {
     name: "OpenCode",
+    vendor: "opencode.ai",
+    blurb: "Open-source terminal coding agent.",
     icon: OpenCodeIcon,
     installUrl: "https://opencode.ai",
   },
   ollama: {
     name: "Ollama",
+    vendor: "Local",
+    blurb: "Run open models locally, fully offline.",
     icon: OllamaIcon,
     installUrl: "https://ollama.com",
   },
@@ -98,6 +110,13 @@ export function ToolsSettingsSection() {
   const [cli, dispatchCli] = useReducer(cliReducer, cliInitialState);
   const [aiProviders, setAiProviders] = useState<AiProvider[]>([]);
   const [aiProvidersLoading, setAiProvidersLoading] = useState(true);
+  const [defaultProvider, setDefaultProvider] = useState<AiProvider | null>(
+    null,
+  );
+  const [ollamaModel, setOllamaModel] = useState("qwen3:8b");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [opencodeModel, setOpencodeModel] = useState("");
+  const [opencodeModels, setOpencodeModels] = useState<string[]>([]);
 
   useEffect(() => {
     cliService
@@ -116,6 +135,60 @@ export function ToolsSettingsSection() {
       .catch(() => setAiProviders([]))
       .finally(() => setAiProvidersLoading(false));
   }, []);
+
+  useEffect(() => {
+    invoke<Settings>("get_settings")
+      .then((s) => {
+        setDefaultProvider(s.defaultAiProvider ?? null);
+        setOllamaModel(s.ollamaModel || "qwen3:8b");
+        setOpencodeModel(s.opencodeModel || "");
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    aiService
+      .listOllamaModels()
+      .then(setOllamaModels)
+      .catch(() => setOllamaModels([]));
+    aiService
+      .listOpencodeModels()
+      .then(setOpencodeModels)
+      .catch(() => setOpencodeModels([]));
+  }, []);
+
+  const handleSetDefault = (provider: AiProvider) => {
+    setDefaultProvider(provider);
+    invoke<Settings>("get_settings")
+      .then((s) =>
+        invoke("update_settings", {
+          newSettings: { ...s, defaultAiProvider: provider },
+        }),
+      )
+      .catch(() => {});
+  };
+
+  const handleSetOllamaModel = (model: string) => {
+    setOllamaModel(model);
+    invoke<Settings>("get_settings")
+      .then((s) =>
+        invoke("update_settings", {
+          newSettings: { ...s, ollamaModel: model },
+        }),
+      )
+      .catch(() => {});
+  };
+
+  const handleSetOpencodeModel = (model: string) => {
+    setOpencodeModel(model);
+    invoke<Settings>("get_settings")
+      .then((s) =>
+        invoke("update_settings", {
+          newSettings: { ...s, opencodeModel: model },
+        }),
+      )
+      .catch(() => {});
+  };
 
   const handleInstallCli = async () => {
     dispatchCli({ type: "operating" });
@@ -155,8 +228,8 @@ export function ToolsSettingsSection() {
       <section className="pb-2">
         <h2 className="text-xl font-medium mb-0.5">AI Providers</h2>
         <p className="text-sm text-text-muted mb-4">
-          Edit notes with AI from the command palette ({mod}P while editing a
-          note)
+          Pick a provider to make it your default for AI editing ({mod}P in a
+          note, or on a selection). Each one keeps its own model.
         </p>
 
         {aiProvidersLoading ? (
@@ -167,41 +240,150 @@ export function ToolsSettingsSection() {
             </span>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-3">
             {AI_PROVIDER_ORDER.map((provider) => {
               const installed = aiProviders.includes(provider);
               const info = AI_PROVIDER_INFO[provider];
-              return (
-                <div
-                  key={provider}
-                  className="flex items-center justify-between p-3 rounded-[10px] border border-border"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <info.icon className="w-4.5 h-4.5 text-text-muted" />
-                    <span className="text-sm font-medium">{info.name}</span>
-                  </div>
-                  {installed ? (
-                    <span className="flex items-center gap-1.25 text-sm text-text-muted">
-                      Installed
-                      <span className="h-4.5 w-4.5 bg-bg-emphasis rounded-full flex items-center justify-center">
-                        <CheckIcon className="w-3 h-3 stroke-[2.2]" />
+
+              if (!installed) {
+                return (
+                  <div
+                    key={provider}
+                    className="flex flex-col gap-3 p-4 rounded-xl border border-dashed border-border bg-bg-secondary min-h-33"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-9 h-9 rounded-[10px] grid place-items-center bg-bg-muted text-text-muted shrink-0">
+                        <info.icon className="w-5 h-5" />
                       </span>
-                    </span>
-                  ) : (
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-semibold truncate">
+                          {info.name}
+                        </span>
+                        <span className="text-xs text-text-muted">
+                          {info.vendor}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-text-muted flex-1 m-0">
+                      {info.blurb}
+                    </p>
                     <a
                       href={info.installUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm text-text font-medium hover:text-text-muted transition-colors cursor-pointer"
+                      className="self-start text-xs font-medium px-3 py-1.5 rounded-lg border border-border hover:bg-bg-muted transition-colors"
                     >
                       Install
                     </a>
-                  )}
+                  </div>
+                );
+              }
+
+              const isDefault =
+                (defaultProvider ?? aiProviders[0]) === provider;
+              const modelSel =
+                provider === "ollama"
+                  ? {
+                      value: ollamaModel,
+                      options: ollamaModels,
+                      onChange: handleSetOllamaModel,
+                    }
+                  : provider === "opencode"
+                    ? {
+                        value: opencodeModel,
+                        options: opencodeModels,
+                        onChange: handleSetOpencodeModel,
+                      }
+                    : null;
+
+              return (
+                <div
+                  key={provider}
+                  onClick={() => handleSetDefault(provider)}
+                  className={`flex flex-col gap-3 p-4 rounded-xl border cursor-pointer transition-all min-h-33 ${
+                    isDefault
+                      ? "border-text/30 bg-bg-muted shadow-lg"
+                      : "border-border hover:border-text-muted/50"
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-10 h-10 rounded-[11px] grid place-items-center bg-bg border border-border text-text-muted shrink-0">
+                      <info.icon className="w-5.5 h-5.5" />
+                    </span>
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <span className="text-sm font-semibold truncate">
+                        {info.name}
+                      </span>
+                      <span className="text-xs text-text-muted">
+                        {info.vendor}
+                      </span>
+                    </div>
+                    <span
+                      className={`w-5.5 h-5.5 rounded-full grid place-items-center shrink-0 transition-all ${
+                        isDefault
+                          ? "bg-text text-text-inverse"
+                          : "border-[1.5px] border-border"
+                      }`}
+                    >
+                      {isDefault && (
+                        <CheckIcon className="w-3 h-3 stroke-[2.5]" />
+                      )}
+                    </span>
+                  </div>
+                  <div className="mt-auto flex items-center justify-between gap-2">
+                    {modelSel ? (
+                      <>
+                        <span className="text-2xs font-semibold uppercase tracking-wide text-text-muted shrink-0">
+                          Model
+                        </span>
+                        <div
+                          className="flex-1 min-w-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Select
+                            value={modelSel.value}
+                            onChange={(e) =>
+                              modelSel.onChange(e.target.value)
+                            }
+                          >
+                            {!modelSel.value && (
+                              <option value="">Default model</option>
+                            )}
+                            {Array.from(
+                              new Set(
+                                [modelSel.value, ...modelSel.options].filter(
+                                  Boolean,
+                                ),
+                              ),
+                            ).map((m) => (
+                              <option key={m} value={m}>
+                                {m}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-xs text-text-muted">
+                        Model set in the CLI
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
+      </section>
+
+      {/* AI quick actions */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-0.5">Quick actions</h2>
+        <p className="text-sm text-text-muted mb-4">
+          One-click presets shown when editing a selection with AI.
+        </p>
+
+        <QuickActionsEditor />
       </section>
 
       {/* CLI Tool (macOS only) */}
