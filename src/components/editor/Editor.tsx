@@ -118,10 +118,11 @@ function serializeSliceToMarkdown(
   if (!manager) return null;
 
   try {
-    return manager.serialize({
+    const markdown = manager.serialize({
       type: "doc",
       content: slice.content.toJSON(),
     });
+    return markdown.replace(/&nbsp;|&#160;/g, " ");
   } catch {
     return null;
   }
