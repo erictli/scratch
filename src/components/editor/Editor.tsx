@@ -71,6 +71,7 @@ import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
+import { isCodeOnlySlice } from "../../lib/clipboard";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
@@ -1138,13 +1139,15 @@ export function Editor({
         autocorrect: "on",
         autocapitalize: "sentences",
       },
-      // Serialize copied text as markdown instead of plain text
+      // Preserve markdown formatting, except when copying only code.
       clipboardTextSerializer: (slice) => {
         const fallback = slice.content.textBetween(
           0,
           slice.content.size,
           "\n\n",
         );
+        if (isCodeOnlySlice(slice)) return fallback;
+
         const currentEditor = editorRef.current;
         const manager = currentEditor?.storage.markdown?.manager;
         if (!currentEditor || !manager) return fallback;
