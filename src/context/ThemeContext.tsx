@@ -79,6 +79,24 @@ const defaultThemeColors: Record<"light" | "dark", Record<ThemeColorKey, string>
 
 export { defaultThemeColors };
 
+// A curated color preset users can apply on top of the light theme, based on
+// Monkeytype's "Repose Light" theme. bg-muted/bg-emphasis/border are derived
+// from the theme's text color at the same opacities the default theme uses;
+// selection reuses the default light theme's highlight color for consistency.
+const reposeLightColors: Record<ThemeColorKey, string> = {
+  bg: "#efead0",
+  "bg-secondary": "#dbd6c4",
+  "bg-muted": "rgba(51, 53, 56, 0.06)",
+  "bg-emphasis": "rgba(51, 53, 56, 0.09)",
+  text: "#333538",
+  "text-muted": "#8f8e84",
+  border: "rgba(51, 53, 56, 0.08)",
+  accent: "#5f605e",
+  selection: "rgba(250, 204, 21, 0.4)",
+};
+
+export { reposeLightColors };
+
 // Normalize any CSS color string (hex, rgb(), rgba(), hsl(), named) to an RGB
 // triple by letting the browser parse it via getComputedStyle.
 function parseCssColorToRgb(value: string): [number, number, number] | null {

@@ -1,6 +1,7 @@
 import {
   useTheme,
   defaultThemeColors,
+  reposeLightColors,
   fontFamilyMap,
 } from "../../context/ThemeContext";
 import { Button, CodeCopyButton, IconButton, Input, Select } from "../ui";
@@ -492,19 +493,34 @@ function ColorsExpandable({
       <summary className="cursor-pointer text-text-muted hover:text-text select-none flex items-center gap-1 font-medium">
         <ChevronRightIcon className="w-3.5 h-3.5 stroke-2 transition-transform [[open]>&]:rotate-90" />
         {label}
-        {hasAnyCustom && (
-          <Button
-            onClick={(e) => {
-              e.preventDefault();
-              resetAllCustomColors(mode);
-            }}
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
-          >
-            Reset all
-          </Button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {mode === "light" && (
+            <Button
+              onClick={(e) => {
+                e.preventDefault();
+                for (const [key, value] of Object.entries(reposeLightColors)) {
+                  setCustomColor(mode, key as ThemeColorKey, value);
+                }
+              }}
+              variant="ghost"
+              size="sm"
+            >
+              Apply Repose Light
+            </Button>
+          )}
+          {hasAnyCustom && (
+            <Button
+              onClick={(e) => {
+                e.preventDefault();
+                resetAllCustomColors(mode);
+              }}
+              variant="ghost"
+              size="sm"
+            >
+              Reset all
+            </Button>
+          )}
+        </div>
       </summary>
       <div className="mt-2 rounded-[10px] border border-border pl-4 py-3 pr-3 space-y-1.5">
         {(() => {
