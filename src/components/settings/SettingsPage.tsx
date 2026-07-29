@@ -13,7 +13,7 @@ import { AppearanceSettingsSection } from "./EditorSettingsSection";
 import { ShortcutsSettingsSection } from "./ShortcutsSettingsSection";
 import { AboutSettingsSection } from "./AboutSettingsSection";
 import { ToolsSettingsSection } from "./ToolsSettingsSection";
-import { mod, isMac } from "../../lib/platform";
+import { mod, isMac, isWindows } from "../../lib/platform";
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -77,10 +77,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       {/* Sidebar - matches main Notes sidebar */}
       <div className="w-64 h-full bg-bg-secondary border-r border-border flex flex-col select-none">
         {/* Drag region */}
-        <div className="h-11 shrink-0" data-tauri-drag-region></div>
+        {!isWindows && <div className="h-11 shrink-0" data-tauri-drag-region></div>}
 
         {/* Header with back button and Settings title */}
-        <div className="flex items-center justify-between px-3 pb-2 border-b border-border shrink-0">
+        <div className={`flex items-center justify-between px-3 pb-2 border-b border-border shrink-0${isWindows ? " pt-2" : ""}`}>
           <div className="flex items-center gap-1">
             <IconButton
               onClick={onBack}
@@ -122,14 +122,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       {/* Main content area */}
       <div className="flex-1 flex flex-col bg-bg overflow-hidden">
         {/* Drag region */}
-        <div className="h-11 shrink-0" data-tauri-drag-region></div>
+        {!isWindows && <div className="h-11 shrink-0" data-tauri-drag-region></div>}
 
         {/* Content - centered with max width */}
         <div
           ref={scrollContainerRef}
           className="flex-1 overflow-auto scrollbar-gutter-stable"
         >
-          <div className="w-full max-w-3xl mx-auto px-6 pb-6">
+          <div className={`w-full max-w-3xl mx-auto px-6 pb-6${isWindows ? " pt-2" : ""}`}>
             {activeTab === "general" && <GeneralSettingsSection />}
             {activeTab === "tools" && <ToolsSettingsSection />}
             {activeTab === "editor" && <AppearanceSettingsSection />}

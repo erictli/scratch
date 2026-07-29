@@ -55,6 +55,7 @@ export interface Settings {
   textDirection?: TextDirection;
   editorWidth?: EditorWidth;
   customEditorWidthPx?: number;
+  sidebarWidthPx?: number;
   defaultNoteName?: string;
   interfaceZoom?: number;
   ollamaModel?: string;

@@ -38,7 +38,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
-import { mod, alt, shift, isMac } from "../../lib/platform";
+import { mod, alt, shift, isMac, isWindows } from "../../lib/platform";
 
 // Prepend https:// if no protocol is present
 function normalizeUrl(url: string): string {
@@ -586,6 +586,8 @@ export function Editor({
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [replaceQuery, setReplaceQuery] = useState("");
+  const [isReplaceOpen, setIsReplaceOpen] = useState(false);
   const [searchMatches, setSearchMatches] = useState<
     Array<{ from: number; to: number }>
   >([]);
@@ -1142,6 +1144,9 @@ export function Editor({
       attributes: {
         class:
           "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
+        spellcheck: "true",
+        autocorrect: "on",
+        autocapitalize: "sentences",
       },
       // Serialize copied text as markdown instead of plain text
       clipboardTextSerializer: (slice) => {
@@ -1314,6 +1319,55 @@ export function Editor({
   const handleSearchChange = useCallback((query: string) => {
     setSearchQuery(query);
   }, []);
+
+  const replaceCurrent = useCallback((replaceText: string) => {
+    if (!editor || !searchQuery.trim()) return;
+
+    // Recompute from current doc state to avoid stale debounced matches.
+    const currentMatches = findMatches(searchQuery, editor);
+    if (currentMatches.length === 0) return;
+
+    const safeIndex = Math.min(currentMatchIndex, currentMatches.length - 1);
+    const match = currentMatches[safeIndex];
+    if (!match) return;
+
+    editor.view.dispatch(
+      editor.state.tr.insertText(replaceText, match.from, match.to)
+    );
+
+    const newMatches = findMatches(searchQuery, editor);
+    setSearchMatches(newMatches);
+
+    if (newMatches.length > 0) {
+      // Move to the first match after the replaced range.
+      const nextPos = match.from + replaceText.length;
+      const nextIndex = newMatches.findIndex((m) => m.from >= nextPos);
+      const resolvedIndex = nextIndex === -1 ? 0 : nextIndex;
+      setCurrentMatchIndex(resolvedIndex);
+      updateSearchDecorations(newMatches, resolvedIndex, editor);
+    } else {
+      setCurrentMatchIndex(0);
+      updateSearchDecorations([], 0, editor);
+    }
+  }, [editor, searchQuery, currentMatchIndex, findMatches, updateSearchDecorations]);
+
+  const replaceAll = useCallback((replaceText: string) => {
+    if (!editor || !searchQuery) return;
+    const currentMatches = findMatches(searchQuery, editor);
+    if (currentMatches.length === 0) return;
+
+    const tr = editor.state.tr;
+    for (let i = currentMatches.length - 1; i >= 0; i--) {
+      const match = currentMatches[i];
+      tr.insertText(replaceText, match.from, match.to);
+    }
+    editor.view.dispatch(tr);
+
+    const newMatches = findMatches(searchQuery, editor);
+    setSearchMatches(newMatches);
+    setCurrentMatchIndex(0);
+    updateSearchDecorations(newMatches, 0, editor);
+  }, [editor, searchQuery, findMatches, updateSearchDecorations]);
 
   // Debounced search effect
   useEffect(() => {
@@ -1814,23 +1868,32 @@ export function Editor({
     });
   }, []);
 
-  // Cmd+F to open search (works when document/editor area is focused)
+  // Cmd/Ctrl+F to open search, ⌥⌘F (macOS) / Ctrl+H to open replace
+  // (works when document/editor area is focused)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
+      const openFind =
         (e.metaKey || e.ctrlKey) &&
         !e.shiftKey &&
-        e.key.toLowerCase() === "f"
-      ) {
+        !e.altKey &&
+        e.key.toLowerCase() === "f";
+      // Cmd+H is reserved by macOS (Hide), so replace uses the platform
+      // convention: ⌥⌘F on macOS, Ctrl+H elsewhere. e.code is checked on
+      // macOS because ⌥ changes e.key to a special character ("ƒ").
+      const openReplace = isMac
+        ? e.metaKey && e.altKey && !e.shiftKey && e.code === "KeyF"
+        : e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "h";
+      if (openFind || openReplace) {
         if (!currentNote || !editor || isPlainTextNote) return;
 
         const target = e.target as HTMLElement;
         const tagName = target.tagName.toLowerCase();
 
-        // Don't intercept if user is in an input/textarea (except the editor itself)
+        // Don't intercept if user is in an input/textarea (except the editor itself or search toolbar)
         if (
           (tagName === "input" || tagName === "textarea") &&
-          !target.closest(".ProseMirror")
+          !target.closest(".ProseMirror") &&
+          !target.closest(".search-toolbar-container")
         ) {
           return;
         }
@@ -1842,6 +1905,9 @@ export function Editor({
 
         // Open search for the editor
         e.preventDefault();
+        if (openReplace) {
+          setIsReplaceOpen(true);
+        }
         openEditorSearch();
       }
     };
@@ -1854,6 +1920,8 @@ export function Editor({
     if (currentNote?.id) {
       setSearchOpen(false);
       setSearchQuery("");
+      setReplaceQuery("");
+      setIsReplaceOpen(false);
       setSearchMatches([]);
       setCurrentMatchIndex(0);
       // Clear decorations
@@ -2148,10 +2216,12 @@ export function Editor({
     if (previewMode) {
       return (
         <div className="flex-1 flex flex-col bg-bg">
-          <div
-            className="h-10 shrink-0 flex items-end px-4 pb-1"
-            data-tauri-drag-region
-          ></div>
+          {!isWindows && (
+            <div
+              className="h-10 shrink-0 flex items-end px-4 pb-1"
+              data-tauri-drag-region
+            ></div>
+          )}
           <div className="flex-1 flex items-center justify-center">
             <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
           </div>
@@ -2163,10 +2233,12 @@ export function Editor({
     if (notesCtx?.selectedNoteId) {
       return (
         <div className="flex-1 flex flex-col bg-bg">
-          <div
-            className="h-10 shrink-0 flex items-end px-4 pb-1"
-            data-tauri-drag-region
-          ></div>
+          {!isWindows && (
+            <div
+              className="h-10 shrink-0 flex items-end px-4 pb-1"
+              data-tauri-drag-region
+            ></div>
+          )}
           <div className="flex-1 flex items-center justify-center">
             <SpinnerIcon className="w-6 h-6 text-text-muted animate-spin" />
           </div>
@@ -2178,10 +2250,12 @@ export function Editor({
     return (
       <div className="flex-1 flex flex-col bg-bg">
         {/* Drag region */}
-        <div
-          className="h-10 shrink-0 flex items-end px-4 pb-1"
-          data-tauri-drag-region
-        ></div>
+        {!isWindows && (
+          <div
+            className="h-10 shrink-0 flex items-end px-4 pb-1"
+            data-tauri-drag-region
+          ></div>
+        )}
         <div className="flex-1 flex items-center justify-center pb-8">
           <div className="text-center text-text-muted select-none">
             <div
@@ -2232,7 +2306,7 @@ export function Editor({
       <div
         className={cn(
           "h-11 shrink-0 flex items-center justify-between px-3",
-          !isSidebarActive && "pl-22",
+          !isSidebarActive && !isWindows && "pl-22",
         )}
         data-tauri-drag-region
       >
@@ -2515,6 +2589,8 @@ export function Editor({
                       onClose={() => {
                         setSearchOpen(false);
                         setSearchQuery("");
+                        setReplaceQuery("");
+                        setIsReplaceOpen(false);
                         setSearchMatches([]);
                         setCurrentMatchIndex(0);
                         // Clear decorations and refocus editor
@@ -2527,6 +2603,12 @@ export function Editor({
                         searchMatches.length === 0 ? 0 : currentMatchIndex + 1
                       }
                       totalMatches={searchMatches.length}
+                      replaceQuery={replaceQuery}
+                      onReplaceChange={setReplaceQuery}
+                      onReplace={() => replaceCurrent(replaceQuery)}
+                      onReplaceAll={() => replaceAll(replaceQuery)}
+                      isReplaceOpen={isReplaceOpen}
+                      onToggleReplace={() => setIsReplaceOpen(!isReplaceOpen)}
                     />
                   </div>
                 </div>

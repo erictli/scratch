@@ -124,6 +124,9 @@ pub struct Settings {
     pub interface_zoom: Option<f32>,
     #[serde(rename = "customEditorWidthPx")]
     pub custom_editor_width_px: Option<u32>,
+    /// Custom sidebar width in px; `None` means the default width is used.
+    #[serde(rename = "sidebarWidthPx")]
+    pub sidebar_width_px: Option<u32>,
     #[serde(rename = "ollamaModel")]
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]
@@ -4028,8 +4031,36 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
     opened_preview
 }
 
+// On macOS, WKWebView reads per-app preferences from NSUserDefaults to decide
+// whether to show the spelling underline and apply auto-correct in contenteditable
+// regions. These keys default to off for new bundle IDs, which is why a fresh
+// Tauri app gets neither the red underline nor auto-replace even when the HTML
+// `spellcheck`/`autocorrect` attributes are set. Seed missing WebKit preferences
+// before the webview is constructed; existing user-toggled values still win.
+#[cfg(target_os = "macos")]
+fn enable_webview_spellcheck_defaults() {
+    use objc2_foundation::{NSString, NSUserDefaults};
+
+    let keys = [
+        "WebContinuousSpellCheckingEnabled",
+        "WebGrammarCheckingEnabled",
+        "WebAutomaticSpellingCorrectionEnabled",
+    ];
+
+    let defaults = NSUserDefaults::standardUserDefaults();
+    for key in keys {
+        let key = NSString::from_str(key);
+        if defaults.objectForKey(&key).is_none() {
+            defaults.setBool_forKey(true, &key);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    enable_webview_spellcheck_defaults();
+
     let app = tauri::Builder::default()
         // Single-instance: forward CLI args from subsequent launches to the running instance
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
