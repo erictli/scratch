@@ -133,6 +133,7 @@ interface ListItemProps {
   title: string;
   subtitle?: string;
   meta?: string;
+  icon?: ReactNode;
   isSelected?: boolean;
   isPinned?: boolean;
   onClick?: () => void;
@@ -143,6 +144,7 @@ export function ListItem({
   title,
   subtitle,
   meta,
+  icon,
   isSelected = false,
   isPinned = false,
   onClick,
@@ -174,6 +176,7 @@ export function ListItem({
           {isPinned && (
             <PinIcon className="w-4.25 h-4.25 stroke-[1.6] fill-current text-text-muted shrink-0" />
           )}
+          {icon}
           <span className={cn("text-sm font-medium truncate text-text")}>
             {title}
           </span>

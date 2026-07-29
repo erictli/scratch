@@ -33,9 +33,16 @@ import {
   PinIcon,
   CopyIcon,
   ArrowUpIcon,
+  ExternalLinkIcon,
 } from "../icons";
 import * as notesService from "../../services/notes";
-import type { FolderNode, NoteMetadata, Settings } from "../../types/note";
+import { FileTypeIcon } from "./FileTypeIcon";
+import type {
+  AttachmentMetadata,
+  FolderNode,
+  NoteMetadata,
+  Settings,
+} from "../../types/note";
 
 const STORAGE_KEY = "scratch:collapsedFolders";
 
@@ -247,15 +254,91 @@ const FileItem = memo(function FileItem({
   );
 });
 
+interface AttachmentFileItemProps {
+  attachment: AttachmentMetadata;
+  depth: number;
+  isSelected: boolean;
+  onAttachmentClick: (attachment: AttachmentMetadata) => void;
+  focusedItemKey?: string | null;
+}
+
+const AttachmentFileItem = memo(function AttachmentFileItem({
+  attachment,
+  depth,
+  isSelected,
+  onAttachmentClick,
+  focusedItemKey,
+}: AttachmentFileItemProps) {
+  const itemRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isSelected) {
+      itemRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [isSelected]);
+
+  const handleCopyFilepath = useCallback(async () => {
+    try {
+      await invoke("copy_to_clipboard", { text: attachment.path });
+    } catch (error) {
+      console.error("Failed to copy filepath:", error);
+    }
+  }, [attachment.path]);
+
+  const handleReveal = useCallback(async () => {
+    try {
+      await invoke("open_in_file_manager", { path: attachment.path });
+    } catch (error) {
+      console.error("Failed to reveal file:", error);
+    }
+  }, [attachment.path]);
+
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <div
+          ref={itemRef}
+          className={`flex items-center gap-1.5 py-1.5 cursor-pointer rounded-md select-none transition-colors ${
+            isSelected && (!focusedItemKey || focusedItemKey === `attachment:${attachment.id}`)
+              ? "bg-bg-muted group-focus/notelist:ring-1 group-focus/notelist:ring-text-muted"
+              : "hover:bg-bg-muted"
+          }`}
+          style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: "8px" }}
+          onClick={() => onAttachmentClick(attachment)}
+          role="button"
+          tabIndex={-1}
+        >
+          <FileTypeIcon kind={attachment.kind} />
+          <span className="text-sm text-text truncate">{attachment.name}</span>
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content className="min-w-44 bg-bg border border-border rounded-md shadow-lg py-1 z-50">
+          <ContextMenu.Item className={menuItemClass} onSelect={handleCopyFilepath}>
+            <CopyIcon className="w-4 h-4 stroke-[1.6]" />
+            Copy Filepath
+          </ContextMenu.Item>
+          <ContextMenu.Item className={menuItemClass} onSelect={handleReveal}>
+            <ExternalLinkIcon className="w-4 h-4 stroke-[1.6]" />
+            Reveal in File Manager
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
+  );
+});
+
 interface FolderItemProps {
   folder: FolderNode;
   depth: number;
   collapsedFolders: Set<string>;
   onToggleCollapse: (path: string) => void;
   selectedNoteId: string | null;
+  selectedAttachmentId: string | null;
   pinnedIds: Set<string>;
   multiSelectedNoteIds: Set<string>;
   onNoteClick: (id: string, event: React.MouseEvent) => void;
+  onAttachmentClick: (attachment: AttachmentMetadata) => void;
   focusedItemKey: string | null;
   onCreateNoteHere: (path: string) => void;
   onNewSubfolder: (parentPath: string) => void;
@@ -275,9 +358,11 @@ const FolderItemComponent = memo(function FolderItem({
   collapsedFolders,
   onToggleCollapse,
   selectedNoteId,
+  selectedAttachmentId,
   pinnedIds,
   multiSelectedNoteIds,
   onNoteClick,
+  onAttachmentClick,
   focusedItemKey,
   onCreateNoteHere,
   onNewSubfolder,
@@ -357,10 +442,12 @@ const FolderItemComponent = memo(function FolderItem({
                   collapsedFolders={collapsedFolders}
                   onToggleCollapse={onToggleCollapse}
                   selectedNoteId={selectedNoteId}
+                  selectedAttachmentId={selectedAttachmentId}
                   focusedItemKey={focusedItemKey}
                   pinnedIds={pinnedIds}
                   multiSelectedNoteIds={multiSelectedNoteIds}
                   onNoteClick={onNoteClick}
+                  onAttachmentClick={onAttachmentClick}
                   onCreateNoteHere={onCreateNoteHere}
                   onNewSubfolder={onNewSubfolder}
                   onRenameFolder={onRenameFolder}
@@ -387,6 +474,16 @@ const FolderItemComponent = memo(function FolderItem({
                   onDuplicate={onDuplicateNote}
                   onDelete={onDeleteNote}
                   onMoveToParent={onMoveNoteToParent}
+                  focusedItemKey={focusedItemKey}
+                />
+              ))}
+              {folder.attachments.map((attachment) => (
+                <AttachmentFileItem
+                  key={attachment.id}
+                  attachment={attachment}
+                  depth={depth + 1}
+                  isSelected={selectedAttachmentId === attachment.id}
+                  onAttachmentClick={onAttachmentClick}
                   focusedItemKey={focusedItemKey}
                 />
               ))}
@@ -492,8 +589,11 @@ export function FolderTreeView({
 }: FolderTreeViewProps) {
   const {
     notes,
+    attachments,
     selectedNoteId,
+    selectedAttachment,
     selectNote,
+    selectAttachment,
     createNoteInFolder,
     createFolder,
     deleteFolder,
@@ -535,8 +635,8 @@ export function FolderTreeView({
   }, [collapsedFolders]);
 
   const tree = useMemo(
-    () => buildFolderTree(notes, pinnedIds, knownFolders),
-    [notes, pinnedIds, knownFolders],
+    () => buildFolderTree(notes, attachments, pinnedIds, knownFolders),
+    [notes, attachments, pinnedIds, knownFolders],
   );
 
   const handleToggleCollapse = useCallback((path: string) => {
@@ -737,6 +837,15 @@ export function FolderTreeView({
     ],
   );
 
+  const handleAttachmentClick = useCallback(
+    (attachment: AttachmentMetadata) => {
+      setMultiSelectedNoteIds(new Set());
+      setLastClickedNoteId(null);
+      selectAttachment(attachment);
+    },
+    [selectAttachment, setMultiSelectedNoteIds, setLastClickedNoteId],
+  );
+
   // Track which item is focused for keyboard nav (separate from note selection)
   const [focusedItemKey, setFocusedItemKey] = useState<string | null>(null);
 
@@ -744,11 +853,17 @@ export function FolderTreeView({
   useEffect(() => {
     if (selectedNoteId) {
       setFocusedItemKey(`note:${selectedNoteId}`);
+    } else if (selectedAttachment) {
+      setFocusedItemKey(`attachment:${selectedAttachment.id}`);
     }
-  }, [selectedNoteId]);
+  }, [selectedNoteId, selectedAttachment]);
 
   const itemKey = (item: TreeItem) =>
-    item.type === "note" ? `note:${item.id}` : `folder:${item.path}`;
+    item.type === "note"
+      ? `note:${item.id}`
+      : item.type === "attachment"
+        ? `attachment:${item.id}`
+        : `folder:${item.path}`;
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -794,13 +909,16 @@ export function FolderTreeView({
         setFocusedItemKey(itemKey(item));
         if (item.type === "note") {
           selectNote(item.id);
+        } else if (item.type === "attachment") {
+          const attachment = attachments.find((file) => file.id === item.id);
+          if (attachment) selectAttachment(attachment);
         }
       } else if (e.key === "Enter") {
         if (currentIndex < 0) return;
         const item = visibleItems[currentIndex];
         if (item.type === "folder") {
           handleToggleCollapse(item.path);
-        } else {
+        } else if (item.type === "note") {
           // Focus the editor
           const editor = document.querySelector(".ProseMirror") as HTMLElement;
           if (editor) editor.focus();
@@ -811,6 +929,8 @@ export function FolderTreeView({
       visibleItems,
       focusedItemKey,
       selectNote,
+      selectAttachment,
+      attachments,
       handleToggleCollapse,
       multiSelectedNoteIds,
       setMultiSelectedNoteIds,
@@ -845,6 +965,7 @@ export function FolderTreeView({
     () => tree.rootNotes.filter((n) => !pinnedIds.has(n.id)),
     [tree.rootNotes, pinnedIds],
   );
+  const rootAttachments = tree.rootAttachments;
 
   return (
     <>
@@ -883,10 +1004,12 @@ export function FolderTreeView({
             collapsedFolders={collapsedFolders}
             onToggleCollapse={handleToggleCollapse}
             selectedNoteId={selectedNoteId}
+            selectedAttachmentId={selectedAttachment?.id ?? null}
             focusedItemKey={focusedItemKey}
             pinnedIds={pinnedIds}
             multiSelectedNoteIds={multiSelectedNoteIds}
             onNoteClick={handleNoteClick}
+            onAttachmentClick={handleAttachmentClick}
             onCreateNoteHere={createNoteInFolder}
             onNewSubfolder={handleNewSubfolder}
             onRenameFolder={handleRenameFolder}
@@ -914,6 +1037,17 @@ export function FolderTreeView({
             onUnpin={unpinNote}
             onDuplicate={duplicateNote}
             onDelete={openDeleteNoteDialog}
+            focusedItemKey={focusedItemKey}
+          />
+        ))}
+
+        {rootAttachments.map((attachment) => (
+          <AttachmentFileItem
+            key={attachment.id}
+            attachment={attachment}
+            depth={0}
+            isSelected={selectedAttachment?.id === attachment.id}
+            onAttachmentClick={handleAttachmentClick}
             focusedItemKey={focusedItemKey}
           />
         ))}

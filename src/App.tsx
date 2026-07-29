@@ -24,6 +24,7 @@ import { AiEditModal } from "./components/ai/AiEditModal";
 import { AiResponseToast } from "./components/ai/AiResponseToast";
 import { KeyboardShortcutsModal } from "./components/shortcuts/KeyboardShortcutsModal";
 import { PreviewApp } from "./components/preview/PreviewApp";
+import { FilePreview } from "./components/preview/FilePreview";
 import {
   check as checkForUpdate,
   type Update,
@@ -57,6 +58,7 @@ function AppContent() {
     duplicateNote,
     notes,
     selectedNoteId,
+    selectedAttachment,
     selectNote,
     searchQuery,
     searchResults,
@@ -481,14 +483,22 @@ function AppContent() {
               <Sidebar onOpenSettings={toggleSettings} />
               {sidebarVisible && !focusMode && <SidebarResizeHandle />}
             </div>
-            <Editor
-              onToggleSidebar={toggleSidebar}
-              sidebarVisible={sidebarVisible}
-              focusMode={focusMode}
-              onEditorReady={(editor) => {
-                editorRef.current = editor;
-              }}
-            />
+            {selectedAttachment ? (
+              <FilePreview
+                attachment={selectedAttachment}
+                onToggleSidebar={toggleSidebar}
+                sidebarVisible={sidebarVisible}
+              />
+            ) : (
+              <Editor
+                onToggleSidebar={toggleSidebar}
+                sidebarVisible={sidebarVisible}
+                focusMode={focusMode}
+                onEditorReady={(editor) => {
+                  editorRef.current = editor;
+                }}
+              />
+            )}
           </>
         )}
       </div>

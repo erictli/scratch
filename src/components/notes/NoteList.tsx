@@ -20,8 +20,10 @@ import {
   PinIcon,
   CopyIcon,
   TrashIcon,
+  ExternalLinkIcon,
 } from "../icons";
-import type { Settings } from "../../types/note";
+import type { AttachmentMetadata, Settings } from "../../types/note";
+import { FileTypeIcon } from "./FileTypeIcon";
 
 const menuItemClass =
   "px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2 rounded-sm";
@@ -226,6 +228,80 @@ const NoteItemWithMenu = memo(function NoteItemWithMenu({
   );
 });
 
+interface AttachmentItemProps {
+  attachment: AttachmentMetadata;
+  isSelected: boolean;
+  onSelect: (attachment: AttachmentMetadata) => void;
+  showFolderPrefix?: boolean;
+}
+
+const AttachmentItem = memo(function AttachmentItem({
+  attachment,
+  isSelected,
+  onSelect,
+  showFolderPrefix = true,
+}: AttachmentItemProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const folder =
+    showFolderPrefix && attachment.id.includes("/")
+      ? attachment.id.substring(0, attachment.id.lastIndexOf("/"))
+      : null;
+  const subtitle = folder
+    ? `${folder}/ · ${attachment.extension.toUpperCase()}`
+    : attachment.extension.toUpperCase();
+
+  useEffect(() => {
+    if (isSelected) {
+      ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [isSelected]);
+
+  const handleCopyFilepath = useCallback(async () => {
+    try {
+      await invoke("copy_to_clipboard", { text: attachment.path });
+    } catch (error) {
+      console.error("Failed to copy filepath:", error);
+    }
+  }, [attachment.path]);
+
+  const handleReveal = useCallback(async () => {
+    try {
+      await invoke("open_in_file_manager", { path: attachment.path });
+    } catch (error) {
+      console.error("Failed to reveal file:", error);
+    }
+  }, [attachment.path]);
+
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <div ref={ref}>
+          <ListItem
+            title={attachment.name}
+            subtitle={subtitle}
+            meta={formatDate(attachment.modified)}
+            icon={<FileTypeIcon kind={attachment.kind} />}
+            isSelected={isSelected}
+            onClick={() => onSelect(attachment)}
+          />
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content className="min-w-44 bg-bg border border-border rounded-md shadow-lg py-1 z-50">
+          <ContextMenu.Item className={menuItemClass} onSelect={handleCopyFilepath}>
+            <CopyIcon className="w-4 h-4 stroke-[1.6]" />
+            Copy Filepath
+          </ContextMenu.Item>
+          <ContextMenu.Item className={menuItemClass} onSelect={handleReveal}>
+            <ExternalLinkIcon className="w-4 h-4 stroke-[1.6]" />
+            Reveal in File Manager
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
+  );
+});
+
 interface NoteListProps {
   multiSelectedNoteIds: Set<string>;
   setMultiSelectedNoteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -241,8 +317,11 @@ export function NoteList({
 }: NoteListProps) {
   const {
     notes,
+    attachments,
     selectedNoteId,
+    selectedAttachment,
     selectNote,
+    selectAttachment,
     deleteNote,
     duplicateNote,
     pinNote,
@@ -307,6 +386,15 @@ export function NoteList({
     return notes;
   }, [searchQuery, searchResults, notes]);
 
+  const displayAttachments = useMemo(() => {
+    if (!searchQuery.trim()) return attachments;
+    const query = searchQuery.trim().toLowerCase();
+    return attachments.filter((attachment) =>
+      attachment.name.toLowerCase().includes(query) ||
+      attachment.id.toLowerCase().includes(query),
+    );
+  }, [attachments, searchQuery]);
+
   // Listen for focus request from editor (when Escape is pressed)
   useEffect(() => {
     const handleFocusNoteList = () => {
@@ -341,7 +429,7 @@ export function NoteList({
     );
   }
 
-  if (isSearching && displayItems.length === 0) {
+  if (isSearching && displayItems.length === 0 && displayAttachments.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-text-muted select-none">
         No results found
@@ -349,7 +437,7 @@ export function NoteList({
     );
   }
 
-  if (displayItems.length === 0) {
+  if (displayItems.length === 0 && displayAttachments.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-text-muted select-none">
         No notes yet
@@ -418,6 +506,14 @@ export function NoteList({
             onDuplicate={duplicateNote}
             onDelete={openDeleteDialogForNote}
             onRefreshSettings={refreshSettings}
+          />
+        ))}
+        {displayAttachments.map((attachment) => (
+          <AttachmentItem
+            key={attachment.id}
+            attachment={attachment}
+            isSelected={selectedAttachment?.id === attachment.id}
+            onSelect={selectAttachment}
           />
         ))}
       </div>

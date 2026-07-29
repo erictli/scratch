@@ -18,6 +18,10 @@ export async function saveFileDirect(
   return invoke("save_file_direct", { path, content });
 }
 
+export async function readTextFile(path: string): Promise<string> {
+  return invoke("read_text_attachment", { path });
+}
+
 export async function openFilePreview(path: string): Promise<void> {
   return invoke("open_file_preview", { path });
 }
