@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Scratch",
+  "productName": "Scratch Notes",
   "version": "0.10.0",
   "identifier": "com.scratch.app",
   "build": {
