@@ -97,6 +97,24 @@ const reposeLightColors: Record<ThemeColorKey, string> = {
 
 export { reposeLightColors };
 
+// Dark counterpart, based on Monkeytype's "Repose Dark" theme. Same
+// derivation approach as reposeLightColors, but tinted from the theme's
+// (light) text color rather than a dark one, matching how the default dark
+// theme tints its own bg-muted/bg-emphasis/border from near-white text.
+const reposeDarkColors: Record<ThemeColorKey, string> = {
+  bg: "#2f3338",
+  "bg-secondary": "#3a3c3d",
+  "bg-muted": "rgba(214, 210, 188, 0.05)",
+  "bg-emphasis": "rgba(214, 210, 188, 0.08)",
+  text: "#d6d2bc",
+  "text-muted": "#8f8e84",
+  border: "rgba(214, 210, 188, 0.07)",
+  accent: "#d6d2bc",
+  selection: "rgba(253, 224, 71, 0.35)",
+};
+
+export { reposeDarkColors };
+
 // Normalize any CSS color string (hex, rgb(), rgba(), hsl(), named) to an RGB
 // triple by letting the browser parse it via getComputedStyle.
 function parseCssColorToRgb(value: string): [number, number, number] | null {
