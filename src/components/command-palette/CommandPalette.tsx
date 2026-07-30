@@ -95,7 +95,7 @@ export function CommandPalette({
     notesFolder,
   } = useNotes();
   const { setTheme } = useTheme();
-  const { status, gitAvailable, gitEnabled, commit, sync, isSyncing } = useGit();
+  const { status, gitAvailable, gitEnabled, sync, isSyncing } = useGit();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -376,15 +376,12 @@ export function CommandPalette({
       if (hasChanges) {
         baseCommands.push({
           id: "git-commit",
-          label: "Git: Quick Commit",
+          label: "Git: Commit Changes",
           icon: <GitCommitIcon className="w-4.5 h-4.5 stroke-[1.5]" />,
           action: async () => {
-            const success = await commit("Quick commit from Scratch");
-            if (success) {
-              toast.success("Changes committed");
-            } else {
-              toast.error("Failed to commit");
-            }
+            window.dispatchEvent(
+              new CustomEvent("open-commit-panel")
+            )
             onClose();
           },
         });
@@ -514,7 +511,6 @@ export function CommandPalette({
     gitEnabled,
     gitAvailable,
     status,
-    commit,
     sync,
     isSyncing,
     selectNote,

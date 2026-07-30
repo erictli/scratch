@@ -26,6 +26,7 @@ import {
 import { mod, shift, isMac, isWindows } from "../../lib/platform";
 import * as notesService from "../../services/notes";
 import { FolderNameDialog } from "../notes/FolderNameDialog";
+import { CommitPanel } from "../git/CommitPanel";
 
 interface SidebarProps {
   onOpenSettings?: () => void;
@@ -53,6 +54,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const [dragCount, setDragCount] = useState(1);
   const [multiSelectedNoteIds, setMultiSelectedNoteIds] = useState<Set<string>>(new Set());
   const [lastClickedNoteId, setLastClickedNoteId] = useState<string | null>(null);
+  const [commitPanelOpen, setCommitPanelOpen] = useState(false);
   const debounceRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const multiSelectedRef = useRef(multiSelectedNoteIds) as RefObject<Set<string>>;
@@ -303,6 +305,22 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       window.removeEventListener("create-new-folder", handleCreateFolder);
   }, [selectedNoteId]);
 
+  const handleOpenCommitPanel = useCallback(() => {
+    setCommitPanelOpen(true);
+  }, []);
+
+  const handleCloseCommitPanel = useCallback(() => {
+    setCommitPanelOpen(false);
+  }, []);
+  
+  useEffect(() => {
+    window.addEventListener("open-commit-panel", handleOpenCommitPanel);
+
+    return () => {
+      window.removeEventListener("open-commit-panel", handleOpenCommitPanel);
+    };
+  }, [handleOpenCommitPanel]);
+
   return (
     <DndContext
       sensors={sensors}
@@ -420,8 +438,16 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         />
       </div>
 
+      <CommitPanel
+        open={commitPanelOpen}
+        onClose={handleCloseCommitPanel}
+      />
+
       {/* Footer with git status, commit, and settings */}
-      <Footer onOpenSettings={onOpenSettings} />
+        <Footer
+          onOpenSettings={onOpenSettings}
+          onOpenCommit={handleOpenCommitPanel}
+        />
 
       {/* Folder name dialog */}
       <FolderNameDialog
