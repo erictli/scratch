@@ -6,6 +6,7 @@ import type {
   TextDirection,
   EditorWidth,
   ThemeColorKey,
+  PasteMode,
 } from "../../types/note";
 import { ChevronRightIcon, EyeIcon, MinusIcon, PlusIcon } from "../icons";
 import { cn } from "../../lib/utils";
@@ -48,6 +49,13 @@ const fontFamilyOptions: { value: FontFamily; label: string }[] = [
   { value: "monospace", label: "Mono" },
 ];
 
+// Paste mode options
+const pasteModeOptions: { value: PasteMode; label: string; description: string }[] = [
+  { value: "markdown", label: "Markdown", description: "Parse and render markdown syntax" },
+  { value: "plain", label: "Plain text", description: "Insert as plain text, no formatting" },
+  { value: "code-block", label: "Code block", description: "Wrap in a ``` code block" },
+];
+
 // Bold weight options (medium excluded for monospace)
 const boldWeightOptions = [
   { value: 500, label: "Medium", excludeForMonospace: true },
@@ -77,6 +85,8 @@ export function AppearanceSettingsSection() {
     setCustomColor,
     resetCustomColor,
     resetAllCustomColors,
+    pasteMode,
+    setPasteMode,
   } = useTheme();
 
   // Validated numeric change handler
@@ -456,6 +466,35 @@ export function AppearanceSettingsSection() {
           </div>
           {/* Fade overlay - content to muted background */}
           <div className="absolute bottom-0 left-0 right-0 h-40 bg-linear-to-t from-bg to-transparent pointer-events-none" />
+        </div>
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Editing Section */}
+      <section className="pb-2">
+        <h2 className="text-xl font-medium mb-3">Editing</h2>
+        <div className="rounded-[10px] border border-border pl-4 py-3 pr-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-0.5">
+              <label className="text-sm text-text font-medium">Paste mode</label>
+              <span className="text-xs text-text-muted">
+                {pasteModeOptions.find((o) => o.value === pasteMode)?.description}
+              </span>
+            </div>
+            <Select
+              value={pasteMode}
+              onChange={(e) => setPasteMode(e.target.value as PasteMode)}
+              className="w-40"
+            >
+              {pasteModeOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
       </section>
     </div>

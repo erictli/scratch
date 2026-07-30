@@ -20,6 +20,7 @@ export interface ThemeSettings {
 export type FontFamily = "system-sans" | "serif" | "monospace";
 export type TextDirection = "auto" | "ltr" | "rtl";
 export type EditorWidth = "narrow" | "normal" | "wide" | "full" | "custom";
+export type PasteMode = "markdown" | "plain" | "code-block";
 
 export interface EditorFontSettings {
   baseFontFamily?: FontFamily;
@@ -60,6 +61,7 @@ export interface Settings {
   ignoredPatterns?: string[];
   customColorsLight?: CustomColors;
   customColorsDark?: CustomColors;
+  pasteMode?: PasteMode;
 }
 
 export interface FolderNode {
