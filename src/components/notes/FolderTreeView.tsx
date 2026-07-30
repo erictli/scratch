@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState, useEffect, useRef, memo } from "react";
+import { useFlipAnimation } from "../../hooks/useFlipAnimation";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
 import { useNotes } from "../../context/NotesContext";
@@ -75,6 +76,7 @@ interface FileItemProps {
   onDelete: (id: string) => void;
   onMoveToParent?: (id: string, targetFolder: string) => void;
   focusedItemKey?: string | null;
+  dragOverInfo?: { id: string; position: "before" | "after" } | null;
 }
 
 const FileItem = memo(function FileItem({
@@ -90,6 +92,7 @@ const FileItem = memo(function FileItem({
   onDelete,
   onMoveToParent,
   focusedItemKey,
+  dragOverInfo,
 }: FileItemProps) {
   const itemRef = useRef<HTMLDivElement>(null);
   const handleClick = useCallback(
@@ -113,9 +116,9 @@ const FileItem = memo(function FileItem({
     data: { type: "note", id: note.id },
   });
 
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
+  const { setNodeRef: setDropRef } = useDroppable({
     id: `drop-note:${note.id}`,
-    data: { type: "folder", path: noteParentFolder },
+    data: { type: "note", id: note.id, path: noteParentFolder },
   });
 
   useEffect(() => {
@@ -143,43 +146,66 @@ const FileItem = memo(function FileItem({
     }
   }, [note.id]);
 
+  const isTargetBefore = dragOverInfo?.id === note.id && dragOverInfo.position === "before";
+  const isTargetAfter = dragOverInfo?.id === note.id && dragOverInfo.position === "after";
+
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
-        <div
-          ref={(el) => {
-            setDragRef(el);
-            setDropRef(el);
-            (itemRef as React.MutableRefObject<HTMLDivElement | null>).current =
-              el;
-          }}
-          {...attributes}
-          {...listeners}
-          className={`flex items-center gap-1.5 py-1.5 cursor-pointer rounded-md select-none transition-colors ${
-            isDragging
-              ? "opacity-40"
-              : isOver
-                ? "bg-accent/10 ring-1 ring-accent"
+        <div 
+          data-id={note.id}
+          className="relative py-[1px]"
+        >
+          {/* Sleek drop indicator line */}
+          <div 
+            className="absolute right-1.5 h-[2px] bg-accent z-20 pointer-events-none transition-all duration-200 ease-out origin-left"
+            style={{
+              left: `${depth * 12 + 8}px`,
+              top: isTargetBefore ? "-1px" : isTargetAfter ? "auto" : "0px",
+              bottom: isTargetAfter ? "-1px" : "auto",
+              opacity: (isTargetBefore || isTargetAfter) ? 1 : 0,
+              transform: (isTargetBefore || isTargetAfter) ? "scaleX(1)" : "scaleX(0)",
+            }}
+          >
+            {/* Rounded dot on the left edge */}
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 w-1.5 h-1.5 rounded-full bg-accent" />
+          </div>
+
+          <div
+            ref={(el) => {
+              setDragRef(el);
+              setDropRef(el);
+              (itemRef as React.MutableRefObject<HTMLDivElement | null>).current =
+                el;
+            }}
+            {...attributes}
+            {...listeners}
+            className={`relative flex items-center gap-1.5 py-1.5 cursor-pointer rounded-md select-none transition-[opacity,background-color,scale] duration-200 group/fileitem ${
+              isDragging
+                ? "opacity-30 scale-[0.97] pointer-events-none"
                 : isSelected &&
                     (!focusedItemKey || focusedItemKey === `note:${note.id}`)
                   ? "bg-bg-muted group-focus/notelist:ring-1 group-focus/notelist:ring-text-muted"
                   : isMultiSelected
                     ? "bg-bg-muted"
                     : "hover:bg-bg-muted"
-          }`}
-          style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: "8px" }}
-          onClick={handleClick}
-          role="button"
-          tabIndex={-1}
-        >
-          {isPinned ? (
-            <PinIcon className="w-4 h-4 stroke-[1.6] fill-current text-text-muted shrink-0" />
-          ) : (
-            <NoteIcon className="w-4 h-4 stroke-[1.6] opacity-50 shrink-0" />
-          )}
-          <span className="text-sm text-text truncate">
-            {cleanTitle(note.title)}
-          </span>
+            }`}
+            style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: "8px" }}
+            onClick={handleClick}
+            role="button"
+            tabIndex={-1}
+          >
+            {/* Sleek edge grab pill bar, visible on hover */}
+            <div className="absolute left-[3px] top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full bg-accent/40 opacity-0 group-hover/fileitem:opacity-100 transition-opacity duration-150 pointer-events-none z-10" />
+            {isPinned ? (
+              <PinIcon className="w-4 h-4 stroke-[1.6] fill-current text-text-muted shrink-0" />
+            ) : (
+              <NoteIcon className="w-4 h-4 stroke-[1.6] opacity-50 shrink-0" />
+            )}
+            <span className="text-sm text-text truncate">
+              {cleanTitle(note.title)}
+            </span>
+          </div>
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
@@ -267,6 +293,7 @@ interface FolderItemProps {
   onDeleteNote: (id: string) => void;
   onMoveNoteToParent: (id: string, targetFolder: string) => void;
   onMoveFolderToParent: (path: string, targetParent: string) => void;
+  dragOverInfo?: { id: string; position: "before" | "after" } | null;
 }
 
 const FolderItemComponent = memo(function FolderItem({
@@ -289,6 +316,7 @@ const FolderItemComponent = memo(function FolderItem({
   onDeleteNote,
   onMoveNoteToParent,
   onMoveFolderToParent,
+  dragOverInfo,
 }: FolderItemProps) {
   const isCollapsed = collapsedFolders.has(folder.path);
   const noteCount = countNotesInFolder(folder);
@@ -309,46 +337,76 @@ const FolderItemComponent = memo(function FolderItem({
     data: { type: "folder", path: folder.path },
   });
 
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
+  const { setNodeRef: setDropRef } = useDroppable({
     id: `drop-folder:${folder.path}`,
     data: { type: "folder", path: folder.path },
   });
 
+  const isTargetBefore = dragOverInfo?.id === folder.path && dragOverInfo.position === "before";
+  const isTargetAfter = dragOverInfo?.id === folder.path && dragOverInfo.position === "after";
+
+  const childrenRef = useFlipAnimation(folder);
+
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
-        <div
-          ref={setDragRef}
-          {...attributes}
-          {...listeners}
-          className={isDragging ? "opacity-40" : ""}
+        <div 
+          data-id={folder.path}
+          className={isDragging ? "opacity-30 scale-[0.97] pointer-events-none transition-[opacity,scale] duration-200" : "transition-[opacity,scale] duration-200"}
         >
-          <div
-            ref={setDropRef}
-            className={`flex items-center gap-1.5 py-1.5 cursor-pointer rounded-md select-none transition-colors ${
-              isOver
-                ? "bg-accent/10 ring-1 ring-accent"
-                : isFocused
+          <div 
+            className="relative py-[1px]"
+          >
+            {/* Sleek drop indicator line */}
+            <div 
+              className="absolute right-1.5 h-[2px] bg-accent z-20 pointer-events-none transition-all duration-200 ease-out origin-left"
+              style={{
+                left: `${depth * 12 + 8}px`,
+                top: isTargetBefore ? "-1px" : isTargetAfter ? "auto" : "0px",
+                bottom: isTargetAfter ? "-1px" : "auto",
+                opacity: (isTargetBefore || isTargetAfter) ? 1 : 0,
+                transform: (isTargetBefore || isTargetAfter) ? "scaleX(1)" : "scaleX(0)",
+              }}
+            >
+              {/* Rounded dot on the left edge */}
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 w-1.5 h-1.5 rounded-full bg-accent" />
+            </div>
+
+            <div
+              ref={(el) => {
+                setDragRef(el);
+                setDropRef(el);
+              }}
+              {...attributes}
+              {...listeners}
+              className={`relative flex items-center gap-1.5 py-1.5 cursor-pointer rounded-md select-none transition-colors group/folderitem ${
+                isFocused
                   ? "bg-bg-muted/50 ring-1 ring-text-muted/30"
                   : "hover:bg-bg-muted"
-            }`}
-            style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: "8px" }}
-            onClick={handleClick}
-            role="button"
-            tabIndex={-1}
-          >
-            {isCollapsed ? (
-              <ChevronRightIcon className="w-4 h-4 stroke-[1.6] text-text-muted/60 shrink-0" />
-            ) : (
-              <ChevronDownIcon className="w-4 h-4 stroke-[1.6] text-text-muted/60 shrink-0" />
-            )}
-            <span className="text-sm text-text-muted truncate">
-              {folder.name}
-            </span>
+              }`}
+              style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: "8px" }}
+              onClick={handleClick}
+              role="button"
+              tabIndex={-1}
+            >
+              {/* Sleek edge grab pill bar, visible on hover */}
+              <div className="absolute left-[3px] top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full bg-accent/40 opacity-0 group-hover/folderitem:opacity-100 transition-opacity duration-150 pointer-events-none z-10" />
+              {isCollapsed ? (
+                <ChevronRightIcon className="w-4 h-4 stroke-[1.6] text-text-muted/60 shrink-0" />
+              ) : (
+                <ChevronDownIcon className="w-4 h-4 stroke-[1.6] text-text-muted/60 shrink-0" />
+              )}
+              <span className="text-sm text-text-muted truncate">
+                {folder.name}
+              </span>
+            </div>
           </div>
 
           {!isCollapsed && (
-            <div className="flex flex-col gap-0.5">
+            <div 
+              ref={childrenRef}
+              className="flex flex-col gap-0.5"
+            >
               {folder.children.map((child) => (
                 <FolderItemComponent
                   key={child.path}
@@ -371,6 +429,7 @@ const FolderItemComponent = memo(function FolderItem({
                   onDeleteNote={onDeleteNote}
                   onMoveNoteToParent={onMoveNoteToParent}
                   onMoveFolderToParent={onMoveFolderToParent}
+                  dragOverInfo={dragOverInfo}
                 />
               ))}
               {folder.notes.map((note) => (
@@ -388,6 +447,7 @@ const FolderItemComponent = memo(function FolderItem({
                   onDelete={onDeleteNote}
                   onMoveToParent={onMoveNoteToParent}
                   focusedItemKey={focusedItemKey}
+                  dragOverInfo={dragOverInfo}
                 />
               ))}
               {isEmpty && (
@@ -480,6 +540,7 @@ interface FolderTreeViewProps {
   setMultiSelectedNoteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   lastClickedNoteId: string | null;
   setLastClickedNoteId: React.Dispatch<React.SetStateAction<string | null>>;
+  dragOverInfo?: { id: string; position: "before" | "after" } | null;
 }
 
 export function FolderTreeView({
@@ -489,6 +550,7 @@ export function FolderTreeView({
   setMultiSelectedNoteIds,
   lastClickedNoteId,
   setLastClickedNoteId,
+  dragOverInfo,
 }: FolderTreeViewProps) {
   const {
     notes,
@@ -519,7 +581,7 @@ export function FolderTreeView({
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [knownFolders, setKnownFolders] = useState<string[]>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
+  // containerRef is declared below visibleItems to avoid TDZ errors
 
   // Load known folders from disk (includes empty folders)
   useEffect(() => {
@@ -535,8 +597,8 @@ export function FolderTreeView({
   }, [collapsedFolders]);
 
   const tree = useMemo(
-    () => buildFolderTree(notes, pinnedIds, knownFolders),
-    [notes, pinnedIds, knownFolders],
+    () => buildFolderTree(notes, pinnedIds, knownFolders, _settings?.noteOrder, _settings?.folderOrder),
+    [notes, pinnedIds, knownFolders, _settings?.noteOrder, _settings?.folderOrder],
   );
 
   const handleToggleCollapse = useCallback((path: string) => {
@@ -666,6 +728,8 @@ export function FolderTreeView({
     () => getVisibleItems(tree, pinnedIds, collapsedFolders),
     [tree, pinnedIds, collapsedFolders],
   );
+
+  const containerRef = useFlipAnimation(visibleItems);
 
   // Visible note IDs in order (for Shift+Click range computation)
   const visibleNoteIds = useMemo(
@@ -871,6 +935,7 @@ export function FolderTreeView({
             onDuplicate={duplicateNote}
             onDelete={openDeleteNoteDialog}
             focusedItemKey={focusedItemKey}
+            dragOverInfo={dragOverInfo}
           />
         ))}
 
@@ -897,6 +962,7 @@ export function FolderTreeView({
             onDeleteNote={openDeleteNoteDialog}
             onMoveNoteToParent={moveNote}
             onMoveFolderToParent={moveFolder}
+            dragOverInfo={dragOverInfo}
           />
         ))}
 
@@ -915,6 +981,7 @@ export function FolderTreeView({
             onDuplicate={duplicateNote}
             onDelete={openDeleteNoteDialog}
             focusedItemKey={focusedItemKey}
+            dragOverInfo={dragOverInfo}
           />
         ))}
       </div>

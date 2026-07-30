@@ -135,6 +135,10 @@ pub struct Settings {
     pub custom_colors_light: Option<std::collections::HashMap<String, String>>,
     #[serde(rename = "customColorsDark")]
     pub custom_colors_dark: Option<std::collections::HashMap<String, String>>,
+    #[serde(rename = "noteOrder")]
+    pub note_order: Option<Vec<String>>,
+    #[serde(rename = "folderOrder")]
+    pub folder_order: Option<Vec<String>>,
 }
 
 // Search result
@@ -952,17 +956,19 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         })
         .collect();
 
-    // Load pinned note IDs from settings
-    let pinned_ids: HashSet<String> = {
+    // Load pinned note IDs and note_order from settings
+    let (pinned_ids, note_order): (HashSet<String>, Option<Vec<String>>) = {
         let settings = state.settings.read().expect("settings read lock");
-        settings
+        let pinned = settings
             .pinned_note_ids
             .as_ref()
             .map(|ids| ids.iter().cloned().collect())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let order = settings.note_order.clone();
+        (pinned, order)
     };
 
-    // Sort: pinned notes first (by date), then unpinned notes (by date)
+    // Sort: pinned notes first, then unpinned notes (sorted by note_order, fallback to modified date)
     notes.sort_by(|a, b| {
         let a_pinned = pinned_ids.contains(&a.id);
         let b_pinned = pinned_ids.contains(&b.id);
@@ -970,7 +976,21 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
         match (a_pinned, b_pinned) {
             (true, false) => std::cmp::Ordering::Less,    // a pinned, b not -> a first
             (false, true) => std::cmp::Ordering::Greater, // b pinned, a not -> b first
-            _ => b.modified.cmp(&a.modified),             // both same status -> sort by date (newest first)
+            _ => {
+                // both same status (both pinned or both unpinned)
+                if let Some(ref order) = note_order {
+                    let a_idx = order.iter().position(|id| id == &a.id);
+                    let b_idx = order.iter().position(|id| id == &b.id);
+                    match (a_idx, b_idx) {
+                        (Some(i), Some(j)) => i.cmp(&j),
+                        (Some(_), None) => std::cmp::Ordering::Less,    // ordered items first
+                        (None, Some(_)) => std::cmp::Ordering::Greater, // ordered items first
+                        (None, None) => b.modified.cmp(&a.modified),    // both unordered -> newest first
+                    }
+                } else {
+                    b.modified.cmp(&a.modified) // sort by date (newest first)
+                }
+            }
         }
     });
 
@@ -1488,7 +1508,7 @@ async fn rename_folder(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Update pinned note IDs in settings
+    // Update pinned note IDs, note_order, and folder_order in settings
     {
         let mut settings = state.settings.write().expect("settings write lock");
         if let Some(ref mut pinned) = settings.pinned_note_ids {
@@ -1497,6 +1517,24 @@ async fn rename_folder(
                     *id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
                 } else if *id == old_path {
                     *id = new_path.clone();
+                }
+            }
+        }
+        if let Some(ref mut order) = settings.note_order {
+            for id in order.iter_mut() {
+                if id.starts_with(&old_prefix) {
+                    *id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
+                } else if *id == old_path {
+                    *id = new_path.clone();
+                }
+            }
+        }
+        if let Some(ref mut order) = settings.folder_order {
+            for path in order.iter_mut() {
+                if path.starts_with(&old_prefix) {
+                    *path = format!("{}{}", new_prefix, &path[old_prefix.len()..]);
+                } else if *path == old_path {
+                    *path = new_path.clone();
                 }
             }
         }
@@ -1589,13 +1627,20 @@ async fn move_note(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Update pinned note IDs
+    // Update pinned note IDs and note_order
     {
         let mut settings = state.settings.write().expect("settings write lock");
         if let Some(ref mut pinned) = settings.pinned_note_ids {
             for pin_id in pinned.iter_mut() {
                 if *pin_id == id {
                     *pin_id = new_id.clone();
+                }
+            }
+        }
+        if let Some(ref mut order) = settings.note_order {
+            for ord_id in order.iter_mut() {
+                if *ord_id == id {
+                    *ord_id = new_id.clone();
                 }
             }
         }
@@ -1694,13 +1739,31 @@ async fn move_folder(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Update pinned note IDs
+    // Update pinned note IDs, note_order, and folder_order
     {
         let mut settings = state.settings.write().expect("settings write lock");
         if let Some(ref mut pinned) = settings.pinned_note_ids {
             for pin_id in pinned.iter_mut() {
                 if pin_id.starts_with(&old_prefix) {
                     *pin_id = format!("{}{}", new_prefix, &pin_id[old_prefix.len()..]);
+                }
+            }
+        }
+        if let Some(ref mut order) = settings.note_order {
+            for id in order.iter_mut() {
+                if id.starts_with(&old_prefix) {
+                    *id = format!("{}{}", new_prefix, &id[old_prefix.len()..]);
+                } else if *id == path {
+                    *id = new_path.clone();
+                }
+            }
+        }
+        if let Some(ref mut order) = settings.folder_order {
+            for p in order.iter_mut() {
+                if p.starts_with(&old_prefix) {
+                    *p = format!("{}{}", new_prefix, &p[old_prefix.len()..]);
+                } else if *p == path {
+                    *p = new_path.clone();
                 }
             }
         }

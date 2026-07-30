@@ -9,6 +9,8 @@ export function buildFolderTree(
   notes: NoteMetadata[],
   pinnedIds: Set<string>,
   knownFolders?: string[],
+  noteOrder?: string[],
+  folderOrder?: string[],
 ): FolderTreeData {
   const rootNotes: NoteMetadata[] = [];
   const folderMap = new Map<string, FolderNode>();
@@ -52,11 +54,28 @@ export function buildFolderTree(
   }
 
   function sortNode(node: FolderNode) {
-    node.children.sort((a, b) => a.name.localeCompare(b.name));
+    node.children.sort((a, b) => {
+      if (folderOrder) {
+        const aIdx = folderOrder.indexOf(a.path);
+        const bIdx = folderOrder.indexOf(b.path);
+        if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+        if (aIdx !== -1) return -1;
+        if (bIdx !== -1) return 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
     node.notes.sort((a, b) => {
       const ap = pinnedIds.has(a.id);
       const bp = pinnedIds.has(b.id);
       if (ap !== bp) return ap ? -1 : 1;
+
+      if (noteOrder) {
+        const aIdx = noteOrder.indexOf(a.id);
+        const bIdx = noteOrder.indexOf(b.id);
+        if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+        if (aIdx !== -1) return -1;
+        if (bIdx !== -1) return 1;
+      }
       return b.modified - a.modified;
     });
     node.children.forEach(sortNode);
@@ -65,14 +84,31 @@ export function buildFolderTree(
   const topLevelFolders = Array.from(folderMap.values()).filter(
     (f) => !f.path.includes("/"),
   );
-  topLevelFolders.sort((a, b) => a.name.localeCompare(b.name));
+  topLevelFolders.sort((a, b) => {
+    if (folderOrder) {
+      const aIdx = folderOrder.indexOf(a.path);
+      const bIdx = folderOrder.indexOf(b.path);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
   topLevelFolders.forEach(sortNode);
 
-  // Sort root notes: pinned first, then by modified desc
+  // Sort root notes: pinned first, then by custom order, fallback to modified desc
   rootNotes.sort((a, b) => {
     const ap = pinnedIds.has(a.id);
     const bp = pinnedIds.has(b.id);
     if (ap !== bp) return ap ? -1 : 1;
+
+    if (noteOrder) {
+      const aIdx = noteOrder.indexOf(a.id);
+      const bIdx = noteOrder.indexOf(b.id);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+    }
     return b.modified - a.modified;
   });
 
