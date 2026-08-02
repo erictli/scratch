@@ -187,6 +187,64 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
 ];
 
 const slashCommandPluginKey = new PluginKey("slashCommand");
+const SLASH_COMMAND_MENU_MAX_HEIGHT = 320;
+const SLASH_COMMAND_MENU_OFFSET = 4;
+const SLASH_COMMAND_VIEWPORT_PADDING = 12;
+
+function getDocumentZoom(): number {
+  const zoom = Number.parseFloat(
+    getComputedStyle(document.documentElement).zoom,
+  );
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
+export function normalizeSlashCommandReferenceRect(
+  rect: DOMRect | null | undefined,
+  zoom = getDocumentZoom(),
+): DOMRect {
+  if (!rect) return new DOMRect();
+
+  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  return new DOMRect(
+    rect.x / scale,
+    rect.y / scale,
+    rect.width / scale,
+    rect.height / scale,
+  );
+}
+
+export function getSlashCommandMenuMaxHeight(
+  rect: DOMRect | null | undefined,
+  viewportHeight: number,
+  zoom: number,
+): number {
+  if (!rect) return SLASH_COMMAND_MENU_MAX_HEIGHT;
+
+  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const availableHeight =
+    (viewportHeight -
+      rect.bottom -
+      SLASH_COMMAND_MENU_OFFSET * scale -
+      SLASH_COMMAND_VIEWPORT_PADDING) /
+    scale;
+
+  return Math.floor(
+    Math.max(0, Math.min(SLASH_COMMAND_MENU_MAX_HEIGHT, availableHeight)),
+  );
+}
+
+function prepareSlashCommandReferenceRect(
+  rect: DOMRect | null | undefined,
+  menuElement: HTMLElement | null,
+): DOMRect {
+  const zoom = getDocumentZoom();
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  menuElement?.style.setProperty(
+    "--suggestion-menu-max-height",
+    `${getSlashCommandMenuMaxHeight(rect, viewportHeight, zoom)}px`,
+  );
+  return normalizeSlashCommandReferenceRect(rect, zoom);
+}
 
 export const SlashCommand = Extension.create({
   name: "slashCommand",
@@ -237,7 +295,10 @@ export const SlashCommand = Extension.create({
 
               popup = tippy(document.body, {
                 getReferenceClientRect: () =>
-                  props.clientRect?.() ?? new DOMRect(),
+                  prepareSlashCommandReferenceRect(
+                    props.clientRect?.(),
+                    component?.element ?? null,
+                  ),
                 appendTo: () => document.body,
                 content: component.element,
                 showOnCreate: true,
@@ -249,7 +310,7 @@ export const SlashCommand = Extension.create({
                   modifiers: [
                     {
                       name: "flip",
-                      options: { fallbackPlacements: ["top-start"] },
+                      enabled: false,
                     },
                   ],
                 },
@@ -264,7 +325,10 @@ export const SlashCommand = Extension.create({
 
               popup?.setProps({
                 getReferenceClientRect: () =>
-                  props.clientRect?.() ?? new DOMRect(),
+                  prepareSlashCommandReferenceRect(
+                    props.clientRect?.(),
+                    component?.element ?? null,
+                  ),
               });
             },
 

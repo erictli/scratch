@@ -10,6 +10,7 @@ import {
 import * as aiService from "../../services/ai";
 import type { AiProvider } from "../../services/ai";
 import type { Settings } from "../../types/note";
+import * as notesService from "../../services/notes";
 
 interface AiEditModalProps {
   open: boolean;
@@ -137,12 +138,8 @@ export function AiEditModal({
 
     // Save the model to settings in the background for next time
     if (provider === "ollama" && ollamaModel.trim()) {
-      invoke<Settings>("get_settings")
-        .then((settings) =>
-          invoke("update_settings", {
-            newSettings: { ...settings, ollamaModel: ollamaModel.trim() },
-          }),
-        )
+      notesService
+        .updateGlobalSettings({ ollamaModel: ollamaModel.trim() })
         .catch(() => {});
     }
 

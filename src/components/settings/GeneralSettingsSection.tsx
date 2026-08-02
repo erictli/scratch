@@ -16,6 +16,7 @@ import {
   XIcon,
 } from "../icons";
 import type { Settings } from "../../types/note";
+import * as notesService from "../../services/notes";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -107,12 +108,8 @@ export function GeneralSettingsSection() {
 
   const handleSaveTemplate = async () => {
     try {
-      const settings = await invoke<Settings>("get_settings");
-      await invoke("update_settings", {
-        newSettings: {
-          ...settings,
-          defaultNoteName: noteTemplate || undefined,
-        },
+      await notesService.updateGlobalSettings({
+        defaultNoteName: noteTemplate || null,
       });
       toast.success("Default name saved");
     } catch (error) {
@@ -145,6 +142,20 @@ export function GeneralSettingsSection() {
     } catch (err) {
       console.error("Failed to open folder:", err);
       toast.error("Failed to open folder");
+    }
+  };
+
+  const handleOpenWorkspaceWindow = async () => {
+    try {
+      const selected = await invoke<string | null>("open_folder_dialog", {
+        defaultPath: notesFolder || null,
+      });
+      if (selected) {
+        await invoke("open_workspace_window", { path: selected });
+      }
+    } catch (err) {
+      console.error("Failed to open workspace window:", err);
+      toast.error("Failed to open workspace window");
     }
   };
 
@@ -270,6 +281,15 @@ export function GeneralSettingsSection() {
           >
             <FoldersIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             Change Folder
+          </Button>
+          <Button
+            onClick={handleOpenWorkspaceWindow}
+            variant="outline"
+            size="md"
+            className="gap-1.25"
+          >
+            <ExternalLinkIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+            Open in New Window
           </Button>
           {notesFolder && (
             <Button
@@ -768,10 +788,7 @@ function FoldersToggle() {
     if (isUpdating) return;
     setIsUpdating(true);
     try {
-      const settings = await invoke<Settings>("get_settings");
-      await invoke("update_settings", {
-        newSettings: { ...settings, foldersEnabled: enabled },
-      });
+      await notesService.updateWorkspaceSettings({ foldersEnabled: enabled });
       setFoldersEnabled(enabled);
     } catch {
       toast.error("Failed to update folder setting");
@@ -841,12 +858,8 @@ function IgnoredFoldersEditor() {
   const save = async (updated: string[] | null) => {
     setIsSaving(true);
     try {
-      const settings = await invoke<Settings>("get_settings");
-      await invoke("update_settings", {
-        newSettings: {
-          ...settings,
-          ignoredPatterns: updated ?? undefined,
-        },
+      await notesService.updateWorkspaceSettings({
+        ignoredPatterns: updated,
       });
       setPatterns(updated ?? defaults);
       refreshNotes();

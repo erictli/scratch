@@ -82,8 +82,9 @@ function SuggestionListInner<T>(
   return (
     <div
       ref={listRef}
+      style={{ maxHeight: "var(--suggestion-menu-max-height, 20rem)" }}
       className={cn(
-        "bg-bg border border-border rounded-lg shadow-lg p-1.5 max-h-80 overflow-y-auto animate-slide-down flex flex-col gap-0.5",
+        "bg-bg border border-border rounded-lg shadow-lg p-1.5 overflow-y-auto overscroll-contain animate-slide-down flex flex-col gap-0.5",
         width,
       )}
     >

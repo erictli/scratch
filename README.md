@@ -1,6 +1,6 @@
 # Scratch
 
-<img src="docs/app-icon.png" alt="Scratch" width="128" height="128" style="border-radius: 22px; margin-bottom: 8px;">
+<img src="app-icon.png" alt="Scratch" width="128" height="128" style="border-radius: 22px; margin-bottom: 8px;">
 
 A minimalist, offline-first markdown note-taking app for macOS, Windows, and Linux.
 
@@ -12,7 +12,8 @@ A minimalist, offline-first markdown note-taking app for macOS, Windows, and Lin
 
 - **Offline-first** - No cloud, no account, no internet required
 - **Markdown-based** - Notes stored as plain `.md` files you own
-- **WYSIWYG editing** - Rich text editing that saves as markdown
+- **Notion-like editing** - Rich text, floating formatting controls, draggable blocks, highlights, links, tables, and task lists that save as markdown
+- **Direct image drop** - Drop images between text blocks and reposition them without a slash command
 - **Preview mode** - Open any `.md` file via drag-and-drop or "Open With" without a notes folder
 - **Markdown source mode** - Toggle to view and edit raw markdown (`Cmd+Shift+M`)
 - **Syntax highlighting** - 20 languages with GitHub-inspired color scheme
@@ -23,9 +24,10 @@ A minimalist, offline-first markdown note-taking app for macOS, Windows, and Lin
 - **Focus mode** - Distraction-free writing with animated sidebar/toolbar fade (`Cmd+Shift+Enter`)
 - **Edit with Claude Code, OpenAI Codex, OpenCode, or Ollama** - Use your local CLI to edit notes with AI (including fully offline via Ollama)
 - **Works with other AI agents** - Detects external file changes
-- **Folders** - Opt-in collapsible folder tree with drag-and-drop to organize notes
+- **Folders** - Opt-in collapsible folder tree with drag-and-drop, note sorting, and one-click collapse
+- **Multiple windows and workspaces** - Edit notes and folders side by side in independent windows
 - **Keyboard optimized** - Lots of shortcuts and a command palette
-- **Customizable** - Theme, typography, page width, and RTL text direction
+- **Customizable** - Theme, typography, page width, toolbar visibility, title-bar information, and RTL text direction
 - **Git integration** - Optional version control with push/pull for multi-device sync
 - **Lightweight** - 5-10x smaller than Obsidian or Notion
 

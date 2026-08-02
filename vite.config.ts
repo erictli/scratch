@@ -60,6 +60,11 @@ export default defineConfig(async () => ({
             "@tiptap/extension-table-cell",
             "@tiptap/extension-table-header",
             "@tiptap/extension-code-block-lowlight",
+            "@tiptap/extension-drag-handle-react",
+            "@tiptap/extension-highlight",
+            "@tiptap/extension-subscript",
+            "@tiptap/extension-superscript",
+            "@tiptap/extension-text-style",
           ],
           // Syntax highlighting
           "highlight": ["lowlight", "highlight.js"],

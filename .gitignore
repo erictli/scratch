@@ -11,12 +11,19 @@ node_modules
 dist
 dist-ssr
 *.local
+*.app/
+*.dmg
+*.AppImage
+*.deb
+*.msi
+*.exe
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+**/.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
@@ -26,6 +33,14 @@ dist-ssr
 # Rust / Tauri
 src-tauri/target/
 src-tauri/gen/
+
+# Local development and QA artifacts
+.codex/
+.qa-dragdrop/
+.playwright-mcp/
+graphify-out/
+design-qa/
+design-qa.md
 
 # Build secrets
 .env.build

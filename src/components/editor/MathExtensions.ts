@@ -32,22 +32,6 @@ export const ScratchBlockMath = BlockMath.extend({
     return [
       new Plugin({
         key: new PluginKey("blockMathSelection"),
-        view() {
-          return {
-            // Clear native DOM selection when a blockMath node is selected.
-            // ProseMirror's NodeSelection sets a DOM selection that spans all
-            // content before the atom node, causing a visible highlight bleed.
-            update(view) {
-              const { selection } = view.state;
-              if (
-                selection instanceof NodeSelection &&
-                selection.node.type.name === "blockMath"
-              ) {
-                window.getSelection()?.removeAllRanges();
-              }
-            },
-          };
-        },
         props: {
           // Open editor on Enter or Space when a blockMath node is selected
           handleKeyDown(view, event) {

@@ -53,6 +53,7 @@ import {
 } from "../icons";
 import { mod, shift } from "../../lib/platform";
 import type { AiProvider } from "../../services/ai";
+import { SETTINGS_CHANGED_DOM_EVENT } from "../../lib/settingsScope";
 
 interface Command {
   id: string;
@@ -116,6 +117,19 @@ export function CommandPalette({
       notesService.getSettings().then(setSettings);
     }
   }, [open, currentNote?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleSettingsChanged = () => {
+      void notesService.getSettings().then(setSettings);
+    };
+    window.addEventListener(SETTINGS_CHANGED_DOM_EVENT, handleSettingsChanged);
+    return () =>
+      window.removeEventListener(
+        SETTINGS_CHANGED_DOM_EVENT,
+        handleSettingsChanged,
+      );
+  }, [open]);
 
   useEffect(() => {
     if (!open || !currentNote) {
