@@ -13,6 +13,7 @@ dependencies = [
  "objc2-foundation",
  "open",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "tantivy",
