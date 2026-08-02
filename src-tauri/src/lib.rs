@@ -3387,7 +3387,7 @@ async fn ai_execute_ollama(
         .await
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
-    let stdin_input = format!(
+    let full_prompt = format!(
         "You are a markdown editor. Edit the markdown content below according to the user's instructions.\n\
          Return ONLY the complete edited markdown content.\n\
          Do NOT include any explanation, commentary, or code fences around the output.\n\
@@ -3404,97 +3404,105 @@ async fn ai_execute_ollama(
         trimmed.to_string()
     };
 
-    // Check if the model is available locally before running (skip for cloud models)
-    if !model_name.contains("cloud") {
-        let mn = model_name.clone();
-        let available = tauri::async_runtime::spawn_blocking(move || {
-            let path = get_expanded_path();
-            let mut cmd = no_window_cmd("ollama");
-            cmd.env("PATH", &path);
-            cmd.args(["show", &mn]);
-            cmd.stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
-            match cmd.status() {
-                Ok(status) => status.success(),
-                Err(_) => false,
-            }
-        })
+    let client = reqwest::Client::new();
+    let response = match client
+        .post("http://localhost:11434/api/generate")
+        .json(&serde_json::json!({
+            "model": model_name,
+            "prompt": full_prompt,
+            // Ollama returns thinking output in a separate "thinking" field
+            // from "response", so enabling it doesn't leak into the note content.
+            "think": true,
+            "stream": false,
+        }))
+        .send()
         .await
-        .unwrap_or(false);
-
-        if !available {
+    {
+        Ok(response) => response,
+        Err(e) if e.is_connect() => {
             return Ok(AiExecutionResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!(
-                    "Model '{}' is not installed. Run: ollama pull {}",
-                    model_name, model_name
-                )),
+                error: Some(
+                    "Could not connect to Ollama. Make sure it's running (`ollama serve`)."
+                        .to_string(),
+                ),
             });
         }
-    }
-
-    let result = execute_ai_cli(
-        "Ollama",
-        "ollama".to_string(),
-        vec!["run".to_string(), model_name.clone()],
-        stdin_input,
-        "Ollama CLI not found. Please install it from https://ollama.com".to_string(),
-        None,
-        None,
-    )
-    .await?;
-
-    // Improve error messages for common Ollama failures
-    if !result.success {
-        if let Some(ref err) = result.error {
-            let err_lower = err.to_lowercase();
-            if err_lower.contains("file does not exist")
-                || err_lower.contains("pull model manifest")
-                || err_lower.contains("model not found")
-                || err_lower.contains("model does not exist")
-            {
-                return Ok(AiExecutionResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!(
-                        "Model '{}' not found. Run `ollama pull {}` in your terminal to download it.",
-                        model_name, model_name
-                    )),
-                });
-            }
-            if err.contains("401") || err.contains("Unauthorized") {
-                return Ok(AiExecutionResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some("Authentication required. Run `ollama login` in your terminal to sign in.".to_string()),
-                });
-            }
-        }
-    }
-
-    // If successful, write the output back to the file
-    if result.success {
-        let edited_content = result.output.trim().to_string();
-        if edited_content.is_empty() {
+        Err(e) => {
             return Ok(AiExecutionResult {
                 success: false,
                 output: String::new(),
-                error: Some("Ollama returned empty output. Please try again.".to_string()),
+                error: Some(format!("Failed to reach Ollama: {}", e)),
             });
         }
-        tokio::fs::write(&canonical, edited_content.as_bytes())
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        #[derive(Deserialize)]
+        struct OllamaError {
+            error: String,
+        }
+
+        let message = response
+            .json::<OllamaError>()
             .await
-            .map_err(|e| format!("Failed to write edited file: {}", e))?;
+            .map(|e| e.error)
+            .unwrap_or_else(|_| format!("Ollama request failed with status {}", status));
 
-        Ok(AiExecutionResult {
-            success: true,
-            output: "Note edited successfully with Ollama.".to_string(),
-            error: None,
-        })
-    } else {
-        Ok(result)
+        let error = if status == reqwest::StatusCode::NOT_FOUND {
+            format!(
+                "Model '{}' not found. Run `ollama pull {}` in your terminal to download it.",
+                model_name, model_name
+            )
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            "Authentication required. Run `ollama login` in your terminal to sign in.".to_string()
+        } else {
+            message
+        };
+
+        return Ok(AiExecutionResult {
+            success: false,
+            output: String::new(),
+            error: Some(error),
+        });
     }
+
+    #[derive(Deserialize)]
+    struct OllamaGenerateResponse {
+        response: String,
+        #[serde(default)]
+        thinking: String,
+    }
+
+    let body: OllamaGenerateResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+
+    if !body.thinking.is_empty() {
+        eprintln!("Ollama thinking output ({} chars, discarded)", body.thinking.len());
+    }
+
+    let edited_content = body.response.trim().to_string();
+    if edited_content.is_empty() {
+        return Ok(AiExecutionResult {
+            success: false,
+            output: String::new(),
+            error: Some("Ollama returned empty output. Please try again.".to_string()),
+        });
+    }
+
+    tokio::fs::write(&canonical, edited_content.as_bytes())
+        .await
+        .map_err(|e| format!("Failed to write edited file: {}", e))?;
+
+    Ok(AiExecutionResult {
+        success: true,
+        output: "Note edited successfully with Ollama.".to_string(),
+        error: None,
+    })
 }
 
 /// Check if a markdown file is inside the configured notes folder.
