@@ -3404,7 +3404,13 @@ async fn ai_execute_ollama(
         trimmed.to_string()
     };
 
-    let client = reqwest::Client::new();
+    // Non-streaming generation of a whole note can be slow (model load + full
+    // response), so this needs a generous timeout rather than none at all —
+    // otherwise a stalled Ollama request hangs the command forever.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     let response = match client
         .post("http://localhost:11434/api/generate")
         .json(&serde_json::json!({
@@ -3425,6 +3431,16 @@ async fn ai_execute_ollama(
                 output: String::new(),
                 error: Some(
                     "Could not connect to Ollama. Make sure it's running (`ollama serve`)."
+                        .to_string(),
+                ),
+            });
+        }
+        Err(e) if e.is_timeout() => {
+            return Ok(AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(
+                    "Ollama did not respond in time. The model may still be loading."
                         .to_string(),
                 ),
             });
@@ -3472,17 +3488,27 @@ async fn ai_execute_ollama(
     #[derive(Deserialize)]
     struct OllamaGenerateResponse {
         response: String,
+        // Option, not String: models without thinking support can send this
+        // back as explicit JSON null rather than omitting it or using "".
         #[serde(default)]
-        thinking: String,
+        thinking: Option<String>,
     }
 
-    let body: OllamaGenerateResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+    let body: OllamaGenerateResponse = match response.json().await {
+        Ok(body) => body,
+        Err(e) => {
+            return Ok(AiExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to parse Ollama response: {}", e)),
+            });
+        }
+    };
 
-    if !body.thinking.is_empty() {
-        eprintln!("Ollama thinking output ({} chars, discarded)", body.thinking.len());
+    if let Some(thinking) = &body.thinking {
+        if !thinking.is_empty() {
+            eprintln!("Ollama thinking output ({} chars, discarded)", thinking.len());
+        }
     }
 
     let edited_content = body.response.trim().to_string();
