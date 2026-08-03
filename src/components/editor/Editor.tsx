@@ -70,6 +70,29 @@ import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
+import {
+  ScratchColor,
+  ScratchHighlight,
+  ScratchSubscript,
+  ScratchSuperscript,
+  ScratchTextStyle,
+} from "./notion/markdownMarks";
+import { ScratchTextSelection } from "./notion/selectionDecoration";
+import {
+  parseMarkdownDocument,
+  serializeMarkdownDocument,
+} from "./notion/markdownDocument";
+import { ScratchTableRow } from "./notion/tableExtensions";
+import { ScratchTableMetadata } from "./notion/tableMetadata";
+import { ScratchTableView } from "./notion/tableView";
+import { replaceEditorContentWithoutHistory } from "./editorHistory";
+import {
+  pasteTableTsv,
+  serializeTableCellSelectionToTsv,
+  shouldRejectTablePaste,
+} from "./notion/tableClipboard";
+import { SelectionMenu } from "./notion/NotionMenus";
+import { TableControls } from "./notion/TableControls";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { getTitleBarNoteInfoText } from "../../lib/titleBarNoteInfo";
@@ -687,7 +710,10 @@ export function Editor({
       if (!editorInstance) return "";
       const manager = editorInstance.storage.markdown?.manager;
       if (manager) {
-        let markdown = manager.serialize(editorInstance.getJSON());
+        let markdown = serializeMarkdownDocument(
+          manager,
+          editorInstance.getJSON(),
+        );
         // Clean up nbsp entities that TipTap inserts (especially in table cells)
         markdown = markdown.replace(/&nbsp;|&#160;/g, " ");
         return markdown;
@@ -1294,6 +1320,7 @@ export function Editor({
           levels: [1, 2, 3, 4, 5, 6],
         },
         codeBlock: false,
+        link: false,
       }),
       CodeBlockLowlight.extend({
         addNodeView() {
@@ -1344,15 +1371,28 @@ export function Editor({
         nested: true,
       }),
       TableKit.configure({
+        tableRow: false,
         table: {
-          resizable: false,
+          resizable: true,
+          handleWidth: 6,
+          cellMinWidth: 80,
+          lastColumnResizable: true,
+          View: ScratchTableView,
           HTMLAttributes: {
             class: "not-prose",
           },
         },
       }),
+      ScratchTableRow,
+      ScratchTableMetadata,
+      ScratchTextStyle,
+      ScratchColor,
+      ScratchHighlight.configure({ multicolor: true }),
+      ScratchSubscript,
+      ScratchSuperscript,
       Frontmatter,
       Markdown.configure({}),
+      ScratchTextSelection,
       SearchHighlight.configure({
         matches: [],
         currentIndex: 0,
@@ -1381,12 +1421,17 @@ export function Editor({
       },
       // Serialize copied text as markdown instead of plain text
       clipboardTextSerializer: (slice) => {
+        const currentEditor = editorRef.current;
+        const tableTsv = currentEditor
+          ? serializeTableCellSelectionToTsv(currentEditor)
+          : null;
+        if (tableTsv !== null) return tableTsv;
+
         const fallback = slice.content.textBetween(
           0,
           slice.content.size,
           "\n\n",
         );
-        const currentEditor = editorRef.current;
         const manager = currentEditor?.storage.markdown?.manager;
         if (!currentEditor || !manager) return fallback;
         try {
@@ -1394,7 +1439,7 @@ export function Editor({
             null,
             slice.content,
           );
-          return manager.serialize(doc.toJSON());
+          return serializeMarkdownDocument(manager, doc.toJSON());
         } catch {
           return fallback;
         }
@@ -1459,9 +1504,34 @@ export function Editor({
           }
         }
 
+        const currentEditor = editorRef.current;
+        const isInsideTableCell = Boolean(
+          currentEditor &&
+            (currentEditor.isActive("tableCell") ||
+              currentEditor.isActive("tableHeader")),
+        );
+        const clipboardHtml = clipboardData.getData("text/html");
+        if (
+          shouldRejectTablePaste({
+            isInsideTableCell,
+            html: clipboardHtml,
+            parsedContent: null,
+          })
+        ) {
+          toast.error("A table can’t be pasted inside a table cell");
+          return true;
+        }
+
         // Handle markdown text paste
         const text = clipboardData.getData("text/plain");
         if (!text) return false;
+        if (
+          isInsideTableCell &&
+          currentEditor &&
+          pasteTableTsv(currentEditor, text)
+        ) {
+          return true;
+        }
 
         // Check if text looks like markdown (has common markdown patterns)
         const markdownPatterns =
@@ -1472,14 +1542,23 @@ export function Editor({
         }
 
         // Parse markdown and insert using editor ref
-        const currentEditor = editorRef.current;
         if (!currentEditor) return false;
 
         const manager = currentEditor.storage.markdown?.manager;
         if (manager && typeof manager.parse === "function") {
           try {
-            const parsed = manager.parse(text);
+            const parsed = parseMarkdownDocument(manager, text);
             if (parsed) {
+              if (
+                shouldRejectTablePaste({
+                  isInsideTableCell,
+                  html: clipboardHtml,
+                  parsedContent: parsed,
+                })
+              ) {
+                toast.error("A table can’t be pasted inside a table cell");
+                return true;
+              }
               currentEditor.commands.insertContent(parsed);
               return true;
             }
@@ -1494,8 +1573,9 @@ export function Editor({
     onCreate: ({ editor: editorInstance }) => {
       editorRef.current = editorInstance;
     },
-    onUpdate: () => {
+    onUpdate: ({ transaction }) => {
       if (isLoadingRef.current) return;
+      if (transaction.getMeta("scratchTableRowResizePreview")) return;
       scheduleSave();
     },
     onSelectionUpdate: () => {
@@ -1726,17 +1806,20 @@ export function Editor({
         // Manual reload - update the editor content
         lastReloadVersionRef.current = reloadVersion;
         loadedModifiedRef.current = currentNote.modified;
+        needsSaveRef.current = false;
+        sourceNeedsSaveRef.current = false;
+        setIsDirty(false);
         isLoadingRef.current = true;
         const manager = editor.storage.markdown?.manager;
         if (manager) {
           try {
-            const parsed = manager.parse(currentNote.content);
-            editor.commands.setContent(parsed);
+            const parsed = parseMarkdownDocument(manager, currentNote.content);
+            replaceEditorContentWithoutHistory(editor, parsed);
           } catch {
-            editor.commands.setContent(currentNote.content);
+            replaceEditorContentWithoutHistory(editor, currentNote.content);
           }
         } else {
-          editor.commands.setContent(currentNote.content);
+          replaceEditorContentWithoutHistory(editor, currentNote.content);
         }
         isLoadingRef.current = false;
         return;
@@ -1752,6 +1835,9 @@ export function Editor({
 
     loadedNoteIdRef.current = loadingNoteId;
     loadedModifiedRef.current = currentNote.modified;
+    needsSaveRef.current = false;
+    sourceNeedsSaveRef.current = false;
+    setIsDirty(false);
 
     isLoadingRef.current = true;
 
@@ -1762,14 +1848,14 @@ export function Editor({
     const manager = editor.storage.markdown?.manager;
     if (manager) {
       try {
-        const parsed = manager.parse(currentNote.content);
-        editor.commands.setContent(parsed);
+        const parsed = parseMarkdownDocument(manager, currentNote.content);
+        replaceEditorContentWithoutHistory(editor, parsed);
       } catch {
         // Fallback to plain text if parsing fails
-        editor.commands.setContent(currentNote.content);
+        replaceEditorContentWithoutHistory(editor, currentNote.content);
       }
     } else {
-      editor.commands.setContent(currentNote.content);
+      replaceEditorContentWithoutHistory(editor, currentNote.content);
     }
 
     // Scroll to top after content is set (must be after setContent to work reliably)
@@ -2266,13 +2352,13 @@ export function Editor({
       const manager = editor.storage.markdown?.manager;
       if (manager) {
         try {
-          const parsed = manager.parse(sourceContent);
-          editor.commands.setContent(parsed);
+          const parsed = parseMarkdownDocument(manager, sourceContent);
+          replaceEditorContentWithoutHistory(editor, parsed);
         } catch {
-          editor.commands.setContent(sourceContent);
+          replaceEditorContentWithoutHistory(editor, sourceContent);
         }
       } else {
-        editor.commands.setContent(sourceContent);
+        replaceEditorContentWithoutHistory(editor, sourceContent);
       }
       setSourceMode(false);
     }
@@ -2933,13 +3019,15 @@ export function Editor({
                           editor.chain().focus().addColumnAfter().run(),
                       }),
                     );
-                    menuItems.push(
-                      await MenuItem.new({
-                        text: "Delete Column",
-                        action: () =>
-                          editor.chain().focus().deleteColumn().run(),
-                      }),
-                    );
+                    if (rowNode.childCount > 1) {
+                      menuItems.push(
+                        await MenuItem.new({
+                          text: "Delete Column",
+                          action: () =>
+                            editor.chain().focus().deleteColumn().run(),
+                        }),
+                      );
+                    }
                     menuItems.push(
                       await PredefinedMenuItem.new({ item: "Separator" }),
                     );
@@ -2961,12 +3049,15 @@ export function Editor({
                           editor.chain().focus().addRowAfter().run(),
                       }),
                     );
-                    menuItems.push(
-                      await MenuItem.new({
-                        text: "Delete Row",
-                        action: () => editor.chain().focus().deleteRow().run(),
-                      }),
-                    );
+                    if (tableNode.childCount > 1) {
+                      menuItems.push(
+                        await MenuItem.new({
+                          text: "Delete Row",
+                          action: () =>
+                            editor.chain().focus().deleteRow().run(),
+                        }),
+                      );
+                    }
                     menuItems.push(
                       await PredefinedMenuItem.new({ item: "Separator" }),
                     );
@@ -3003,7 +3094,19 @@ export function Editor({
                   }
                 }}
               >
-                <EditorContent editor={editor} className="h-full text-text" />
+                <EditorContent
+                  editor={editor}
+                  className="notion-editor-shell h-full text-text"
+                />
+                {editor && (
+                  <>
+                    <SelectionMenu
+                      editor={editor}
+                      onEditLink={handleAddLink}
+                    />
+                    <TableControls editor={editor} />
+                  </>
+                )}
               </div>
             </>
           )}
