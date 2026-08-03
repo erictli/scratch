@@ -4,11 +4,21 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getSettings, updateSettings } from "../services/notes";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
+import { resolveEditorWidthResizeEnabled } from "../lib/editorWidthResize";
+import { resolveEditorToolbarVisible } from "../lib/editorToolbar";
+import {
+  DEFAULT_TITLE_BAR_NOTE_INFO_VISIBILITY,
+  resolveTitleBarNoteInfoVisibility,
+  updateTitleBarNoteInfoVisibility,
+  type TitleBarNoteInfoKind,
+  type TitleBarNoteInfoVisibility,
+} from "../lib/titleBarNoteInfo";
 import type {
   ThemeSettings,
   EditorFontSettings,
@@ -17,6 +27,7 @@ import type {
   EditorWidth,
   CustomColors,
   ThemeColorKey,
+  Settings,
 } from "../types/note";
 
 type ThemeMode = "light" | "dark" | "system";
@@ -112,6 +123,14 @@ interface ThemeContextType {
   setInterfaceZoom: (zoomOrUpdater: number | ((prev: number) => number)) => void;
   customEditorWidthPx: number;
   setCustomEditorWidthPx: (px: number) => void;
+  editorWidthResizeEnabled: boolean;
+  setEditorWidthResizeEnabled: (enabled: boolean) => void;
+  editorToolbarVisible: boolean;
+  setEditorToolbarVisible: (visible: boolean) => void;
+  titleBarModifiedDateVisible: boolean;
+  setTitleBarModifiedDateVisible: (visible: boolean) => void;
+  titleBarFilenameVisible: boolean;
+  setTitleBarFilenameVisible: (visible: boolean) => void;
   setEditorMaxWidthLive: (value: string) => void;
   sidebarWidthPx: number | null;
   setSidebarWidthPx: (px: number | null) => void;
@@ -191,10 +210,32 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [customEditorWidthPx, setCustomEditorWidthPxState] = useState<number>(
     DEFAULT_CUSTOM_WIDTH_PX
   );
+  const [editorWidthResizeEnabled, setEditorWidthResizeEnabledState] =
+    useState(true);
+  const [editorToolbarVisible, setEditorToolbarVisibleState] = useState(false);
+  const [titleBarNoteInfoVisibility, setTitleBarNoteInfoVisibility] =
+    useState<TitleBarNoteInfoVisibility>(
+      DEFAULT_TITLE_BAR_NOTE_INFO_VISIBILITY,
+    );
   const [sidebarWidthPx, setSidebarWidthPxState] = useState<number | null>(null);
   const [customColorsLight, setCustomColorsLightState] = useState<CustomColors>({});
   const [customColorsDark, setCustomColorsDarkState] = useState<CustomColors>({});
   const [isInitialized, setIsInitialized] = useState(false);
+  const titleBarNoteInfoVisibilityRef = useRef<TitleBarNoteInfoVisibility>(
+    DEFAULT_TITLE_BAR_NOTE_INFO_VISIBILITY,
+  );
+  const applyTitleBarNoteInfoVisibility = useCallback(
+    (visibility: TitleBarNoteInfoVisibility) => {
+      titleBarNoteInfoVisibilityRef.current = visibility;
+      setTitleBarNoteInfoVisibility(visibility);
+    },
+    [],
+  );
+
+  const updateSettingsPatch = useCallback(async (patch: Partial<Settings>) => {
+    const settings = await getSettings();
+    await updateSettings({ ...settings, ...patch });
+  }, []);
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -247,6 +288,18 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       ) {
         setCustomEditorWidthPxState(settings.customEditorWidthPx);
       }
+      setEditorWidthResizeEnabledState(
+        resolveEditorWidthResizeEnabled(settings.editorWidthResizeEnabled),
+      );
+      setEditorToolbarVisibleState(
+        resolveEditorToolbarVisible(settings.editorToolbarVisible),
+      );
+      applyTitleBarNoteInfoVisibility(
+        resolveTitleBarNoteInfoVisibility(
+          settings.titleBarModifiedDateVisible,
+          settings.titleBarFilenameVisible,
+        ),
+      );
       if (
         typeof settings.sidebarWidthPx === "number" &&
         settings.sidebarWidthPx >= SIDEBAR_MIN_PX &&
@@ -263,7 +316,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     } catch {
       // If settings can't be loaded, use defaults
     }
-  }, []);
+  }, [applyTitleBarNoteInfoVisibility]);
 
   // Reload settings from backend (exposed to context consumers)
   const reloadSettings = useCallback(async () => {
@@ -399,6 +452,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setEditorWidthState("normal");
     setInterfaceZoomState(1.0);
     setCustomEditorWidthPxState(DEFAULT_CUSTOM_WIDTH_PX);
+    setEditorWidthResizeEnabledState(true);
+    setEditorToolbarVisibleState(false);
+    applyTitleBarNoteInfoVisibility(DEFAULT_TITLE_BAR_NOTE_INFO_VISIBILITY);
     setSidebarWidthPxState(null);
     setCustomColorsLightState({});
     setCustomColorsDarkState({});
@@ -411,6 +467,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         editorWidth: "normal",
         interfaceZoom: 1.0,
         customEditorWidthPx: undefined,
+        editorWidthResizeEnabled: undefined,
+        editorToolbarVisible: undefined,
+        titleBarModifiedDateVisible: undefined,
+        titleBarFilenameVisible: undefined,
         sidebarWidthPx: undefined,
         customColorsLight: undefined,
         customColorsDark: undefined,
@@ -418,7 +478,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     } catch (error) {
       console.error("Failed to reset editor settings:", error);
     }
-  }, []);
+  }, [applyTitleBarNoteInfoVisibility]);
 
   // Save and set text direction
   const setTextDirection = useCallback(async (dir: TextDirection) => {
@@ -483,6 +543,58 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       console.error("Failed to save custom editor width:", error);
     }
   }, []);
+
+  const setEditorWidthResizeEnabled = useCallback(
+    async (enabled: boolean) => {
+      setEditorWidthResizeEnabledState(enabled);
+      try {
+        await updateSettingsPatch({ editorWidthResizeEnabled: enabled });
+      } catch (error) {
+        console.error("Failed to save editor width resize setting:", error);
+      }
+    },
+    [updateSettingsPatch],
+  );
+
+  const setEditorToolbarVisible = useCallback(
+    async (visible: boolean) => {
+      setEditorToolbarVisibleState(visible);
+      try {
+        await updateSettingsPatch({ editorToolbarVisible: visible });
+      } catch (error) {
+        console.error("Failed to save editor toolbar setting:", error);
+      }
+    },
+    [updateSettingsPatch],
+  );
+
+  const updateTitleBarNoteInfo = useCallback(
+    (kind: TitleBarNoteInfoKind, visible: boolean) => {
+      const next = updateTitleBarNoteInfoVisibility(
+        titleBarNoteInfoVisibilityRef.current,
+        kind,
+        visible,
+      );
+      applyTitleBarNoteInfoVisibility(next);
+      void updateSettingsPatch({
+        titleBarModifiedDateVisible: next.modifiedDateVisible,
+        titleBarFilenameVisible: next.filenameVisible,
+      }).catch((error) => {
+        console.error("Failed to save title bar information setting:", error);
+      });
+    },
+    [applyTitleBarNoteInfoVisibility, updateSettingsPatch],
+  );
+
+  const setTitleBarModifiedDateVisible = useCallback(
+    (visible: boolean) => updateTitleBarNoteInfo("modifiedDate", visible),
+    [updateTitleBarNoteInfo],
+  );
+
+  const setTitleBarFilenameVisible = useCallback(
+    (visible: boolean) => updateTitleBarNoteInfo("filename", visible),
+    [updateTitleBarNoteInfo],
+  );
 
   /**
    * Persists the clamped sidebar width to settings.
@@ -626,6 +738,15 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         setInterfaceZoom,
         customEditorWidthPx,
         setCustomEditorWidthPx,
+        editorWidthResizeEnabled,
+        setEditorWidthResizeEnabled,
+        editorToolbarVisible,
+        setEditorToolbarVisible,
+        titleBarModifiedDateVisible:
+          titleBarNoteInfoVisibility.modifiedDateVisible,
+        setTitleBarModifiedDateVisible,
+        titleBarFilenameVisible: titleBarNoteInfoVisibility.filenameVisible,
+        setTitleBarFilenameVisible,
         setEditorMaxWidthLive,
         sidebarWidthPx,
         setSidebarWidthPx,
