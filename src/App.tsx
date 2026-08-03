@@ -8,10 +8,7 @@ import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
 import { SidebarResizeHandle } from "./components/layout/SidebarResizeHandle";
 import { SIDEBAR_DEFAULT_PX } from "./lib/sidebar";
-import {
-  Editor,
-  type EditorPersistenceController,
-} from "./components/editor/Editor";
+import { Editor } from "./components/editor/Editor";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
@@ -32,13 +29,16 @@ import {
   type Update,
 } from "@tauri-apps/plugin-updater";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open } from "@tauri-apps/plugin-dialog";
 import * as aiService from "./services/ai";
 import * as notesService from "./services/notes";
 import type { AiProvider } from "./services/ai";
 import { isMac, isWindows } from "./lib/platform";
+import { shouldSyncMainFolderLocation } from "./lib/workspace";
+import { runSafeWindowClose } from "./lib/windowClose";
+import { useWindowSessionPersistence } from "./lib/useWindowSessionPersistence";
 import { closeWindowAfterSave } from "./services/windowLifecycle";
 import { useWindowShortcuts } from "./lib/useWindowShortcuts";
-import { runSafeWindowClose } from "./lib/windowClose";
 
 // Detect preview mode from URL search params
 function getWindowMode(): {
@@ -72,6 +72,10 @@ function AppContent() {
     reloadCurrentNote,
     currentNote,
     syncNotesFolder,
+    flushCurrentDraft,
+    persistCurrentDraftRecovery,
+    restoredWindowSession,
+    isWindowSessionRestored,
   } = useNotes();
   const { reloadSettings } = useTheme();
   const currentNoteRef = useRef(currentNote);
@@ -85,51 +89,50 @@ function AppContent() {
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
-  const persistenceControllerRef = useRef<EditorPersistenceController | null>(
-    null,
-  );
   const closeInProgressRef = useRef(false);
-
-  const handlePersistenceControllerReady = useCallback(
-    (controller: EditorPersistenceController | null) => {
-      persistenceControllerRef.current = controller;
-    },
-    [],
-  );
+  const flushWindowSession = useWindowSessionPersistence({
+    notesFolder,
+    selectedNoteId,
+    sidebarVisible,
+    setSidebarVisible,
+    focusMode,
+    setFocusMode,
+    restoredSession: restoredWindowSession,
+    isRestored: isWindowSessionRestored,
+  });
 
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     const appWindow = getCurrentWindow();
 
-    void appWindow.onCloseRequested((event) => {
+    appWindow.onCloseRequested((event) => {
       if (closeInProgressRef.current) return;
       event.preventDefault();
       closeInProgressRef.current = true;
 
       void runSafeWindowClose({
-        flushDraft: () =>
-          persistenceControllerRef.current?.flush() ?? Promise.resolve(),
-        persistRecovery: async () => {
-          const draft = persistenceControllerRef.current?.getDraft();
-          const note = currentNoteRef.current;
-          if (!draft?.dirty || !draft.noteId || !note) return undefined;
-          return notesService.persistRecoverySnapshot({
-            noteId: draft.noteId,
-            sourcePath: note.path,
-            content: draft.content,
-            reason: "window-close",
-          });
+        flushDraft: flushCurrentDraft,
+        persistRecovery: () =>
+          persistCurrentDraftRecovery("window-close"),
+        closeWindow: async () => {
+          await flushWindowSession();
+          await closeWindowAfterSave();
         },
-        closeWindow: closeWindowAfterSave,
-      }).catch((error) => {
-        closeInProgressRef.current = false;
-        if (!disposed) {
-          toast.error(
-            `Window kept open because the draft could not be saved: ${error}`,
-          );
-        }
-      });
+      })
+        .then((result) => {
+          if (result.recoveredTo) {
+            toast.warning(`Draft recovered to ${result.recoveredTo}`);
+          }
+        })
+        .catch((error) => {
+          closeInProgressRef.current = false;
+          if (!disposed) {
+            toast.error(
+              `Window kept open because the draft could not be saved: ${error}`,
+            );
+          }
+        });
     }).then((removeListener) => {
       if (disposed) removeListener();
       else unlisten = removeListener;
@@ -139,7 +142,7 @@ function AppContent() {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [flushCurrentDraft, flushWindowSession, persistCurrentDraftRecovery]);
 
   // Listen for set-notes-folder event from CLI (scratch .)
   // Placed here in AppContent where both NotesContext and ThemeContext are available
@@ -147,6 +150,7 @@ function AppContent() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     listen<string>("set-notes-folder", async (event) => {
+      if (!shouldSyncMainFolderLocation(getCurrentWindow().label)) return;
       await syncNotesFolder(event.payload);
       await reloadSettings();
     }).then((fn) => {
@@ -178,16 +182,14 @@ function AppContent() {
   const toggleSettings = useCallback(async () => {
     if (view === "notes") {
       try {
-        await persistenceControllerRef.current?.flush();
+        await flushCurrentDraft();
       } catch (error) {
         toast.error(`Settings not opened: ${error}`);
         return;
       }
     }
-    setView((previous) =>
-      previous === "settings" ? "notes" : "settings",
-    );
-  }, [view]);
+    setView((previous) => (previous === "settings" ? "notes" : "settings"));
+  }, [flushCurrentDraft, view]);
 
   const closeSettings = useCallback(() => {
     setView("notes");
@@ -521,16 +523,13 @@ function AppContent() {
               <Sidebar onOpenSettings={toggleSettings} />
               {sidebarVisible && !focusMode && <SidebarResizeHandle />}
             </div>
-             <Editor
+            <Editor
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible}
               focusMode={focusMode}
-               onEditorReady={(editor) => {
-                 editorRef.current = editor;
-               }}
-               onPersistenceControllerReady={
-                 handlePersistenceControllerReady
-               }
+              onEditorReady={(editor) => {
+                editorRef.current = editor;
+              }}
             />
           </>
         )}
@@ -704,6 +703,35 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Native File > Open Folder… works from any focused window, including a
+  // standalone Markdown editor or Preferences.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("open-folder-in-new-window", async () => {
+      try {
+        const selected = await open({
+          directory: true,
+          multiple: false,
+          title: "Open Folder",
+        });
+        if (!disposed && typeof selected === "string") {
+          await notesService.openWorkspaceWindow(selected);
+        }
+      } catch (error) {
+        console.error("Failed to open folder:", error);
+        if (!disposed) toast.error("Failed to open folder");
+      }
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   // Add platform class for OS-specific styling (e.g., keyboard shortcuts)

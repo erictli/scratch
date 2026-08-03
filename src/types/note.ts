@@ -11,9 +11,17 @@ export interface Note {
   content: string;
   path: string;
   modified: number;
-  /** Content revision is present for standalone optimistic-concurrency saves. */
-  revision?: string;
+  revision: string;
 }
+
+export interface NoteConflictSnapshot {
+  content: string;
+  revision: string;
+}
+
+export type SaveNoteResult =
+  | { status: "saved"; note: Note }
+  | { status: "conflict"; current: NoteConflictSnapshot | null };
 
 export interface ThemeSettings {
   mode: "light" | "dark" | "system";

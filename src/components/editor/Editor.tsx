@@ -73,6 +73,7 @@ import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { getTitleBarNoteInfoText } from "../../lib/titleBarNoteInfo";
+import { SETTINGS_CHANGED_DOM_EVENT } from "../../lib/settingsScope";
 import type { ConflictResolutionStrategy } from "../../lib/conflictResolution";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
@@ -560,19 +561,24 @@ export function Editor({
         await previewMode.save(content);
       }
     : notesCtx!.saveNote;
+  const registerWorkspaceTransitionFlush =
+    notesCtx?.registerWorkspaceTransitionFlush;
+  const registerOpenNoteDraft = notesCtx?.registerOpenNoteDraft;
 
   const createNote = notesCtx?.createNote;
   const consumePendingNewNote = notesCtx?.consumePendingNewNote;
   const hasExternalChanges = previewMode
     ? previewMode.hasExternalChanges
     : notesCtx!.hasExternalChanges;
-  const hasSaveConflict = previewMode ? previewMode.hasSaveConflict : false;
+  const hasSaveConflict = previewMode
+    ? previewMode.hasSaveConflict
+    : Boolean(notesCtx!.noteConflict);
   const reloadCurrentNote = previewMode
     ? previewMode.reload
     : notesCtx!.reloadCurrentNote;
   const resolveNoteConflict = previewMode
     ? previewMode.resolveConflict
-    : undefined;
+    : notesCtx!.resolveNoteConflict;
   const reloadVersion = previewMode
     ? previewMode.reloadVersion
     : notesCtx!.reloadVersion;
@@ -703,6 +709,21 @@ export function Editor({
         });
     }
   }, [currentNote?.id, notes, previewMode]);
+
+  useEffect(() => {
+    if (previewMode) return;
+    const handleSettingsChanged = () => {
+      void notesService.getSettings().then(setSettings).catch((error) => {
+        console.error("Failed to reload editor settings:", error);
+      });
+    };
+    window.addEventListener(SETTINGS_CHANGED_DOM_EVENT, handleSettingsChanged);
+    return () =>
+      window.removeEventListener(
+        SETTINGS_CHANGED_DOM_EVENT,
+        handleSettingsChanged,
+      );
+  }, [previewMode]);
 
   // Calculate if current note is pinned
   const isPinned =
@@ -907,6 +928,11 @@ export function Editor({
     await flushPendingSave();
   }, [flushPendingSave, flushSourceSave]);
 
+  useEffect(() => {
+    if (!registerWorkspaceTransitionFlush) return;
+    return registerWorkspaceTransitionFlush(flushAllPendingSaves);
+  }, [flushAllPendingSaves, registerWorkspaceTransitionFlush]);
+
   const getOpenDraftSnapshot = useCallback(() => {
     const noteId = loadedNoteIdRef.current ?? currentNoteIdRef.current;
     if (sourceMode) {
@@ -922,6 +948,11 @@ export function Editor({
       dirty: needsSaveRef.current,
     };
   }, [getMarkdown, sourceMode]);
+
+  useEffect(() => {
+    if (!registerOpenNoteDraft) return;
+    return registerOpenNoteDraft(getOpenDraftSnapshot);
+  }, [getOpenDraftSnapshot, registerOpenNoteDraft]);
 
   const persistCurrentCrashCheckpoint = useCallback(async () => {
     const draft = getOpenDraftSnapshot();

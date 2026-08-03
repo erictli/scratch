@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for all app windows",
-  "windows": ["main", "preview-*", "preferences"],
+  "windows": ["main", "preview-*", "workspace-*", "preferences"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
@@ -10,6 +10,10 @@
     "core:window:allow-set-focus",
     "core:webview:allow-print",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$HOME/**" }]
+    },
     "opener:allow-open-url",
     "opener:allow-reveal-item-in-dir",
     "dialog:default",

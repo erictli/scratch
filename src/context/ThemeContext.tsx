@@ -8,7 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getSettings, updateSettings } from "../services/notes";
+import { listen } from "@tauri-apps/api/event";
+import { getSettings, updateGlobalSettings } from "../services/notes";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
 import { resolveEditorWidthResizeEnabled } from "../lib/editorWidthResize";
 import { resolveEditorToolbarVisible } from "../lib/editorToolbar";
@@ -27,8 +28,11 @@ import type {
   EditorWidth,
   CustomColors,
   ThemeColorKey,
-  Settings,
 } from "../types/note";
+import {
+  SETTINGS_CHANGED_DOM_EVENT,
+  type SettingsChangedEvent,
+} from "../lib/settingsScope";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -231,12 +235,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     },
     [],
   );
-
-  const updateSettingsPatch = useCallback(async (patch: Partial<Settings>) => {
-    const settings = await getSettings();
-    await updateSettings({ ...settings, ...patch });
-  }, []);
-
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches
       ? "dark"
@@ -330,6 +328,33 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     });
   }, [loadSettingsFromBackend]);
 
+  // One native listener per window fans scoped changes out to local React
+  // consumers. Global appearance changes are reloaded immediately everywhere.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen<SettingsChangedEvent>("settings-changed", (event) => {
+      if (disposed) return;
+      if (event.payload.scope === "global") {
+        void loadSettingsFromBackend();
+      }
+      window.dispatchEvent(
+        new CustomEvent<SettingsChangedEvent>(SETTINGS_CHANGED_DOM_EVENT, {
+          detail: event.payload,
+        }),
+      );
+    }).then((removeListener) => {
+      if (disposed) removeListener();
+      else unlisten = removeListener;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [loadSettingsFromBackend]);
+
   // Listen for system theme changes
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -356,14 +381,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   // Save theme mode to backend
   const saveThemeSettings = useCallback(async (newMode: ThemeMode) => {
     try {
-      const settings = await getSettings();
       const themeSettings: ThemeSettings = {
         mode: newMode,
       };
-      await updateSettings({
-        ...settings,
-        theme: themeSettings,
-      });
+      await updateGlobalSettings({ theme: themeSettings });
     } catch (error) {
       console.error("Failed to save theme settings:", error);
     }
@@ -418,11 +439,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const saveFontSettings = useCallback(
     async (newFontSettings: Required<EditorFontSettings>) => {
       try {
-        const settings = await getSettings();
-        await updateSettings({
-          ...settings,
-          editorFont: newFontSettings,
-        });
+        await updateGlobalSettings({ editorFont: newFontSettings });
       } catch (error) {
         console.error("Failed to save font settings:", error);
       }
@@ -458,34 +475,27 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setSidebarWidthPxState(null);
     setCustomColorsLightState({});
     setCustomColorsDarkState({});
-    try {
-      const settings = await getSettings();
-      await updateSettings({
-        ...settings,
+    await updateGlobalSettings({
         editorFont: defaultEditorFontSettings,
         textDirection: "auto",
         editorWidth: "normal",
         interfaceZoom: 1.0,
-        customEditorWidthPx: undefined,
-        editorWidthResizeEnabled: undefined,
-        editorToolbarVisible: undefined,
-        titleBarModifiedDateVisible: undefined,
-        titleBarFilenameVisible: undefined,
-        sidebarWidthPx: undefined,
-        customColorsLight: undefined,
-        customColorsDark: undefined,
+        customEditorWidthPx: null,
+        editorWidthResizeEnabled: null,
+        editorToolbarVisible: null,
+        titleBarModifiedDateVisible: null,
+        titleBarFilenameVisible: null,
+        sidebarWidthPx: null,
+        customColorsLight: null,
+        customColorsDark: null,
       });
-    } catch (error) {
-      console.error("Failed to reset editor settings:", error);
-    }
   }, [applyTitleBarNoteInfoVisibility]);
 
   // Save and set text direction
   const setTextDirection = useCallback(async (dir: TextDirection) => {
     setTextDirectionState(dir);
     try {
-      const settings = await getSettings();
-      await updateSettings({ ...settings, textDirection: dir });
+      await updateGlobalSettings({ textDirection: dir });
     } catch (error) {
       console.error("Failed to save text direction:", error);
     }
@@ -495,8 +505,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const setEditorWidth = useCallback(async (width: EditorWidth) => {
     setEditorWidthState(width);
     try {
-      const settings = await getSettings();
-      await updateSettings({ ...settings, editorWidth: width });
+      await updateGlobalSettings({ editorWidth: width });
     } catch (error) {
       console.error("Failed to save editor width:", error);
     }
@@ -519,10 +528,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   // Persist interface zoom changes to backend
   useEffect(() => {
     if (!isInitialized) return;
-    getSettings()
-      .then((settings) =>
-        updateSettings({ ...settings, interfaceZoom }),
-      )
+    updateGlobalSettings({ interfaceZoom })
       .catch((error) =>
         console.error("Failed to save interface zoom:", error),
       );
@@ -533,9 +539,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setEditorWidthState("custom");
     setCustomEditorWidthPxState(px);
     try {
-      const settings = await getSettings();
-      await updateSettings({
-        ...settings,
+      await updateGlobalSettings({
         editorWidth: "custom",
         customEditorWidthPx: px,
       });
@@ -544,29 +548,23 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, []);
 
-  const setEditorWidthResizeEnabled = useCallback(
-    async (enabled: boolean) => {
-      setEditorWidthResizeEnabledState(enabled);
-      try {
-        await updateSettingsPatch({ editorWidthResizeEnabled: enabled });
-      } catch (error) {
-        console.error("Failed to save editor width resize setting:", error);
-      }
-    },
-    [updateSettingsPatch],
-  );
+  const setEditorWidthResizeEnabled = useCallback(async (enabled: boolean) => {
+    setEditorWidthResizeEnabledState(enabled);
+    try {
+      await updateGlobalSettings({ editorWidthResizeEnabled: enabled });
+    } catch (error) {
+      console.error("Failed to save editor width resize setting:", error);
+    }
+  }, []);
 
-  const setEditorToolbarVisible = useCallback(
-    async (visible: boolean) => {
-      setEditorToolbarVisibleState(visible);
-      try {
-        await updateSettingsPatch({ editorToolbarVisible: visible });
-      } catch (error) {
-        console.error("Failed to save editor toolbar setting:", error);
-      }
-    },
-    [updateSettingsPatch],
-  );
+  const setEditorToolbarVisible = useCallback(async (visible: boolean) => {
+    setEditorToolbarVisibleState(visible);
+    try {
+      await updateGlobalSettings({ editorToolbarVisible: visible });
+    } catch (error) {
+      console.error("Failed to save editor toolbar setting:", error);
+    }
+  }, []);
 
   const updateTitleBarNoteInfo = useCallback(
     (kind: TitleBarNoteInfoKind, visible: boolean) => {
@@ -576,23 +574,25 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         visible,
       );
       applyTitleBarNoteInfoVisibility(next);
-      void updateSettingsPatch({
+      void updateGlobalSettings({
         titleBarModifiedDateVisible: next.modifiedDateVisible,
         titleBarFilenameVisible: next.filenameVisible,
-      }).catch((error) => {
-        console.error("Failed to save title bar information setting:", error);
       });
     },
-    [applyTitleBarNoteInfoVisibility, updateSettingsPatch],
+    [applyTitleBarNoteInfoVisibility],
   );
 
   const setTitleBarModifiedDateVisible = useCallback(
-    (visible: boolean) => updateTitleBarNoteInfo("modifiedDate", visible),
+    (visible: boolean) => {
+      void updateTitleBarNoteInfo("modifiedDate", visible);
+    },
     [updateTitleBarNoteInfo],
   );
 
   const setTitleBarFilenameVisible = useCallback(
-    (visible: boolean) => updateTitleBarNoteInfo("filename", visible),
+    (visible: boolean) => {
+      void updateTitleBarNoteInfo("filename", visible);
+    },
     [updateTitleBarNoteInfo],
   );
 
@@ -604,8 +604,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     if (px === null) {
       setSidebarWidthPxState(null);
       try {
-        const settings = await getSettings();
-        await updateSettings({ ...settings, sidebarWidthPx: undefined });
+        await updateGlobalSettings({ sidebarWidthPx: null });
       } catch (error) {
         console.error("Failed to reset sidebar width:", error);
       }
@@ -613,8 +612,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       const clamped = Math.round(Math.min(Math.max(px, SIDEBAR_MIN_PX), SIDEBAR_MAX_PX));
       setSidebarWidthPxState(clamped);
       try {
-        const settings = await getSettings();
-        await updateSettings({ ...settings, sidebarWidthPx: clamped });
+        await updateGlobalSettings({ sidebarWidthPx: clamped });
       } catch (error) {
         console.error("Failed to save sidebar width:", error);
       }
@@ -657,8 +655,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       setter((prev) => {
         const updated = { ...prev, [key]: value };
         // Persist in background
-        getSettings()
-          .then((settings) => updateSettings({ ...settings, [settingsKey]: updated }))
+        updateGlobalSettings({ [settingsKey]: updated })
           .catch((err) => console.error("Failed to save custom color:", err));
         return updated;
       });
@@ -674,13 +671,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       setter((prev) => {
         const updated = { ...prev };
         delete updated[key];
-        getSettings()
-          .then((settings) =>
-            updateSettings({
-              ...settings,
-              [settingsKey]: Object.keys(updated).length > 0 ? updated : undefined,
-            }),
-          )
+        updateGlobalSettings({
+          [settingsKey]: Object.keys(updated).length > 0 ? updated : null,
+        })
           .catch((err) => console.error("Failed to reset custom color:", err));
         return updated;
       });
@@ -695,8 +688,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       const settingsKey = mode === "light" ? "customColorsLight" : "customColorsDark";
       setter({});
       try {
-        const settings = await getSettings();
-        await updateSettings({ ...settings, [settingsKey]: undefined });
+        await updateGlobalSettings({ [settingsKey]: null });
       } catch (err) {
         console.error("Failed to reset all custom colors:", err);
       }
