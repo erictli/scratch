@@ -21,6 +21,19 @@ export async function saveNote(id: string | null, content: string): Promise<Note
   return invoke("save_note", { id, content });
 }
 
+export interface RecoverySnapshotInput {
+  noteId: string;
+  sourcePath: string;
+  content: string;
+  reason: string;
+}
+
+export async function persistRecoverySnapshot(
+  input: RecoverySnapshotInput,
+): Promise<string> {
+  return invoke("persist_recovery_snapshot", { ...input });
+}
+
 export async function deleteNote(id: string): Promise<void> {
   return invoke("delete_note", { id });
 }

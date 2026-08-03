@@ -4,6 +4,7 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tantivy::collector::TopDocs;
@@ -11,12 +12,16 @@ use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
-use tauri::webview::WebviewWindowBuilder;
+use tauri::webview::{WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 mod git;
+mod persistence;
+mod draft_checkpoint;
+
+static RECOVERY_SNAPSHOT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 // Note metadata for list display
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +47,13 @@ pub struct Note {
     pub content: String,
     pub path: String,
     pub modified: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteConflictSnapshot {
+    pub content: String,
+    pub revision: String,
 }
 
 // Theme color customization
@@ -1828,12 +1840,93 @@ fn preview_note_name(template: String) -> Result<String, String> {
 }
 
 // Preview mode: file content returned by read_file_direct / save_file_direct
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileContent {
     pub path: String,
     pub content: String,
     pub title: String,
     pub modified: i64,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum FileSaveResult {
+    Saved { file: FileContent },
+    Conflict { current: Option<NoteConflictSnapshot> },
+}
+
+fn note_conflict_snapshot(
+    snapshot: Option<persistence::FileSnapshot>,
+) -> Option<NoteConflictSnapshot> {
+    snapshot.map(|snapshot| NoteConflictSnapshot {
+        content: snapshot.content,
+        revision: snapshot.revision.to_string(),
+    })
+}
+
+fn read_file_content_from_path(path: &Path) -> Result<FileContent, String> {
+    let snapshot = persistence::read_snapshot(path)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "File not found".to_string())?;
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+
+    Ok(FileContent {
+        path: path.to_string_lossy().into_owned(),
+        title: extract_title(&snapshot.content),
+        content: snapshot.content,
+        modified,
+        revision: snapshot.revision.to_string(),
+    })
+}
+
+fn save_file_content_to_path(
+    path: &Path,
+    content: String,
+    expected_revision: String,
+) -> Result<FileSaveResult, String> {
+    let current = persistence::read_snapshot(path).map_err(|error| error.to_string())?;
+    let expected = match current {
+        Some(snapshot) if snapshot.revision.as_str() == expected_revision => snapshot.revision,
+        current => {
+            return Ok(FileSaveResult::Conflict {
+                current: note_conflict_snapshot(current),
+            });
+        }
+    };
+
+    match persistence::save_if_revision(path, &content, Some(&expected))
+        .map_err(|error| error.to_string())?
+    {
+        persistence::SaveResult::Saved { .. } => Ok(FileSaveResult::Saved {
+            file: read_file_content_from_path(path)?,
+        }),
+        persistence::SaveResult::Conflict { current } => Ok(FileSaveResult::Conflict {
+            current: note_conflict_snapshot(current),
+        }),
+    }
+}
+
+fn recreate_file_content_to_path(
+    path: &Path,
+    content: String,
+) -> Result<FileSaveResult, String> {
+    match persistence::save_if_revision(path, &content, None)
+        .map_err(|error| error.to_string())?
+    {
+        persistence::SaveResult::Saved { .. } => Ok(FileSaveResult::Saved {
+            file: read_file_content_from_path(path)?,
+        }),
+        persistence::SaveResult::Conflict { current } => Ok(FileSaveResult::Conflict {
+            current: note_conflict_snapshot(current),
+        }),
+    }
 }
 
 /// Validate a file path for preview mode direct file operations.
@@ -1855,6 +1948,45 @@ fn validate_preview_path(path: &str) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
+/// Validate a missing direct-file target through its existing canonical parent.
+/// The final component remains unresolved so create-only persistence can detect
+/// a concurrent recreation without ever replacing it.
+fn validate_preview_create_path(path: &str) -> Result<PathBuf, String> {
+    let file_path = PathBuf::from(path);
+    if !file_path.is_absolute() {
+        return Err("Standalone recreation requires an absolute path".to_string());
+    }
+    if file_path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir | std::path::Component::CurDir
+        )
+    }) {
+        return Err("Path traversal is not allowed".to_string());
+    }
+    match file_path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension)
+            if extension.eq_ignore_ascii_case("md")
+                || extension.eq_ignore_ascii_case("markdown") => {}
+        _ => return Err("Only .md and .markdown files are allowed".to_string()),
+    }
+
+    let file_name = file_path
+        .file_name()
+        .ok_or_else(|| "Standalone recreation target has no file name".to_string())?;
+    let parent = file_path
+        .parent()
+        .ok_or_else(|| "Standalone recreation target has no parent".to_string())?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|error| format!("Cannot resolve parent directory: {error}"))?;
+    if !canonical_parent.is_dir() {
+        return Err(format!("Not a directory: {}", parent.display()));
+    }
+
+    Ok(canonical_parent.join(file_name))
+}
+
 #[tauri::command]
 async fn read_file_direct(path: String) -> Result<FileContent, String> {
     let canonical = validate_preview_path(&path)?;
@@ -1863,32 +1995,17 @@ async fn read_file_direct(path: String) -> Result<FileContent, String> {
         return Err(format!("Not a file: {}", path));
     }
 
-    let content = fs::read_to_string(&canonical)
+    tauri::async_runtime::spawn_blocking(move || read_file_content_from_path(&canonical))
         .await
-        .map_err(|_| "Failed to read file".to_string())?;
-    let metadata = fs::metadata(&canonical)
-        .await
-        .map_err(|_| "Failed to read metadata".to_string())?;
-
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-
-    let title = extract_title(&content);
-
-    Ok(FileContent {
-        path,
-        content,
-        title,
-        modified,
-    })
+        .map_err(|error| format!("Direct file read task failed: {error}"))?
 }
 
 #[tauri::command]
-async fn save_file_direct(path: String, content: String) -> Result<FileContent, String> {
+async fn save_file_direct(
+    path: String,
+    content: String,
+    expected_revision: String,
+) -> Result<FileSaveResult, String> {
     // For save, the file must already exist (we validate extension + path security)
     let canonical = validate_preview_path(&path)?;
 
@@ -1896,28 +2013,178 @@ async fn save_file_direct(path: String, content: String) -> Result<FileContent, 
         return Err(format!("Not a file: {}", path));
     }
 
-    fs::write(&canonical, &content)
-        .await
-        .map_err(|_| "Failed to write file".to_string())?;
-
-    let metadata = fs::metadata(&canonical)
-        .await
-        .map_err(|_| "Failed to read metadata".to_string())?;
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-
-    let title = extract_title(&content);
-
-    Ok(FileContent {
-        path,
-        content,
-        title,
-        modified,
+    tauri::async_runtime::spawn_blocking(move || {
+        save_file_content_to_path(&canonical, content, expected_revision)
     })
+    .await
+    .map_err(|error| format!("Direct file save task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn recreate_file_direct(path: String, content: String) -> Result<FileSaveResult, String> {
+    let create_path = validate_preview_create_path(&path)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        recreate_file_content_to_path(&create_path, content)
+    })
+    .await
+    .map_err(|error| format!("Direct file recreation task failed: {error}"))?
+}
+
+fn write_recovery_snapshot(
+    recovery_root: &Path,
+    note_id: &str,
+    source_path: &str,
+    content: &str,
+    reason: &str,
+) -> Result<PathBuf, String> {
+    let recovery_directory = recovery_root.join("recovery");
+    std::fs::create_dir_all(&recovery_directory).map_err(|error| error.to_string())?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let sequence = RECOVERY_SNAPSHOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let safe_note_id = sanitize_filename(&note_id.replace('/', "-"));
+    let safe_reason = sanitize_filename(reason);
+    let stem = format!("{timestamp}-{sequence}-{safe_reason}-{safe_note_id}");
+    let recovery_path = recovery_directory.join(format!("{stem}.md"));
+
+    match persistence::save_if_revision(&recovery_path, content, None)
+        .map_err(|error| error.to_string())?
+    {
+        persistence::SaveResult::Saved { .. } => {}
+        persistence::SaveResult::Conflict { .. } => {
+            return Err("Recovery snapshot path unexpectedly already exists".to_string());
+        }
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RecoveryMetadata<'a> {
+        note_id: &'a str,
+        source_path: &'a str,
+        reason: &'a str,
+        created_at_ms: u128,
+    }
+
+    let metadata = RecoveryMetadata {
+        note_id,
+        source_path,
+        reason,
+        created_at_ms: timestamp,
+    };
+    if let Ok(metadata_content) = serde_json::to_string_pretty(&metadata) {
+        let metadata_path = recovery_directory.join(format!("{stem}.json"));
+        let _ = persistence::save_if_revision(&metadata_path, &metadata_content, None);
+    }
+
+    Ok(recovery_path)
+}
+
+#[tauri::command]
+async fn persist_recovery_snapshot(
+    app: AppHandle,
+    note_id: String,
+    source_path: String,
+    content: String,
+    reason: String,
+) -> Result<String, String> {
+    let recovery_root = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        write_recovery_snapshot(
+            &recovery_root,
+            &note_id,
+            &source_path,
+            &content,
+            &reason,
+        )
+        .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|error| format!("Recovery snapshot task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn write_draft_checkpoint(
+    app: AppHandle,
+    window: WebviewWindow,
+    note_id: String,
+    markdown: String,
+    metadata: draft_checkpoint::DraftCheckpointMetadata,
+) -> Result<(), String> {
+    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let checkpoint = draft_checkpoint::DraftCheckpoint {
+        key: draft_checkpoint::DraftCheckpointKey {
+            window_label: window.label().to_string(),
+            note_id,
+        },
+        markdown,
+        metadata,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        draft_checkpoint::write_checkpoint(app_data, &checkpoint)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Draft checkpoint task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn get_draft_checkpoint(
+    app: AppHandle,
+    window: WebviewWindow,
+    note_id: String,
+) -> Result<Option<draft_checkpoint::DraftCheckpoint>, String> {
+    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let key = draft_checkpoint::DraftCheckpointKey {
+        window_label: window.label().to_string(),
+        note_id,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        draft_checkpoint::read_checkpoint(app_data, &key).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Draft checkpoint read task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn clear_draft_checkpoint(
+    app: AppHandle,
+    window: WebviewWindow,
+    note_id: String,
+) -> Result<(), String> {
+    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let key = draft_checkpoint::DraftCheckpointKey {
+        window_label: window.label().to_string(),
+        note_id,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        draft_checkpoint::clear_checkpoint(app_data, &key).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Draft checkpoint clear task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn list_draft_checkpoints(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Vec<draft_checkpoint::DraftCheckpoint>, String> {
+    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let window_label = window.label().to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        draft_checkpoint::list_checkpoints(app_data)
+            .map(|checkpoints| {
+                checkpoints
+                    .into_iter()
+                    .filter(|checkpoint| checkpoint.key.window_label == window_label)
+                    .collect()
+            })
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Draft checkpoint list task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -3568,6 +3835,141 @@ fn is_markdown_extension(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativePreferencesMenuSpec {
+    id: &'static str,
+    label: &'static str,
+    accelerator: &'static str,
+}
+
+fn native_preferences_menu_spec() -> NativePreferencesMenuSpec {
+    NativePreferencesMenuSpec {
+        id: "preferences",
+        label: "Preferences…",
+        accelerator: "CmdOrCtrl+,",
+    }
+}
+
+fn build_application_menu(
+    app_handle: &AppHandle,
+) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+
+    let menu = Menu::default(app_handle)?;
+    let spec = native_preferences_menu_spec();
+    let preferences = MenuItem::with_id(
+        app_handle,
+        spec.id,
+        spec.label,
+        true,
+        Some(spec.accelerator),
+    )?;
+    let application_menu_name = app_handle
+        .config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| app_handle.package_info().name.clone());
+
+    for item in menu.items()? {
+        let Some(submenu) = item.as_submenu() else {
+            continue;
+        };
+        if submenu.text()? == application_menu_name {
+            let separator = PredefinedMenuItem::separator(app_handle)?;
+            submenu.insert_items(&[&preferences, &separator], 1)?;
+        }
+    }
+
+    Ok(menu)
+}
+
+fn should_hide_main_window_for_standalone_preview(
+    opened_preview: bool,
+    has_notes_folder: bool,
+) -> bool {
+    opened_preview && has_notes_folder
+}
+
+fn has_configured_notes_folder(app: &AppHandle) -> bool {
+    let Some(state) = app.try_state::<AppState>() else {
+        return false;
+    };
+    let has_notes_folder = state
+        .app_config
+        .read()
+        .expect("app_config read lock")
+        .notes_folder
+        .is_some();
+    has_notes_folder
+}
+
+fn hide_main_window_for_standalone_preview(app: &AppHandle, opened_preview: bool) -> bool {
+    let should_hide = should_hide_main_window_for_standalone_preview(
+        opened_preview,
+        has_configured_notes_folder(app),
+    );
+    if should_hide {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.hide();
+        }
+    }
+    should_hide
+}
+
+fn runtime_window_config_from_template(
+    template: &tauri::utils::config::WindowConfig,
+    label: &str,
+    url: WebviewUrl,
+) -> tauri::utils::config::WindowConfig {
+    let mut runtime = template.clone();
+    runtime.label = label.to_string();
+    runtime.url = url;
+    runtime.create = false;
+    runtime.visible = true;
+    runtime
+}
+
+fn create_preferences_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("preferences") {
+        let _ = window.show();
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    let runtime_config = runtime_window_config_from_template(
+        &app.config().app.windows[0],
+        "preferences",
+        WebviewUrl::App("index.html?mode=preferences".into()),
+    );
+    let window = WebviewWindowBuilder::from_config(app, &runtime_config)
+        .map_err(|error| format!("Failed to configure Preferences window: {error}"))?
+        .title("Preferences")
+        .inner_size(900.0, 650.0)
+        .min_inner_size(720.0, 500.0)
+        .resizable(true)
+        .decorations(true)
+        .center()
+        .build()
+        .map_err(|error| format!("Failed to create Preferences window: {error}"))?;
+    let _ = window.show();
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_preferences_window(app: AppHandle) -> Result<(), String> {
+    create_preferences_window(&app)
+}
+
+/// Finalize a close only after the WebView has flushed the draft or persisted
+/// a recovery snapshot. Destruction remains in trusted Rust.
+#[tauri::command]
+fn close_window_after_save(window: WebviewWindow) -> Result<(), String> {
+    window
+        .destroy()
+        .map_err(|error| format!("Failed to close window after save: {error}"))
+}
+
 // Preview mode: create a lightweight window for editing a single file
 fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String> {
     use std::collections::hash_map::DefaultHasher;
@@ -3592,17 +3994,18 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
     let encoded_path = urlencoding::encode(file_path);
     let url = format!("index.html?mode=preview&file={}", encoded_path);
 
-    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+    let runtime_config = runtime_window_config_from_template(
+        &app.config().app.windows[0],
+        &label,
+        WebviewUrl::App(url.into()),
+    );
+    let builder = WebviewWindowBuilder::from_config(app, &runtime_config)
+        .map_err(|error| format!("Failed to configure preview window: {error}"))?
         .title(format!("{} — Scratch", filename))
         .inner_size(800.0, 600.0)
         .min_inner_size(400.0, 300.0)
         .resizable(true)
         .decorations(true);
-
-    #[cfg(target_os = "macos")]
-    let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
 
     let window = builder
         .build()
@@ -3724,13 +4127,22 @@ pub fn run() {
     let app = tauri::Builder::default()
         // Single-instance: forward CLI args from subsequent launches to the running instance
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            handle_cli_args(app, &args, &cwd);
+            let opened_preview = handle_cli_args(app, &args, &cwd);
+            hide_main_window_for_standalone_preview(app, opened_preview);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .menu(build_application_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == native_preferences_menu_spec().id {
+                if let Err(error) = create_preferences_window(app) {
+                    eprintln!("Failed to open Preferences: {error}");
+                }
+            }
+        })
         .setup(|app| {
             // Load app config on startup (contains notes folder path)
             let mut app_config = load_app_config(app.handle());
@@ -3810,15 +4222,10 @@ pub fn run() {
             };
 
             if let Some(main_window) = app.get_webview_window("main") {
-                let has_notes_folder = app
-                    .state::<AppState>()
-                    .app_config
-                    .read()
-                    .expect("app_config read lock")
-                    .notes_folder
-                    .is_some();
-
-                if opened_preview && has_notes_folder {
+                if should_hide_main_window_for_standalone_preview(
+                    opened_preview,
+                    has_configured_notes_folder(app.handle()),
+                ) {
                     // Existing user: notes folder is configured and a standalone preview
                     // was opened. Close the hidden main window so only the preview is visible.
                     let _ = main_window.hide();
@@ -3849,6 +4256,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_notes_folder,
+            close_window_after_save,
+            open_preferences_window,
             set_notes_folder,
             list_notes,
             read_note,
@@ -3897,6 +4306,12 @@ pub fn run() {
             ai_execute_ollama,
             read_file_direct,
             save_file_direct,
+            recreate_file_direct,
+            persist_recovery_snapshot,
+            write_draft_checkpoint,
+            get_draft_checkpoint,
+            clear_draft_checkpoint,
+            list_draft_checkpoints,
             import_file_to_folder,
             open_file_preview,
             install_cli,
@@ -3912,16 +4327,19 @@ pub fn run() {
     app.run(|_app_handle, _event| {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = _event {
+            let mut opened_preview = false;
             for url in urls {
                 if let Ok(path) = url.to_file_path() {
                     if is_markdown_extension(&path)
                         && path.is_file()
                         && !try_select_in_notes_folder(_app_handle, &path)
                     {
-                        let _ = create_preview_window(_app_handle, &path.to_string_lossy());
+                        opened_preview |=
+                            create_preview_window(_app_handle, &path.to_string_lossy()).is_ok();
                     }
                 }
             }
+            hide_main_window_for_standalone_preview(_app_handle, opened_preview);
         }
     });
 }
@@ -4007,7 +4425,40 @@ fn set_title_bar_theme(
 
 #[cfg(test)]
 mod tests {
-    use super::Settings;
+    use super::{
+        native_preferences_menu_spec, read_file_content_from_path,
+        recreate_file_content_to_path, save_file_content_to_path,
+        should_hide_main_window_for_standalone_preview, FileSaveResult,
+        Settings,
+    };
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_STANDALONE_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct StandaloneTestDirectory {
+        path: PathBuf,
+    }
+
+    impl StandaloneTestDirectory {
+        fn new(name: &str) -> Self {
+            let sequence =
+                NEXT_STANDALONE_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "scratch-standalone-{name}-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("create standalone test directory");
+            Self { path }
+        }
+    }
+
+    impl Drop for StandaloneTestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 
     #[test]
     fn settings_preserve_sidebar_note_sort_order() {
@@ -4045,5 +4496,57 @@ mod tests {
         assert_eq!(serialized["editorToolbarVisible"], true);
         assert_eq!(serialized["titleBarModifiedDateVisible"], false);
         assert_eq!(serialized["titleBarFilenameVisible"], true);
+    }
+
+    #[test]
+    fn preferences_menu_uses_the_native_shortcut() {
+        let spec = native_preferences_menu_spec();
+        assert_eq!(spec.id, "preferences");
+        assert_eq!(spec.label, "Preferences…");
+        assert_eq!(spec.accelerator, "CmdOrCtrl+,");
+    }
+
+    #[test]
+    fn standalone_preview_hides_main_only_for_configured_users() {
+        assert!(should_hide_main_window_for_standalone_preview(true, true));
+        assert!(!should_hide_main_window_for_standalone_preview(true, false));
+        assert!(!should_hide_main_window_for_standalone_preview(false, true));
+    }
+
+    #[test]
+    fn standalone_save_preserves_an_external_edit_as_a_conflict() {
+        let directory = StandaloneTestDirectory::new("conflict");
+        let path = directory.path.join("External.md");
+        fs::write(&path, "# External\n\nOriginal").expect("write initial note");
+        let loaded = read_file_content_from_path(&path).expect("read initial note");
+        fs::write(&path, "# External\n\nChanged outside Scratch")
+            .expect("write external edit");
+
+        let result = save_file_content_to_path(
+            &path,
+            "# External\n\nStale local draft".to_string(),
+            loaded.revision,
+        )
+        .expect("return typed conflict");
+
+        assert!(matches!(result, FileSaveResult::Conflict { current: Some(_) }));
+        assert_eq!(
+            fs::read_to_string(&path).expect("read preserved file"),
+            "# External\n\nChanged outside Scratch"
+        );
+    }
+
+    #[test]
+    fn standalone_recreation_is_create_only() {
+        let directory = StandaloneTestDirectory::new("recreate");
+        let path = directory.path.join("Deleted.md");
+        let first = recreate_file_content_to_path(&path, "local draft".to_string())
+            .expect("create missing note");
+        let second = recreate_file_content_to_path(&path, "later draft".to_string())
+            .expect("return typed conflict");
+
+        assert!(matches!(first, FileSaveResult::Saved { .. }));
+        assert!(matches!(second, FileSaveResult::Conflict { .. }));
+        assert_eq!(fs::read_to_string(path).unwrap(), "local draft");
     }
 }
