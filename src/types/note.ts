@@ -11,6 +11,8 @@ export interface Note {
   content: string;
   path: string;
   modified: number;
+  /** Content revision is present for standalone optimistic-concurrency saves. */
+  revision?: string;
 }
 
 export interface ThemeSettings {
