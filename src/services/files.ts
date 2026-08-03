@@ -7,6 +7,7 @@ export interface FileContent {
   modified: number;
   revision: string;
 }
+
 export type FileSaveResult =
   | { status: "saved"; file: FileContent }
   | {
