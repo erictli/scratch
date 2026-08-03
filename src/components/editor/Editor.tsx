@@ -33,8 +33,9 @@ import {
 } from "@tiptap/pm/state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
@@ -93,6 +94,17 @@ import {
 } from "./notion/tableClipboard";
 import { SelectionMenu } from "./notion/NotionMenus";
 import { TableControls } from "./notion/TableControls";
+import {
+  getImageOpenTarget,
+  handleImageDoubleClick,
+} from "./notion/imageInteractions";
+import {
+  filterSupportedImagePaths,
+  importDroppedImagePaths,
+  physicalToLogicalPoint,
+  resolveEditorBlockDropTarget,
+  type ImageDropBlock,
+} from "./imageDrop";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { getTitleBarNoteInfoText } from "../../lib/titleBarNoteInfo";
@@ -553,6 +565,34 @@ function blockIndexToPos(
   return pos;
 }
 
+function getTopLevelImageDropBlocks(
+  editor: TiptapEditor,
+): ImageDropBlock[] {
+  const blocks: ImageDropBlock[] = [];
+  let position = 0;
+
+  for (let index = 0; index < editor.state.doc.childCount; index++) {
+    const node = editor.state.doc.child(index);
+    const domNode = editor.view.nodeDOM(position);
+    const element =
+      domNode instanceof HTMLElement ? domNode : domNode?.parentElement;
+
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      blocks.push({
+        before: position,
+        after: position + node.nodeSize,
+        top: rect.top,
+        bottom: rect.bottom,
+      });
+    }
+
+    position += node.nodeSize;
+  }
+
+  return blocks;
+}
+
 export function Editor({
   onToggleSidebar,
   sidebarVisible,
@@ -689,6 +729,13 @@ export function Editor({
   const blockMathPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const imageDropSurfaceRef = useRef<HTMLDivElement>(null);
+  const imageDragActiveRef = useRef(false);
+  const [imageDropIndicator, setImageDropIndicator] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
   const editorRef = useRef<TiptapEditor | null>(null);
   const currentNoteIdRef = useRef<string | null>(null);
   // Track if we need to save (use ref to avoid computing markdown on every keystroke)
@@ -1419,6 +1466,9 @@ export function Editor({
         autocorrect: "on",
         autocapitalize: "sentences",
       },
+      handleDOMEvents: {
+        dblclick: handleImageDoubleClick,
+      },
       // Serialize copied text as markdown instead of plain text
       clipboardTextSerializer: (slice) => {
         const currentEditor = editorRef.current;
@@ -1594,6 +1644,180 @@ export function Editor({
   const lastSaveRef = useRef<{ noteId: string; content: string } | null>(null);
   // Track reloadVersion to detect manual refreshes
   const lastReloadVersionRef = useRef(0);
+
+  // Tauri handles operating-system file drops before they reach HTML5 or
+  // ProseMirror. Bridge native image paths into Scratch's existing asset
+  // importer, then insert the image at the physical drop location.
+  useEffect(() => {
+    if (
+      !editor ||
+      !currentNote ||
+      typeof window === "undefined" ||
+      !("__TAURI_INTERNALS__" in window)
+    ) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    const registerImageDrop = async () => {
+      try {
+        const currentWebview = getCurrentWebview();
+        const currentWindow = getCurrentWindow();
+        const removeListener = await currentWebview.onDragDropEvent(
+          async (event) => {
+            if (editor.isDestroyed || !editor.isEditable) {
+              return;
+            }
+
+            if (event.payload.type === "leave") {
+              imageDragActiveRef.current = false;
+              setImageDropIndicator(null);
+              return;
+            }
+
+            if (event.payload.type === "enter") {
+              imageDragActiveRef.current =
+                filterSupportedImagePaths(event.payload.paths).length > 0;
+              if (!imageDragActiveRef.current) {
+                setImageDropIndicator(null);
+                return;
+              }
+            }
+
+            if (
+              event.payload.type === "over" &&
+              !imageDragActiveRef.current
+            ) {
+              return;
+            }
+
+            try {
+              const scaleFactor = await currentWindow.scaleFactor();
+              const point = physicalToLogicalPoint(
+                event.payload.position,
+                scaleFactor,
+              );
+              const firstBlock = editor.state.doc.firstChild;
+              const titleBoundary =
+                firstBlock?.type.name === "heading" &&
+                firstBlock.attrs.level === 1
+                  ? firstBlock.nodeSize
+                  : 0;
+              const editorRect = editor.view.dom.getBoundingClientRect();
+              const dropSurfaceRect =
+                imageDropSurfaceRef.current?.getBoundingClientRect() ?? null;
+              const dropTarget = resolveEditorBlockDropTarget(
+                point,
+                editorRect,
+                dropSurfaceRect,
+                getTopLevelImageDropBlocks(editor),
+                editor.state.selection.from,
+                titleBoundary,
+              );
+
+              if (event.payload.type !== "drop") {
+                if (dropTarget && dropSurfaceRect) {
+                  setImageDropIndicator({
+                    top: dropTarget.top - dropSurfaceRect.top,
+                    left: editorRect.left - dropSurfaceRect.left,
+                    width: editorRect.width,
+                  });
+                } else {
+                  setImageDropIndicator(null);
+                }
+                return;
+              }
+
+              imageDragActiveRef.current = false;
+              setImageDropIndicator(null);
+
+              const imagePaths = filterSupportedImagePaths(
+                event.payload.paths,
+              );
+              if (imagePaths.length === 0 || dropTarget === null) return;
+
+              const notesFolder = await invoke<string>("get_notes_folder");
+              const result = await importDroppedImagePaths(
+                imagePaths,
+                dropTarget.position,
+                {
+                  copyImageToAssets: (sourcePath) =>
+                    invoke<string>("copy_image_to_assets", { sourcePath }),
+                  resolveAssetUrl: async (relativePath) => {
+                    const absolutePath = await join(notesFolder, relativePath);
+                    return convertFileSrc(absolutePath);
+                  },
+                  insertImage: (src, position) => {
+                    if (editor.isDestroyed) {
+                      throw new Error("Editor was destroyed during image drop");
+                    }
+                    const safePosition = Math.max(
+                      0,
+                      Math.min(position, editor.state.doc.content.size),
+                    );
+                    const inserted = editor
+                      .chain()
+                      .focus()
+                      .insertContentAt(safePosition, {
+                        type: "image",
+                        attrs: { src },
+                      })
+                      .run();
+                    if (!inserted) {
+                      throw new Error("Tiptap rejected the dropped image");
+                    }
+                  },
+                  onError: (sourcePath, error) => {
+                    console.error(
+                      `Failed to import dropped image: ${sourcePath}`,
+                      error,
+                    );
+                  },
+                },
+              );
+
+              if (result.imported > 0) {
+                toast.success(
+                  result.imported === 1
+                    ? "Image inserted"
+                    : `${result.imported} images inserted`,
+                );
+              }
+              if (result.failed > 0) {
+                toast.error(
+                  result.failed === 1
+                    ? "Failed to insert one image"
+                    : `Failed to insert ${result.failed} images`,
+                );
+              }
+            } catch (error) {
+              console.error("Failed to handle dropped images:", error);
+              toast.error("Failed to insert dropped image");
+            }
+          },
+        );
+
+        if (disposed) {
+          removeListener();
+        } else {
+          unlisten = removeListener;
+        }
+      } catch (error) {
+        if (!disposed) {
+          console.error("Failed to register native image drop:", error);
+        }
+      }
+    };
+
+    void registerImageDrop();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [editor, currentNote?.id]);
 
   // Notify parent component when editor is ready
   useEffect(() => {
@@ -2914,9 +3138,53 @@ export function Editor({
                 </div>
               )}
               <div
-                className="h-full"
+                ref={imageDropSurfaceRef}
+                className="h-full relative"
                 onContextMenu={async (e) => {
                   if (!editor) return;
+
+                  const eventTarget = e.target;
+                  const image =
+                    eventTarget instanceof Element
+                      ? eventTarget.closest("img")
+                      : null;
+                  if (image && editor.view.dom.contains(image)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const openTarget = getImageOpenTarget(
+                      image.currentSrc || image.getAttribute("src") || "",
+                    );
+                    if (!openTarget) {
+                      toast.error("This image cannot be opened");
+                      return;
+                    }
+
+                    try {
+                      const menu = await Menu.new({
+                        items: [
+                          await MenuItem.new({
+                            text: "Open Image",
+                            action: () => {
+                              const open =
+                                openTarget.kind === "path"
+                                  ? openPath(openTarget.value)
+                                  : openUrl(openTarget.value);
+                              void open.catch((error) => {
+                                console.error("Failed to open image:", error);
+                                toast.error("Failed to open image");
+                              });
+                            },
+                          }),
+                        ],
+                      });
+                      await menu.popup();
+                    } catch (error) {
+                      console.error("Image context menu error:", error);
+                      toast.error("Failed to open image menu");
+                    }
+                    return;
+                  }
 
                   // Get the position at the click coordinates
                   const clickPos = editor.view.posAtCoords({
@@ -3098,6 +3366,14 @@ export function Editor({
                   editor={editor}
                   className="notion-editor-shell h-full text-text"
                 />
+                {imageDropIndicator && (
+                  <div
+                    data-image-drop-indicator
+                    aria-hidden="true"
+                    className="absolute z-20 h-0.5 rounded-full bg-accent shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-bg)_80%,transparent)] pointer-events-none transition-[top,left,width,opacity] duration-75"
+                    style={imageDropIndicator}
+                  />
+                )}
                 {editor && (
                   <>
                     <SelectionMenu
