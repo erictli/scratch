@@ -92,7 +92,11 @@ import {
   serializeTableCellSelectionToTsv,
   shouldRejectTablePaste,
 } from "./notion/tableClipboard";
-import { SelectionMenu } from "./notion/NotionMenus";
+import { SCRATCH_TRAILING_NODE_OPTIONS } from "./notion/editorBehavior";
+import {
+  BlockDragControls,
+  SelectionMenu,
+} from "./notion/NotionMenus";
 import { TableControls } from "./notion/TableControls";
 import {
   getImageOpenTarget,
@@ -1368,6 +1372,7 @@ export function Editor({
         },
         codeBlock: false,
         link: false,
+        trailingNode: SCRATCH_TRAILING_NODE_OPTIONS,
       }),
       CodeBlockLowlight.extend({
         addNodeView() {
@@ -3380,6 +3385,7 @@ export function Editor({
                       editor={editor}
                       onEditLink={handleAddLink}
                     />
+                    <BlockDragControls editor={editor} />
                     <TableControls editor={editor} />
                   </>
                 )}

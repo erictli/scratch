@@ -1205,6 +1205,109 @@ table.not-prose th {
   outline: 2px solid var(--color-accent);
 }
 
+/* Editor block drag controls */
+.notion-block-drag-handle {
+  --notion-block-handle-offset: -8px;
+
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 26px;
+  padding: 1px;
+  color: var(--color-text-muted);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-bg) 94%, transparent);
+  opacity: 0;
+  transform: translateX(var(--notion-block-handle-offset));
+  transition: opacity 120ms ease;
+}
+
+/* Keep the 53px Tauri handle plus its 8px visual gap outside block content.
+   ProseMirror already contributes 24px of inline padding, so the shell only
+   reserves the remaining 37px on each side. Symmetric padding preserves the
+   centered Narrow/Normal/Wide layouts and gives Full width a stable gutter. */
+.notion-editor-shell {
+  padding-inline: 37px;
+}
+
+.notion-block-drag-handle.is-block-hovered,
+.notion-block-drag-handle:hover,
+.notion-block-drag-handle[data-dragging="true"] {
+  opacity: 1;
+}
+
+.notion-block-drag-handle:not(.is-block-hovered):not(:hover):not(
+    [data-dragging="true"]
+  ) {
+  pointer-events: none;
+}
+
+.notion-block-add,
+.notion-block-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.notion-block-control-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.notion-block-add:hover,
+.notion-block-grip:hover {
+  color: var(--color-text);
+  background: var(--color-bg-emphasis);
+}
+
+.notion-block-grip {
+  cursor: grab;
+}
+
+.notion-block-drag-handle.uses-pointer-drag .notion-block-grip {
+  width: 28px;
+  height: 24px;
+}
+
+.ProseMirror.notion-pointer-block-drag-enabled img {
+  cursor: grab;
+  -webkit-user-drag: none;
+}
+
+.ProseMirror.notion-pointer-block-drag-enabled[data-block-pointer-dragging="true"]
+  img.ProseMirror-selectednode {
+  cursor: grabbing;
+  opacity: 0.72;
+}
+
+.notion-block-drop-indicator {
+  position: fixed;
+  z-index: 70;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-bg) 80%, transparent);
+  pointer-events: none;
+  transform: translateY(-1px);
+}
+
+.notion-block-drag-handle[data-dragging="true"] .notion-block-grip {
+  cursor: grabbing;
+}
+
+
 .notion-table-controls {
   position: fixed;
   inset: 0;
@@ -1496,6 +1599,8 @@ body.notion-table-column-resizing * {
 
 @media print {
   .notion-selection-menu,
+  .notion-block-drag-handle,
+  .notion-block-drop-indicator,
   .notion-table-controls,
   .notion-block-style-menu,
   .notion-color-menu {
