@@ -129,6 +129,8 @@ pub struct Settings {
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
+    #[serde(rename = "sidebarSortOrder")]
+    pub sidebar_sort_order: Option<String>,
     #[serde(rename = "ignoredPatterns")]
     pub ignored_patterns: Option<Vec<String>>,
     #[serde(rename = "customColorsLight")]
@@ -3993,4 +3995,22 @@ fn set_title_bar_theme(
         let _ = (app, is_dark, r, g, b);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn settings_preserve_sidebar_note_sort_order() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"theme":{"mode":"system"},"sidebarSortOrder":"oldest"}"#,
+        )
+        .expect("settings should deserialize");
+
+        assert_eq!(settings.sidebar_sort_order.as_deref(), Some("oldest"));
+
+        let serialized = serde_json::to_value(settings).expect("settings should serialize");
+        assert_eq!(serialized["sidebarSortOrder"], "oldest");
+    }
 }

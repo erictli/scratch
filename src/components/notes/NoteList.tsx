@@ -21,7 +21,8 @@ import {
   CopyIcon,
   TrashIcon,
 } from "../icons";
-import type { Settings } from "../../types/note";
+import type { NoteSortOrder, Settings } from "../../types/note";
+import { sortNotesByModified } from "../../lib/folderTree";
 
 const menuItemClass =
   "px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2 rounded-sm";
@@ -227,6 +228,7 @@ const NoteItemWithMenu = memo(function NoteItemWithMenu({
 });
 
 interface NoteListProps {
+  sortOrder: NoteSortOrder;
   multiSelectedNoteIds: Set<string>;
   setMultiSelectedNoteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   lastClickedNoteId: string | null;
@@ -234,6 +236,7 @@ interface NoteListProps {
 }
 
 export function NoteList({
+  sortOrder,
   multiSelectedNoteIds,
   setMultiSelectedNoteIds,
   lastClickedNoteId,
@@ -307,6 +310,11 @@ export function NoteList({
     return notes;
   }, [searchQuery, searchResults, notes]);
 
+  const sortedDisplayItems = useMemo(
+    () => sortNotesByModified(displayItems, sortOrder),
+    [displayItems, sortOrder],
+  );
+
   // Listen for focus request from editor (when Escape is pressed)
   useEffect(() => {
     const handleFocusNoteList = () => {
@@ -341,7 +349,7 @@ export function NoteList({
     );
   }
 
-  if (isSearching && displayItems.length === 0) {
+  if (isSearching && sortedDisplayItems.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-text-muted select-none">
         No results found
@@ -349,7 +357,7 @@ export function NoteList({
     );
   }
 
-  if (displayItems.length === 0) {
+  if (sortedDisplayItems.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-text-muted select-none">
         No notes yet
@@ -362,6 +370,7 @@ export function NoteList({
     return (
       <>
         <FolderTreeView
+          sortOrder={sortOrder}
           pinnedIds={pinnedIds}
           settings={settings}
           multiSelectedNoteIds={multiSelectedNoteIds}
@@ -403,7 +412,7 @@ export function NoteList({
         data-note-list
         className="group/notelist flex flex-col gap-1 p-1.5 outline-none"
       >
-        {displayItems.map((item) => (
+        {sortedDisplayItems.map((item) => (
           <NoteItemWithMenu
             key={item.id}
             id={item.id}
