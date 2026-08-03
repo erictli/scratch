@@ -38,6 +38,19 @@ interface SidebarProps {
   onOpenSettings?: () => void;
 }
 
+export function getWorkspaceSwitchErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message.trim()
+      : typeof error === "string"
+        ? error.trim()
+        : "";
+
+  return message
+    ? `Could not switch folder: ${message}`
+    : "Could not switch folder";
+}
+
 export function Sidebar({ onOpenSettings }: SidebarProps) {
   const {
     createNote,
@@ -103,7 +116,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         await refreshWorkspaces();
       } catch (error) {
         console.error("Failed to switch workspace:", error);
-        toast.error("Workspace switch cancelled");
+        toast.error(getWorkspaceSwitchErrorMessage(error));
       }
     },
     [refreshWorkspaces, reloadSettings, switchWorkspace],
