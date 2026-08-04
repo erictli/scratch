@@ -581,9 +581,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         visible,
       );
       applyTitleBarNoteInfoVisibility(next);
-      void updateGlobalSettings({
+      updateGlobalSettings({
         titleBarModifiedDateVisible: next.modifiedDateVisible,
         titleBarFilenameVisible: next.filenameVisible,
+      }).catch((error) => {
+        console.error("Failed to update title bar note info:", error);
       });
     },
     [applyTitleBarNoteInfoVisibility],
@@ -591,14 +593,14 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
   const setTitleBarModifiedDateVisible = useCallback(
     (visible: boolean) => {
-      void updateTitleBarNoteInfo("modifiedDate", visible);
+      updateTitleBarNoteInfo("modifiedDate", visible);
     },
     [updateTitleBarNoteInfo],
   );
 
   const setTitleBarFilenameVisible = useCallback(
     (visible: boolean) => {
-      void updateTitleBarNoteInfo("filename", visible);
+      updateTitleBarNoteInfo("filename", visible);
     },
     [updateTitleBarNoteInfo],
   );
