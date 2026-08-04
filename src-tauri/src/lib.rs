@@ -197,7 +197,7 @@ fn restorable_window_sessions(
         .records
         .iter()
         .filter(|(label, record)| {
-            label.to_string() != "preferences"
+            *label != "preferences"
                 && !label.starts_with("preview-")
                 && workspace_is_available(&record.workspace)
         })
@@ -1849,27 +1849,29 @@ fn save_app_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
 }
 
 // Load per-folder settings from disk
-fn load_settings(notes_folder: &str) -> Result<WorkspaceSettings, String> {
+fn load_settings(notes_folder: &str) -> WorkspaceSettings {
     let path = get_settings_path(notes_folder);
 
     if path.exists() {
-        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let settings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-        Ok(settings)
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+            .unwrap_or_default()
     } else {
-        Ok(WorkspaceSettings::default())
+        WorkspaceSettings::default()
     }
 }
 
-fn load_legacy_settings(notes_folder: &str) -> Result<Settings, String> {
+fn load_legacy_settings(notes_folder: &str) -> Settings {
     let path = get_settings_path(notes_folder);
 
     if path.exists() {
-        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let settings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-        Ok(settings)
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+            .unwrap_or_default()
     } else {
-        Ok(Settings::default())
+        Settings::default()
     }
 }
 
@@ -1916,13 +1918,17 @@ fn prepare_notes_folder(path_buf: &Path) -> Result<(PathBuf, String), String> {
     let _ = std::fs::remove_file(&write_test_path);
 
     let normalized = canonical.to_string_lossy().into_owned();
-    // Load per-folder settings (starts fresh with defaults if none exist)
-    let settings = load_settings(&normalized_path).unwrap_or_default();
-
     Ok((canonical, normalized))
 }
 
 fn configure_main_workspace(
+    app: &AppHandle,
+    path_buf: &Path,
+    state: &AppState,
+    make_default: bool,
+) -> Result<String, String> {
+    let session = WorkspaceSession::initialize(app, path_buf)?;
+    let normalized_path = session.notes_folder.clone();
 
     {
         let mut config = state.app_config.write().expect("app_config write lock");
@@ -3120,11 +3126,7 @@ async fn duplicate_note(
     let copy_title = format!("{} (Copy)", copy_title);
     let sanitized = sanitize_filename(&copy_title);
 
-    let folder_prefix = if let Some(pos) = id.rfind('/') {
-        Some(id[..pos].to_string())
-    } else {
-        None
-    };
+    let folder_prefix = id.rfind('/').map(|pos| id[..pos].to_string());
     let sanitized = if let Some(ref prefix) = folder_prefix {
         format!("{}/{}", prefix, sanitized)
     } else {
@@ -3715,21 +3717,16 @@ async fn move_folder(
 
 #[tauri::command]
 fn get_settings(window: WebviewWindow, state: State<AppState>) -> Settings {
-    let workspace_settings = match state.workspace_for_window(window.label()) {
-        Ok(workspace) => workspace
-            .settings()
-            .read()
-            .expect("settings read lock")
-            .clone(),
-        Err(error) => {
-            eprintln!(
-                "Failed to resolve settings workspace for window {}: {}",
-                window.label(),
-                error,
-            );
-            WorkspaceSettings::default()
-        }
-    };
+    let workspace_settings = state
+        .workspace_for_window(window.label())
+        .map(|workspace| {
+            workspace
+                .settings()
+                .read()
+                .expect("settings read lock")
+                .clone()
+        })
+        .unwrap_or_default();
     let global_settings = state
         .app_config
         .read()
@@ -3815,22 +3812,6 @@ fn update_workspace_settings(
         Some(folder),
     );
     Ok(())
-fn get_settings(state: State<AppState>) -> Settings {
-    let folder = {
-        let app_config = state.app_config.read().expect("settings read lock");
-        app_config.notes_folder.clone()
-    };
-    let fallback = state.settings.read().expect("settings read lock").clone();
-    match folder {
-        Some(ref folder) => match load_settings(folder) {
-            Ok(loaded) => loaded,
-            Err(error) => {
-                eprintln!("Failed to load workspace settings: {}", error);
-                fallback
-            }
-        },
-        None => fallback,
-    }
 }
 
 #[tauri::command]
@@ -3885,37 +3866,17 @@ fn update_git_enabled(
         return Err("Notes folder changed".to_string());
     }
 
-    let mut settings = workspace
-        .settings()
-        .write()
-        .expect("settings write lock");
-    let mut next = settings.clone();
-    next.git_enabled = enabled;
-    save_settings(&folder, &next).map_err(|e| e.to_string())?;
-    *settings = next;
-
-    let folder = {
-        let app_config = state.app_config.read().expect("app_config read lock");
-        let folder = app_config.notes_folder.clone().ok_or("Notes folder not set")?;
-
-        if folder != expected_folder {
-            return Err("Notes folder changed".to_string());
-        }
-
-        folder
+    let updated = {
+        let settings = workspace.settings().read().expect("settings read lock");
+        let mut updated = settings.clone();
+        updated.git_enabled = enabled;
+        updated
     };
-
-    let mut cloned_settings = {
-        let settings = state.settings.read().expect("settings read lock");
-        settings.clone()
-    };
-    cloned_settings.git_enabled = enabled;
-
-    save_settings(&folder, &cloned_settings).map_err(|e| e.to_string())?;
+    save_settings(&folder, &updated).map_err(|e| e.to_string())?;
 
     {
-        let mut settings = state.settings.write().expect("settings write lock");
-        *settings = cloned_settings;
+        let mut settings = workspace.settings().write().expect("settings write lock");
+        *settings = updated;
     }
 
     Ok(())
@@ -6264,25 +6225,6 @@ pub fn run() {
                 }
             }
 
-            // Load per-folder settings if notes folder is set
-            let settings = if let Some(ref folder) = app_config.notes_folder {
-                load_settings(folder).unwrap_or_default()
-            } else {
-                Settings::default()
-            };
-
-            // Initialize search index if notes folder is set
-            let ignored_dirs = get_effective_ignored_dirs(&settings);
-            let search_index = if let Some(ref folder) = app_config.notes_folder {
-                if let Ok(index_path) = get_search_index_path(app.handle()) {
-                    SearchIndex::new(&index_path).ok().inspect(|idx| {
-                        let _ = idx.rebuild_index(&PathBuf::from(folder), &ignored_dirs);
-                    })
-                } else {
-                    None
-                }
-            }
-
             let default_workspace = app_config.notes_folder.clone();
             if app_config.global_settings.is_none() {
                 if let Some(default_workspace) = default_workspace.as_deref() {
@@ -7922,7 +7864,7 @@ mod workspace_registry_tests {
             .expect("create parent dirs");
 
         let content = "# Untitled\n\n";
-        let result = persistence::save_if_revision(&file_path, &content, None)
+        let result = persistence::save_if_revision(&file_path, content, None)
             .expect("atomic create succeeds");
         assert!(matches!(result, persistence::SaveResult::Saved { .. }));
         assert!(file_path.exists());
@@ -7951,7 +7893,7 @@ mod workspace_registry_tests {
         std::fs::write(&file_path, "existing content").expect("seed existing file");
 
         let content = "# Untitled\n\n";
-        let result = persistence::save_if_revision(&file_path, &content, None)
+        let result = persistence::save_if_revision(&file_path, content, None)
             .expect("conflict is typed");
         assert!(matches!(result, persistence::SaveResult::Conflict { .. }));
         assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "existing content");
