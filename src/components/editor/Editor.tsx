@@ -662,6 +662,9 @@ export function Editor({
     );
   }
   const checkpointScheduler = checkpointSchedulerRef.current;
+  const persistCurrentCrashCheckpointRef = useRef<
+    (() => Promise<void>) | null
+  >(null);
   const linkPopupRef = useRef<TippyInstance | null>(null);
   const blockMathPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
@@ -897,7 +900,7 @@ export function Editor({
           toast.error("Failed to save note");
         }
       }
-    }, 500);
+    }, 300);
   }, [checkpointScheduler, saveImmediately, getMarkdown, currentNote?.id]);
 
   const flushSourceSave = useCallback(async () => {
@@ -1834,6 +1837,7 @@ export function Editor({
         clearTimeout(checkpointCaptureTimerRef.current);
         checkpointCaptureStartedAtRef.current = null;
       }
+      void checkpointScheduler.dispose();
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
       }
@@ -2524,7 +2528,6 @@ export function Editor({
               <Tooltip content="Save conflict — local draft preserved; choose which version to keep">
                 <DropdownMenu.Trigger asChild>
                   <button
-                    role="status"
                     className="h-7 px-2 flex items-center gap-1 text-xs text-text-muted hover:bg-bg-emphasis rounded font-medium"
                   >
                     <RefreshCwIcon className="w-4 h-4 stroke-[1.6]" />
