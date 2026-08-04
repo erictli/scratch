@@ -336,7 +336,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
               ? currentNoteRef.current.revision
               : null);
           if (!expectedRevision) {
-            throw new Error(`Missing base revision for ${savingNoteId}`);
+            console.error(`Missing base revision for ${savingNoteId}`);
+            throw new Error(
+              "Unable to save: the editor's base revision is missing. Please reload the note and try again.",
+            );
           }
 
           const result = await notesService.saveNote(
