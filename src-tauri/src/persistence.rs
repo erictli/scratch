@@ -181,6 +181,8 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 /// Publishes a brand-new file without ever replacing an existing directory
 /// entry. The hard-link operation is atomic within the destination directory:
 /// another process either wins first or receives `AlreadyExists`.
+/// Filesystems without hard-link support fall back to a direct create-only
+/// publication so that create-new saves still succeed.
 fn atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(
@@ -195,7 +197,30 @@ fn atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     temporary_file.sync_all()?;
     drop(temporary_file);
 
-    fs::hard_link(temporary_path.path(), path)?;
+    match fs::hard_link(temporary_path.path(), path) {
+        Ok(()) => {
+            fs::remove_file(temporary_path.path())?;
+            temporary_path.commit();
+            sync_parent_directory(parent)?;
+            return Ok(());
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            return Err(error);
+        }
+        Err(_) => {}
+    }
+
+    let create_result = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()));
+
+    if let Err(error) = create_result {
+        let _ = fs::remove_file(path);
+        return Err(error);
+    }
+
     fs::remove_file(temporary_path.path())?;
     temporary_path.commit();
     sync_parent_directory(parent)?;
