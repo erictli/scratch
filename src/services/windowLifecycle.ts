@@ -1,4 +1,5 @@
-import { invoke, getCurrentWindow } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * Completes a close that the frontend already intercepted, flushed, and approved.
@@ -13,11 +14,6 @@ export async function openPreferencesWindow(): Promise<void> {
   await invoke("open_preferences_window");
 }
 
-/**
- * Requests the current window to close. The close is interceptable by the
- * WebView's onCloseRequested handler, allowing the frontend to flush drafts
- * or persist recovery before the window is destroyed.
- */
 export async function requestCurrentWindowClose(): Promise<void> {
   await getCurrentWindow().close();
 }

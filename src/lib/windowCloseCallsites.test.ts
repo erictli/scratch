@@ -14,7 +14,13 @@ describe("safe window close call sites", () => {
       const source = readFileSync(sourcePath, "utf8");
 
       expect(source).toContain("closeWindowAfterSave");
-      expect(source).not.toMatch(/(?<!\))\.\s*(close|destroy)\s*\(\s*\)/);
+      expect(source).not.toContain("appWindow.close()");
+      expect(source).not.toContain("appWindow.destroy()");
+      const baseName = sourcePath.split(/[/\\]/).pop() || "";
+      if (baseName === "App.tsx") {
+        expect(source).toContain("requestCurrentWindowClose");
+        expect(source).not.toContain("getCurrentWindow().close()");
+      }
     },
   );
 

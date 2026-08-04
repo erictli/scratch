@@ -1849,40 +1849,27 @@ fn save_app_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
 }
 
 // Load per-folder settings from disk
-fn load_settings(notes_folder: &str) -> WorkspaceSettings {
+fn load_settings(notes_folder: &str) -> Result<WorkspaceSettings, String> {
     let path = get_settings_path(notes_folder);
 
     if path.exists() {
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|content| serde_json::from_str(&content).ok())
-            .unwrap_or_default()
+        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let settings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        Ok(settings)
     } else {
-        WorkspaceSettings::default()
+        Ok(WorkspaceSettings::default())
     }
 }
 
-fn load_legacy_settings(notes_folder: &str) -> Settings {
+fn load_legacy_settings(notes_folder: &str) -> Result<Settings, String> {
     let path = get_settings_path(notes_folder);
 
-    match std::fs::read_to_string(&path) {
-        Ok(content) => match serde_json::from_str(&content) {
-            Ok(settings) => settings,
-            Err(error) => {
-                eprintln!(
-                    "settings deserialization failed for {}: {error}",
-                    path.display()
-                );
-                Settings::default()
-            }
-        },
-        Err(error) => {
-            eprintln!(
-                "settings read failed for {}: {error}",
-                path.display()
-            );
-            Settings::default()
-        }
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let settings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        Ok(settings)
+    } else {
+        Ok(Settings::default())
     }
 }
 
@@ -1929,17 +1916,13 @@ fn prepare_notes_folder(path_buf: &Path) -> Result<(PathBuf, String), String> {
     let _ = std::fs::remove_file(&write_test_path);
 
     let normalized = canonical.to_string_lossy().into_owned();
+    // Load per-folder settings (starts fresh with defaults if none exist)
+    let settings = load_settings(&normalized_path).unwrap_or_default();
+
     Ok((canonical, normalized))
 }
 
 fn configure_main_workspace(
-    app: &AppHandle,
-    path_buf: &Path,
-    state: &AppState,
-    make_default: bool,
-) -> Result<String, String> {
-    let session = WorkspaceSession::initialize(app, path_buf)?;
-    let normalized_path = session.notes_folder.clone();
 
     {
         let mut config = state.app_config.write().expect("app_config write lock");
@@ -3732,16 +3715,21 @@ async fn move_folder(
 
 #[tauri::command]
 fn get_settings(window: WebviewWindow, state: State<AppState>) -> Settings {
-    let workspace_settings = state
-        .workspace_for_window(window.label())
-        .map(|workspace| {
-            workspace
-                .settings()
-                .read()
-                .expect("settings read lock")
-                .clone()
-        })
-        .unwrap_or_default();
+    let workspace_settings = match state.workspace_for_window(window.label()) {
+        Ok(workspace) => workspace
+            .settings()
+            .read()
+            .expect("settings read lock")
+            .clone(),
+        Err(error) => {
+            eprintln!(
+                "Failed to resolve settings workspace for window {}: {}",
+                window.label(),
+                error,
+            );
+            WorkspaceSettings::default()
+        }
+    };
     let global_settings = state
         .app_config
         .read()
@@ -3827,6 +3815,22 @@ fn update_workspace_settings(
         Some(folder),
     );
     Ok(())
+fn get_settings(state: State<AppState>) -> Settings {
+    let folder = {
+        let app_config = state.app_config.read().expect("settings read lock");
+        app_config.notes_folder.clone()
+    };
+    let fallback = state.settings.read().expect("settings read lock").clone();
+    match folder {
+        Some(ref folder) => match load_settings(folder) {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                eprintln!("Failed to load workspace settings: {}", error);
+                fallback
+            }
+        },
+        None => fallback,
+    }
 }
 
 #[tauri::command]
@@ -3881,17 +3885,37 @@ fn update_git_enabled(
         return Err("Notes folder changed".to_string());
     }
 
-    let updated = {
-        let settings = workspace.settings().read().expect("settings read lock");
-        let mut updated = settings.clone();
-        updated.git_enabled = enabled;
-        updated
+    let mut settings = workspace
+        .settings()
+        .write()
+        .expect("settings write lock");
+    let mut next = settings.clone();
+    next.git_enabled = enabled;
+    save_settings(&folder, &next).map_err(|e| e.to_string())?;
+    *settings = next;
+
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        let folder = app_config.notes_folder.clone().ok_or("Notes folder not set")?;
+
+        if folder != expected_folder {
+            return Err("Notes folder changed".to_string());
+        }
+
+        folder
     };
-    save_settings(&folder, &updated).map_err(|e| e.to_string())?;
+
+    let mut cloned_settings = {
+        let settings = state.settings.read().expect("settings read lock");
+        settings.clone()
+    };
+    cloned_settings.git_enabled = enabled;
+
+    save_settings(&folder, &cloned_settings).map_err(|e| e.to_string())?;
 
     {
-        let mut settings = workspace.settings().write().expect("settings write lock");
-        *settings = updated;
+        let mut settings = state.settings.write().expect("settings write lock");
+        *settings = cloned_settings;
     }
 
     Ok(())
@@ -6237,6 +6261,25 @@ pub fn run() {
                 remember_workspace(&mut app_config, default_workspace);
                 if app_config.workspaces.len() != previous_workspace_count {
                     let _ = save_app_config(app.handle(), &app_config);
+                }
+            }
+
+            // Load per-folder settings if notes folder is set
+            let settings = if let Some(ref folder) = app_config.notes_folder {
+                load_settings(folder).unwrap_or_default()
+            } else {
+                Settings::default()
+            };
+
+            // Initialize search index if notes folder is set
+            let ignored_dirs = get_effective_ignored_dirs(&settings);
+            let search_index = if let Some(ref folder) = app_config.notes_folder {
+                if let Ok(index_path) = get_search_index_path(app.handle()) {
+                    SearchIndex::new(&index_path).ok().inspect(|idx| {
+                        let _ = idx.rebuild_index(&PathBuf::from(folder), &ignored_dirs);
+                    })
+                } else {
+                    None
                 }
             }
 
