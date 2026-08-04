@@ -121,6 +121,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [noteConflict, setNoteConflict] = useState<NoteSyncConflict | null>(
     null,
   );
+  const noteConflictRef = useRef<NoteSyncConflict | null>(null);
+  useEffect(() => {
+    noteConflictRef.current = noteConflict;
+  }, [noteConflict]);
   // Increments when user manually refreshes, so Editor knows to reload content
   const [reloadVersion, setReloadVersion] = useState(0);
   const [restoredWindowSession, setRestoredWindowSession] =
@@ -194,9 +198,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     const draft = openNoteDraftRef.current();
     if (!draft.dirty || !draft.noteId) return undefined;
     const note = currentNoteRef.current;
+    const sourcePath =
+      note && note.id === draft.noteId ? note.path : "";
     return notesService.persistRecoverySnapshot({
       noteId: draft.noteId,
-      sourcePath: note?.path ?? "",
+      sourcePath,
       content: draft.content,
       reason,
     });
@@ -486,16 +492,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         }
 
         // Only clear selection if we're deleting the currently selected note
-        setSelectedNoteId((prevId) => {
-          if (prevId === id) {
-            selectedNoteIdRef.current = null;
-            currentNoteRef.current = null;
-            setCurrentNote(null);
-            setNoteConflict(null);
-            return null;
-          }
-          return prevId;
-        });
+        if (selectedNoteIdRef.current === id) {
+          selectedNoteIdRef.current = null;
+          currentNoteRef.current = null;
+          setSelectedNoteId(null);
+          setCurrentNote(null);
+          setNoteConflict(null);
+        }
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to delete note");
@@ -616,14 +619,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           () => persistCurrentDraftRecovery("delete-folder"),
         );
         await notesService.deleteFolder(path);
-        // If the selected note was inside the deleted folder, clear selection
-        setSelectedNoteId((prevId) => {
-          if (prevId && prevId.startsWith(path + "/")) {
-            setCurrentNote(null);
-            return null;
-          }
-          return prevId;
-        });
+        let shouldClearSelection = false;
+        if (selectedNoteIdRef.current && selectedNoteIdRef.current.startsWith(path + "/")) {
+          shouldClearSelection = true;
+        }
+        if (shouldClearSelection) {
+          setCurrentNote(null);
+          setSelectedNoteId(null);
+        }
         await refreshNotes();
       } catch (err) {
         setError(
@@ -655,18 +658,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const newPrefix = newPath + "/";
 
         // Update selectedNoteId if it was inside the renamed folder
-        setSelectedNoteId((prevId) => {
-          if (prevId && prevId.startsWith(oldPrefix)) {
-            const newId = newPrefix + prevId.substring(oldPrefix.length);
-            notesService.readNote(newId).then((note) => {
-              setCurrentNote(note);
-            }).catch((err) => {
-              setError(err instanceof Error ? err.message : "Failed to read renamed note");
-            });
-            return newId;
-          }
-          return prevId;
-        });
+        const selectedId = selectedNoteIdRef.current;
+        if (selectedId && selectedId.startsWith(oldPrefix)) {
+          const newId = newPrefix + selectedId.substring(oldPrefix.length);
+          setSelectedNoteId(newId);
+          notesService.readNote(newId).then((note) => {
+            setCurrentNote(note);
+          }).catch((err) => {
+            setError(err instanceof Error ? err.message : "Failed to read renamed note");
+          });
+        }
 
         await refreshNotes();
       } catch (err) {
@@ -689,17 +690,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         );
         const newId = await notesService.moveNote(id, targetFolder);
         // Update selection if we moved the selected note
-        setSelectedNoteId((prevId) => {
-          if (prevId === id) {
-            notesService.readNote(newId).then((note) => {
-              setCurrentNote(note);
-            }).catch((err) => {
-              setError(err instanceof Error ? err.message : "Failed to read moved note");
-            });
-            return newId;
-          }
-          return prevId;
-        });
+        if (selectedNoteIdRef.current === id) {
+          setSelectedNoteId(newId);
+          notesService.readNote(newId).then((note) => {
+            setCurrentNote(note);
+          }).catch((err) => {
+            setError(err instanceof Error ? err.message : "Failed to read moved note");
+          });
+        }
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to move note");
@@ -730,18 +728,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const newPrefix = newPath + "/";
 
         // Update selectedNoteId if it was inside the moved folder
-        setSelectedNoteId((prevId) => {
-          if (prevId && prevId.startsWith(oldPrefix)) {
-            const newId = newPrefix + prevId.substring(oldPrefix.length);
-            notesService.readNote(newId).then((note) => {
-              setCurrentNote(note);
-            }).catch((err) => {
-              setError(err instanceof Error ? err.message : "Failed to read moved note");
-            });
-            return newId;
-          }
-          return prevId;
-        });
+        const selectedId = selectedNoteIdRef.current;
+        if (selectedId && selectedId.startsWith(oldPrefix)) {
+          const newId = newPrefix + selectedId.substring(oldPrefix.length);
+          setSelectedNoteId(newId);
+          notesService.readNote(newId).then((note) => {
+            setCurrentNote(note);
+          }).catch((err) => {
+            setError(err instanceof Error ? err.message : "Failed to read moved note");
+          });
+        }
 
         await refreshNotes();
       } catch (err) {
@@ -1045,7 +1041,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           draft:
             draft.noteId === observedId ? draft.content : current.content,
           dirty: draft.noteId === observedId && draft.dirty,
-          conflict: noteConflict,
+          conflict: noteConflictRef.current,
         };
         const next = reconcileRemoteNote(syncState, remote);
         if (next === syncState) return;
@@ -1093,7 +1089,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         unlisten();
       }
     };
-  }, [noteConflict, refreshNotes]);
+  }, [refreshNotes]);
 
   // Listen for "select-note" events from the backend (CLI, drag-drop, Open With, import from preview)
   useEffect(() => {
