@@ -198,13 +198,14 @@ function AppContent() {
   const openSettings = useCallback(async () => {
     if (view === "settings") return;
     try {
-      await persistenceControllerRef.current?.flush();
+      await flushCurrentDraft();
     } catch (error) {
-      toast.error(`Settings not opened: ${error}`);
+      console.error("Failed to flush draft before opening Settings:", error);
+      toast.error("Settings could not be opened because the current draft could not be saved");
       return;
     }
     setView("settings");
-  }, [view]);
+  }, [flushCurrentDraft, view]);
 
   useWindowShortcuts({ onOpenPreferences: openSettings });
 

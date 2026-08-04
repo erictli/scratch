@@ -1919,7 +1919,7 @@ export function Editor({
       const hasPendingSave =
         needsSaveRef.current || sourceNeedsSaveRef.current;
       if (hasPendingSave) {
-        void persistCurrentCrashCheckpointRef.current().catch((error) => {
+        void persistCurrentCrashCheckpointRef.current?.().catch((error) => {
           console.error("Failed to persist crash checkpoint on unmount:", error);
         });
       }

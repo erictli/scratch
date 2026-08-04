@@ -2,7 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import { Editor } from "@tiptap/core";
 import { TableKit } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ScratchTableRow } from "./tableExtensions";
 import {
   containsNestedTableNode,
@@ -183,10 +183,6 @@ describe("containsNestedTableNode", () => {
       extensions: [StarterKit, TableKit.configure({ tableRow: false }), ScratchTableRow],
       content,
     }).state.doc;
-
-  afterEach(() => {
-    Editor.description = undefined;
-  });
 
   it("detects a table nested inside a tableCell without serializing the document", () => {
     const doc = buildDoc({
