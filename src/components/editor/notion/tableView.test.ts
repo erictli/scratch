@@ -249,4 +249,41 @@ describe("ScratchTableView", () => {
       editor.destroy();
     }
   });
+
+  it("removes temporarily appended col elements during restore and is idempotent", () => {
+    const table = document.createElement("table");
+    const colgroup = document.createElement("colgroup");
+    const originalCol = document.createElement("col");
+    originalCol.style.width = "80px";
+    colgroup.append(originalCol);
+    table.append(colgroup, document.createElement("tbody"));
+    document.body.append(table);
+
+    try {
+      const preview = createScratchTableColumnResizePreview(
+        table,
+        [80, 120],
+        0,
+        80,
+      );
+      if (!preview) throw new Error("Missing resize preview session");
+
+      expect(colgroup.children).toHaveLength(2);
+      expect((colgroup.children[1] as HTMLElement).style.width).toBe("");
+
+      preview.apply(280);
+      expect(colgroup.children).toHaveLength(2);
+      expect((colgroup.children[1] as HTMLElement).style.width).toBe("120px");
+
+      preview.restore();
+      expect(colgroup.children).toHaveLength(1);
+      expect(colgroup.children[0]).toBe(originalCol);
+      expect((originalCol as HTMLElement).style.width).toBe("80px");
+
+      preview.restore();
+      expect(colgroup.children).toHaveLength(1);
+    } finally {
+      table.remove();
+    }
+  });
 });

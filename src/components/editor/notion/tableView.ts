@@ -41,8 +41,12 @@ export function createScratchTableColumnResizePreview(
   });
   if (normalizedBaseline.some((width) => width === null)) return null;
 
+  const originalCols = Array.from(colgroup.children);
+  const temporaryCols: HTMLTableColElement[] = [];
   while (colgroup.children.length < normalizedBaseline.length) {
-    colgroup.appendChild(colgroup.ownerDocument.createElement("col"));
+    const col = colgroup.ownerDocument.createElement("col");
+    colgroup.appendChild(col);
+    temporaryCols.push(col);
   }
   const columns = Array.from(colgroup.children).slice(
     0,
@@ -84,9 +88,16 @@ export function createScratchTableColumnResizePreview(
       restoreAttribute(table, "style", tableStyle);
       restoreAttribute(table, "data-fit-to-width", fitToWidth);
       restoreAttribute(table, "data-column-resizing", resizing);
-      columns.forEach((column, index) =>
-        restoreAttribute(column, "style", columnStyles[index]),
-      );
+      temporaryCols.forEach((col) => {
+        if (col.parentNode === colgroup) {
+          colgroup.removeChild(col);
+        }
+      });
+      originalCols.forEach((column, index) => {
+        if (index < columnStyles.length) {
+          restoreAttribute(column, "style", columnStyles[index]);
+        }
+      });
     },
   };
 }
