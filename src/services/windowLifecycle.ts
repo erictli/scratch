@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * Completes a close that the frontend already intercepted, flushed, and approved.
@@ -11,4 +12,8 @@ export async function closeWindowAfterSave(): Promise<void> {
 
 export async function openPreferencesWindow(): Promise<void> {
   await invoke("open_preferences_window");
+}
+
+export async function requestCurrentWindowClose(): Promise<void> {
+  await getCurrentWindow().close();
 }

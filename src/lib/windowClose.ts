@@ -18,6 +18,9 @@ export async function runSafeWindowClose(
     await dependencies.flushDraft();
   } catch (saveError) {
     const recoveredTo = await dependencies.persistRecovery();
+    if (recoveredTo === undefined) {
+      throw saveError;
+    }
     result = { recoveredTo, saveError };
   }
 
