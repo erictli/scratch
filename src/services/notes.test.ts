@@ -13,6 +13,7 @@ import {
   switchWorkspace,
   updateGlobalSettings,
   updateWorkspaceSettings,
+  duplicateNote,
 } from "./notes";
 
 describe("draft recovery", () => {
@@ -163,5 +164,24 @@ describe("scoped settings writes", () => {
     expect(invokeMock).toHaveBeenCalledWith("update_workspace_settings", {
       patch: { pinnedNoteIds: ["Plan"] },
     });
+  });
+
+  it("duplicates a note with a single atomic backend command", async () => {
+    invokeMock.mockResolvedValueOnce({
+      id: "Original-Copy",
+      title: "Original (Copy)",
+      content: "# Original (Copy)\n\nContent.\n",
+      path: "/notes/Original-Copy.md",
+      modified: 1,
+      revision: "new-revision",
+    });
+
+    const result = await duplicateNote("Original");
+
+    expect(invokeMock).toHaveBeenCalledWith("duplicate_note", {
+      id: "Original",
+    });
+    expect(result.id).toBe("Original-Copy");
+    expect(result.title).toBe("Original (Copy)");
   });
 });
