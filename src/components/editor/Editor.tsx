@@ -18,13 +18,14 @@ import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
+import Highlight from "@tiptap/extension-highlight";
 import { TableKit } from "@tiptap/extension-table";
 import { Markdown } from "@tiptap/markdown";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { lowlight } from "./lowlight";
 import { highlightCode } from "./codeHighlight";
 import { CodeBlockView } from "./CodeBlockView";
-import { Extension, InputRule } from "@tiptap/core";
+import { Extension, InputRule, type JSONContent } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   NodeSelection,
@@ -80,6 +81,8 @@ import {
   BoldIcon,
   ItalicIcon,
   StrikethroughIcon,
+  HighlighterIcon,
+  XIcon,
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
@@ -156,6 +159,29 @@ const katexMacros: Record<string, string> = {
   "\\Q": "\\mathbb{Q}",
   "\\C": "\\mathbb{C}",
 };
+
+// Highlight color palette for the toolbar picker. `value: null` is the
+// default color — it stores no `color` attr so it keeps serializing as
+// clean ==text== markdown; the others carry a CSS var so they stay
+// theme-adaptive and serialize as inline <mark style="..."> HTML instead.
+const HIGHLIGHT_COLORS: { name: string; value: string | null }[] = [
+  { name: "Yellow", value: null },
+  { name: "Green", value: "var(--color-highlight-green)" },
+  { name: "Blue", value: "var(--color-highlight-blue)" },
+  { name: "Pink", value: "var(--color-highlight-pink)" },
+  { name: "Red", value: "var(--color-highlight-red)" },
+];
+
+// Highlight, extended to serialize colored marks as inline HTML (since plain
+// ==text== markdown has no way to carry a color) while keeping the default
+// color's clean ==text== round-trip untouched.
+const MultiHighlight = Highlight.extend({
+  renderMarkdown(node: JSONContent, helpers) {
+    const color = node.attrs?.color;
+    if (!color) return `==${helpers.renderChildren(node)}==`;
+    return `<mark style="background-color: ${color}; color: inherit">${helpers.renderChildren(node)}</mark>`;
+  },
+});
 
 // Search highlight extension - adds yellow backgrounds to search matches
 const searchHighlightPluginKey = new PluginKey("searchHighlight");
@@ -258,6 +284,7 @@ function FormatBar({
   onAddImage,
 }: FormatBarProps) {
   const [tableMenuOpen, setTableMenuOpen] = useState(false);
+  const [highlightMenuOpen, setHighlightMenuOpen] = useState(false);
 
   if (!editor) return null;
 
@@ -284,6 +311,54 @@ function FormatBar({
       >
         <StrikethroughIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
+      <DropdownMenu.Root
+        open={highlightMenuOpen}
+        onOpenChange={setHighlightMenuOpen}
+      >
+        <Tooltip content={`Highlight (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}H)`}>
+          <DropdownMenu.Trigger asChild>
+            <ToolbarButton isActive={editor.isActive("highlight")}>
+              <HighlighterIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+            </ToolbarButton>
+          </DropdownMenu.Trigger>
+        </Tooltip>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            className="flex items-center gap-1.5 p-2 bg-bg border border-border rounded-md shadow-lg z-50"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            {HIGHLIGHT_COLORS.map((color) => (
+              <button
+                key={color.name}
+                type="button"
+                title={color.name}
+                onClick={() => {
+                  editor
+                    .chain()
+                    .focus()
+                    .setHighlight(color.value ? { color: color.value } : undefined)
+                    .run();
+                  setHighlightMenuOpen(false);
+                }}
+                className="w-6 h-6 rounded-full border border-border transition-transform hover:scale-110"
+                style={{ backgroundColor: color.value ?? "var(--color-highlight)" }}
+              />
+            ))}
+            <div className="w-px h-5 border-l border-border mx-1" />
+            <button
+              type="button"
+              title="Remove highlight"
+              onClick={() => {
+                editor.chain().focus().unsetHighlight().run();
+                setHighlightMenuOpen(false);
+              }}
+              className="w-6 h-6 rounded-full border border-border flex items-center justify-center text-text-muted hover:bg-bg-muted"
+            >
+              <XIcon className="w-3.5 h-3.5" />
+            </button>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
 
       <div className="w-px h-4.5 border-l border-border mx-2" />
 
@@ -1112,6 +1187,7 @@ export function Editor({
       TaskItem.configure({
         nested: true,
       }),
+      MultiHighlight.configure({ multicolor: true }),
       TableKit.configure({
         table: {
           resizable: false,
@@ -2626,8 +2702,16 @@ export function Editor({
 
                   if (!clickPos) return;
 
-                  // Set the selection to the clicked position
-                  editor.chain().focus().setTextSelection(clickPos.pos).run();
+                  // Only collapse to the click point if it falls outside the
+                  // current selection — right-clicking inside an existing
+                  // selection should preserve it, so native/OS Copy and Cut
+                  // still have something to act on.
+                  const { from, to } = editor.state.selection;
+                  const clickIsInsideSelection =
+                    clickPos.pos >= from && clickPos.pos <= to;
+                  if (!clickIsInsideSelection) {
+                    editor.chain().focus().setTextSelection(clickPos.pos).run();
+                  }
 
                   // Check if we're in a table after updating selection
                   if (!editor.isActive("table")) return;

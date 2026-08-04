@@ -40,7 +40,8 @@ export type ThemeColorKey =
   | "text-muted"
   | "border"
   | "accent"
-  | "selection";
+  | "selection"
+  | "highlight";
 
 // Partial map of color overrides (hex strings)
 export type CustomColors = Partial<Record<ThemeColorKey, string>>;

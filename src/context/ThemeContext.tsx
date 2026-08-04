@@ -62,7 +62,8 @@ const defaultThemeColors: Record<"light" | "dark", Record<ThemeColorKey, string>
     "text-muted": "#78716c",
     border: "rgba(28, 25, 23, 0.08)",
     accent: "#1c1917",
-    selection: "rgba(250, 204, 21, 0.4)",
+    selection: "rgba(59, 130, 246, 0.35)",
+    highlight: "rgba(250, 204, 21, 0.4)",
   },
   dark: {
     bg: "rgb(22, 20, 19)",
@@ -73,7 +74,8 @@ const defaultThemeColors: Record<"light" | "dark", Record<ThemeColorKey, string>
     "text-muted": "#a8a29e",
     border: "rgba(250, 249, 249, 0.07)",
     accent: "#fafaf9",
-    selection: "rgba(253, 224, 71, 0.35)",
+    selection: "rgba(96, 165, 250, 0.3)",
+    highlight: "rgba(253, 224, 71, 0.35)",
   },
 };
 
@@ -82,7 +84,7 @@ export { defaultThemeColors };
 // A curated color preset users can apply on top of the light theme, based on
 // Monkeytype's "Repose Light" theme. bg-muted/bg-emphasis/border are derived
 // from the theme's text color at the same opacities the default theme uses;
-// selection reuses the default light theme's highlight color for consistency.
+// selection/highlight reuse the default light theme's values for consistency.
 const reposeLightColors: Record<ThemeColorKey, string> = {
   bg: "#efead0",
   "bg-secondary": "#dbd6c4",
@@ -92,7 +94,8 @@ const reposeLightColors: Record<ThemeColorKey, string> = {
   "text-muted": "#8f8e84",
   border: "rgba(51, 53, 56, 0.08)",
   accent: "#5f605e",
-  selection: "rgba(250, 204, 21, 0.4)",
+  selection: "rgba(59, 130, 246, 0.35)",
+  highlight: "rgba(250, 204, 21, 0.4)",
 };
 
 export { reposeLightColors };
@@ -110,7 +113,8 @@ const reposeDarkColors: Record<ThemeColorKey, string> = {
   "text-muted": "#8f8e84",
   border: "rgba(214, 210, 188, 0.07)",
   accent: "#d6d2bc",
-  selection: "rgba(253, 224, 71, 0.35)",
+  selection: "rgba(96, 165, 250, 0.3)",
+  highlight: "rgba(253, 224, 71, 0.35)",
 };
 
 export { reposeDarkColors };
@@ -566,7 +570,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     const defaults = defaultThemeColors[resolvedTheme];
     const keys: ThemeColorKey[] = [
       "bg", "bg-secondary", "bg-muted", "bg-emphasis",
-      "text", "text-muted", "border", "accent", "selection",
+      "text", "text-muted", "border", "accent", "selection", "highlight",
     ];
     for (const key of keys) {
       const value = activeColors[key] ?? defaults[key];

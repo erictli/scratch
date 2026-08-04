@@ -15,7 +15,12 @@
   --color-text-inverse: #fafaf9;
   --color-border: rgba(28, 25, 23, 0.08);
   --color-accent: #1c1917;
-  --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
+  --color-selection: rgba(59, 130, 246, 0.35); /* Tailwind blue-500 */
+  --color-highlight: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
+  --color-highlight-green: rgba(74, 222, 128, 0.4); /* Tailwind green-400 */
+  --color-highlight-blue: rgba(56, 189, 248, 0.4); /* Tailwind sky-400 */
+  --color-highlight-pink: rgba(244, 114, 182, 0.4); /* Tailwind pink-400 */
+  --color-highlight-red: rgba(248, 113, 113, 0.4); /* Tailwind red-400 */
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
   --editor-font-family:
@@ -60,7 +65,12 @@
   --color-text-inverse: #0c0a09;
   --color-border: rgba(250, 249, 249, 0.07);
   --color-accent: #fafaf9;
-  --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
+  --color-selection: rgba(96, 165, 250, 0.3); /* Tailwind blue-400 */
+  --color-highlight: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
+  --color-highlight-green: rgba(134, 239, 172, 0.35); /* Tailwind green-300 */
+  --color-highlight-blue: rgba(125, 211, 252, 0.35); /* Tailwind sky-300 */
+  --color-highlight-pink: rgba(249, 168, 212, 0.35); /* Tailwind pink-300 */
+  --color-highlight-red: rgba(252, 165, 165, 0.35); /* Tailwind red-300 */
 
   /* Syntax highlighting colors - Dark (GitHub) */
   --color-syntax-keyword: #ea4a5a;
@@ -111,6 +121,9 @@
 
   /* Accent colors */
   --color-accent: var(--color-accent);
+
+  /* Highlight mark color */
+  --color-highlight: var(--color-highlight);
 }
 
 /* Base styles */
@@ -661,6 +674,13 @@ html.dark {
 }
 .search-match-active {
   background-color: var(--color-selection);
+}
+
+/* Highlighted text mark */
+.prose :where(mark):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  background-color: var(--color-highlight);
+  color: inherit;
+  border-radius: 0.15em;
 }
 
 /* Horizontal rules */

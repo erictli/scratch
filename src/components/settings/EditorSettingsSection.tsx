@@ -28,7 +28,8 @@ const colorLabels: { key: ThemeColorKey; label: string; group: string }[] = [
   { key: "text-muted", label: "Secondary Text", group: "Text & UI" },
   { key: "accent", label: "Primary & Buttons", group: "Text & UI" },
   { key: "border", label: "Borders", group: "Text & UI" },
-  { key: "selection", label: "Selection Highlight", group: "Text & UI" },
+  { key: "selection", label: "Selection", group: "Text & UI" },
+  { key: "highlight", label: "Text Highlight", group: "Text & UI" },
 ];
 
 // Text direction options
