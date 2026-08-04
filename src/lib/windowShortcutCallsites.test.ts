@@ -23,6 +23,8 @@ describe("global shortcut call sites", () => {
     const source = readSource("src/App.tsx");
     const preferencesStart = source.indexOf("function PreferencesApp()");
     const preferencesEnd = source.indexOf("function App()", preferencesStart);
+    expect(preferencesStart).toBeGreaterThanOrEqual(0);
+    expect(preferencesEnd).toBeGreaterThanOrEqual(0);
     const preferencesSource = source.slice(preferencesStart, preferencesEnd);
 
     expect(source).toContain("<SettingsPage onBack={closeSettings} />");
