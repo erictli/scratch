@@ -41,11 +41,10 @@ describe("runSafeWindowClose", () => {
     expect(order).toEqual(["flush", "recovery", "close"]);
     expect(result).toEqual({
       recoveredTo: "/recovery/Plan.md",
-      saveError: expect.any(Error),
     });
   });
 
-  it("keeps the window open when both save and recovery fail", async () => {
+  it("throws the save error when recovery has no target", async () => {
     const closeWindow = vi.fn(async () => undefined);
 
     await expect(
@@ -53,12 +52,10 @@ describe("runSafeWindowClose", () => {
         flushDraft: async () => {
           throw new Error("storage offline");
         },
-        persistRecovery: async () => {
-          throw new Error("recovery storage offline");
-        },
+        persistRecovery: async () => undefined,
         closeWindow,
       }),
-    ).rejects.toThrow("recovery storage offline");
+    ).rejects.toThrow("storage offline");
 
     expect(closeWindow).not.toHaveBeenCalled();
   });
