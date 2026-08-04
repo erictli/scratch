@@ -175,25 +175,36 @@ function AppContent() {
     });
   }, [selectedNoteId]);
 
-  const toggleSettings = useCallback(async () => {
-    if (view === "notes") {
-      try {
-        await persistenceControllerRef.current?.flush();
-      } catch (error) {
-        toast.error(`Settings not opened: ${error}`);
-        return;
-      }
+  const openSettings = useCallback(async () => {
+    if (view === "settings") return;
+    try {
+      await persistenceControllerRef.current?.flush();
+    } catch (error) {
+      toast.error(`Settings not opened: ${error}`);
+      return;
     }
-    setView((previous) =>
-      previous === "settings" ? "notes" : "settings",
-    );
+    setView("settings");
+  }, [view]);
+
+  const toggleSettings = useCallback(async () => {
+    if (view === "settings") {
+      setView("notes");
+      return;
+    }
+    try {
+      await persistenceControllerRef.current?.flush();
+    } catch (error) {
+      toast.error(`Settings not opened: ${error}`);
+      return;
+    }
+    setView("settings");
   }, [view]);
 
   const closeSettings = useCallback(() => {
     setView("notes");
   }, []);
 
-  useWindowShortcuts({ onOpenPreferences: toggleSettings });
+  useWindowShortcuts({ onOpenPreferences: openSettings });
 
   // Go back to command palette from AI modal
   const handleBackToPalette = useCallback(() => {

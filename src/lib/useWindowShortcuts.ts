@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { useTheme } from "../context/ThemeContext";
 import { resolveWindowShortcut } from "./windowShortcuts";
@@ -11,10 +11,6 @@ export function useWindowShortcuts({
   onOpenPreferences,
 }: UseWindowShortcutsOptions): void {
   const { interfaceZoom, setInterfaceZoom } = useTheme();
-  const interfaceZoomRef = useRef(interfaceZoom);
-  const openPreferencesRef = useRef(onOpenPreferences);
-  interfaceZoomRef.current = interfaceZoom;
-  openPreferencesRef.current = onOpenPreferences;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -23,7 +19,11 @@ export function useWindowShortcuts({
       event.preventDefault();
 
       if (action === "preferences") {
-        void openPreferencesRef.current();
+        void Promise.resolve(onOpenPreferences()).catch((error) => {
+          toast.error(
+            `Failed to open Preferences: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
         return;
       }
 
@@ -35,7 +35,7 @@ export function useWindowShortcuts({
 
       const delta = action === "zoom-in" ? 0.05 : -0.05;
       const next = Math.round(
-        Math.min(Math.max(interfaceZoomRef.current + delta, 0.7), 1.5) * 20,
+        Math.min(Math.max(interfaceZoom + delta, 0.7), 1.5) * 20,
       ) / 20;
       setInterfaceZoom(next);
       toast(`Zoom ${Math.round(next * 100)}%`, {
@@ -46,5 +46,5 @@ export function useWindowShortcuts({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [setInterfaceZoom]);
+  }, [interfaceZoom, onOpenPreferences, setInterfaceZoom]);
 }
