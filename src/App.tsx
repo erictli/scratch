@@ -208,6 +208,17 @@ function AppContent() {
     setView("notes");
   }, []);
 
+  const openSettings = useCallback(async () => {
+    if (view === "settings") return;
+    try {
+      await persistenceControllerRef.current?.flush();
+    } catch (error) {
+      toast.error(`Settings not opened: ${error}`);
+      return;
+    }
+    setView("settings");
+  }, [view]);
+
   useWindowShortcuts({ onOpenPreferences: openSettings });
 
   // Go back to command palette from AI modal

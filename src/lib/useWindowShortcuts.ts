@@ -20,9 +20,8 @@ export function useWindowShortcuts({
 
       if (action === "preferences") {
         void Promise.resolve(onOpenPreferences()).catch((error) => {
-          toast.error(
-            `Failed to open Preferences: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          console.error("Failed to open preferences:", error);
+          toast.error("Failed to open preferences");
         });
         return;
       }
