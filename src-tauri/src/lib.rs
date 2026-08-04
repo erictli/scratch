@@ -20,6 +20,7 @@ mod git;
 mod persistence;
 mod draft_checkpoint;
 mod watcher_debounce;
+mod hashing;
 
 use watcher_debounce::{WatcherDebounce, WATCHER_DEBOUNCE_WINDOW};
 
@@ -196,7 +197,9 @@ fn restorable_window_sessions(
         .records
         .iter()
         .filter(|(label, record)| {
-            !label.starts_with("preview-") && workspace_is_available(&record.workspace)
+            label.to_string() != "preferences"
+                && !label.starts_with("preview-")
+                && workspace_is_available(&record.workspace)
         })
         .map(|(label, record)| (label.clone(), record.clone()))
         .collect();
@@ -227,6 +230,9 @@ fn fallback_main_session(
         .get("main")
         .cloned()
         .unwrap_or_else(|| WindowSession::for_workspace(workspace.clone()));
+    if fallback.workspace != workspace {
+        fallback.selected_note_id = None;
+    }
     fallback.workspace = workspace;
     Some(fallback)
 }
@@ -406,6 +412,9 @@ fn build_application_menu(
     Ok(menu)
 }
 
+const NATIVE_NEW_WINDOW_EVENT: &str = "new-window";
+const NATIVE_OPEN_FOLDER_EVENT: &str = "open-folder";
+
 fn emit_native_new_window_request(app: &AppHandle) {
     let window_states = app
         .webview_windows()
@@ -422,7 +431,7 @@ fn emit_native_new_window_request(app: &AppHandle) {
     );
 
     if let Some(label) = target {
-        let _ = app.emit_to(label, "open-folder-in-new-window", ());
+        let _ = app.emit_to(label, NATIVE_NEW_WINDOW_EVENT, ());
     }
 }
 
@@ -439,17 +448,13 @@ fn emit_native_open_folder_request(app: &AppHandle) {
     );
 
     if let Some(label) = target {
-        let _ = app.emit_to(label, "open-folder-in-new-window", ());
+        let _ = app.emit_to(label, NATIVE_OPEN_FOLDER_EVENT, ());
     }
 }
 
 fn workspace_path_key(path: &Path) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    path.hash(&mut hasher);
-    format!("workspace-{:x}", hasher.finish())
+    let path_str = path.to_string_lossy();
+    format!("workspace-{}", crate::hashing::sha256_hex(path_str.as_bytes()))
 }
 
 fn workspace_window_label(path: &Path, sequence: u64) -> String {
@@ -1268,9 +1273,10 @@ impl AppState {
             return Ok(WorkspaceRuntime::Main(self));
         }
 
-        self.workspace_session(window_label)
-            .map(WorkspaceRuntime::Session)
-            .ok_or_else(|| format!("Workspace session not found for window: {}", window_label))
+        Err(format!(
+            "Workspace session not found for window: {}",
+            window_label
+        ))
     }
 
     fn register_workspace_session(
@@ -1800,6 +1806,15 @@ fn get_workspace_search_index_path(app: &AppHandle, notes_folder: &Path) -> Resu
     Ok(indexes.join(workspace_path_key(notes_folder)))
 }
 
+fn remove_workspace_search_index(app: &AppHandle, path: &str) -> Result<()> {
+    let app_data = app.path().app_data_dir()?;
+    let index_path = app_data.join("workspace_search_indexes").join(workspace_path_key(Path::new(path)));
+    if index_path.exists() {
+        std::fs::remove_dir_all(index_path)?;
+    }
+    Ok(())
+}
+
 // Load app config from disk (notes folder path)
 fn load_app_config(app: &AppHandle) -> AppConfig {
     let path = match get_app_config_path(app) {
@@ -2054,14 +2069,18 @@ fn handle_window_destroyed(app: &AppHandle, label: &str) {
     let _ = app.emit("workspaces-changed", ());
 }
 
-fn suppress_full_windows_for_preview(app: &AppHandle) {
+fn is_full_editor_window(label: &str) -> bool {
+    label == "main" || label.starts_with("workspace-")
+}
+
+fn request_full_window_closure_for_preview(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
     let windows: Vec<_> = app
         .webview_windows()
         .into_iter()
-        .filter(|(label, _)| !label.starts_with("preview-"))
+        .filter(|(label, _)| is_full_editor_window(label))
         .collect();
     {
         let mut preserved = state
@@ -2071,7 +2090,7 @@ fn suppress_full_windows_for_preview(app: &AppHandle) {
         preserved.extend(windows.iter().map(|(label, _)| label.clone()));
     }
     for (_, window) in windows {
-        let _ = window.destroy();
+        let _ = window.close();
     }
 }
 
@@ -2095,21 +2114,30 @@ fn close_window_after_save(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_notes_folder(
+async fn set_notes_folder(
     app: AppHandle,
     window: WebviewWindow,
     path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
     let path_buf = normalize_notes_folder_path(&path)?;
     if window.label() == "main" {
-        initialize_notes_folder(&app, &path_buf, &state)?;
+        let _normalized = initialize_notes_folder(&app, &path_buf, &state)?;
         let _ = app.emit("workspaces-changed", ());
         return Ok(());
     }
 
-    let session = WorkspaceSession::initialize(&app, &path_buf)?;
-    let notes_folder = session.notes_folder.clone();
+    let (notes_folder, session) = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        let path_buf = path_buf.clone();
+        move || {
+            let session = WorkspaceSession::initialize(&app, &path_buf)?;
+            Ok::<(String, WorkspaceSession), String>((session.notes_folder.clone(), session))
+        }
+    })
+    .await
+    .map_err(|error| format!("Workspace initialization failed: {}", error))??;
+
     {
         let mut config = state.app_config.write().expect("app_config write lock");
         let mut next = config.clone();
@@ -2159,22 +2187,32 @@ fn remove_workspace_from_list(
     }
 
     let _ = app.emit("workspaces-changed", ());
+    let _ = remove_workspace_search_index(&app, path);
     Ok(())
 }
 
 #[tauri::command]
-fn switch_workspace(
+async fn switch_workspace(
     app: AppHandle,
     window: WebviewWindow,
     path: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<String, String> {
     let path_buf = normalize_notes_folder_path(&path)?;
     let normalized_path = if window.label() == "main" {
         switch_main_workspace(&app, &path_buf, &state)?
     } else {
-        let session = WorkspaceSession::initialize(&app, &path_buf)?;
-        let notes_folder = session.notes_folder.clone();
+        let (notes_folder, session) = tauri::async_runtime::spawn_blocking({
+            let app = app.clone();
+            let path_buf = path_buf.clone();
+            move || {
+                let session = WorkspaceSession::initialize(&app, &path_buf)?;
+                Ok::<(String, WorkspaceSession), String>((session.notes_folder.clone(), session))
+            }
+        })
+        .await
+        .map_err(|error| format!("Workspace initialization failed: {}", error))??;
+
         {
             let mut config = state.app_config.write().expect("app_config write lock");
             let mut next = config.clone();
@@ -2822,6 +2860,7 @@ async fn save_note_in_workspace(
     if let Some((_, ref old_file_path)) = old_id {
         if *old_file_path != file_path {
             let target_path = file_path.clone();
+            let target_path_for_cleanup = target_path.clone();
             let target_content = content.clone();
             let target_result = tauri::async_runtime::spawn_blocking(move || {
                 persistence::save_if_revision(&target_path, &target_content, None)
@@ -2834,9 +2873,13 @@ async fn save_note_in_workspace(
                 return Err("Rename target changed while saving; source note was preserved".into());
             }
 
-            fs::remove_file(old_file_path)
+            if let Err(remove_error) = fs::remove_file(old_file_path)
                 .await
-                .map_err(|error| format!("Saved renamed note but could not remove source: {error}"))?;
+                .map_err(|error| format!("Saved renamed note but could not remove source: {error}"))
+            {
+                let _ = fs::remove_file(&target_path_for_cleanup).await;
+                return Err(remove_error);
+            }
             let renamed_id = final_id.clone();
             let renamed_path = file_path.clone();
             saved_note = tauri::async_runtime::spawn_blocking(move || {
@@ -2964,22 +3007,8 @@ async fn create_note(
     let mut final_id = base_id.clone();
     let mut counter = if has_counter { 2 } else { 1 };
 
-    // Ensure filename uniqueness
-    while abs_path_from_id(&folder_path, &final_id)
-        .map(|p| p.exists())
-        .unwrap_or(false)
-    {
-        if has_counter {
-            final_id = sanitized.replace("{counter}", &counter.to_string());
-        } else {
-            final_id = format!("{}-{}", base_id, counter);
-        }
-        counter += 1;
-    }
-
     // Extract display title from filename
     let display_title = extract_title_from_id(&final_id);
-
     let content = format!("# {}\n\n", display_title);
     let file_path = abs_path_from_id(&folder_path, &final_id)?;
 
@@ -2990,9 +3019,32 @@ async fn create_note(
             .map_err(|e| e.to_string())?;
     }
 
-    fs::write(&file_path, &content)
+    loop {
+        let create_path = file_path.clone();
+        let create_content = content.clone();
+        let _create_id = final_id.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            persistence::save_if_revision(&create_path, &create_content, None)
+        })
         .await
+        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
+
+        match result {
+            persistence::SaveResult::Saved { .. } => break,
+            persistence::SaveResult::Conflict { current } => {
+                if current.is_none() {
+                    return Err("Note file unexpectedly already exists".to_string());
+                }
+                final_id = if has_counter {
+                    sanitized.replace("{counter}", &counter.to_string())
+                } else {
+                    format!("{}-{}", base_id, counter)
+                };
+                counter += 1;
+            }
+        }
+    }
 
     let modified = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -3007,14 +3059,184 @@ async fn create_note(
         }
     }
 
-    Ok(Note {
+    let created_note = Note {
         id: final_id,
         title: display_title,
         revision: persistence::content_revision(&content).to_string(),
         content,
         path: file_path.to_string_lossy().into_owned(),
         modified,
-    })
+    };
+
+    {
+        let mut cache = workspace.notes_cache().write().expect("cache write lock");
+        cache.insert(created_note.id.clone(), NoteMetadata {
+            id: created_note.id.clone(),
+            title: created_note.title.clone(),
+            preview: generate_preview(&created_note.content),
+            modified: created_note.modified,
+        });
+    }
+
+    emit_workspace_file_change(
+        window.app_handle(),
+        &state,
+        Path::new(&created_note.path),
+        semantic_file_change_event(
+            folder,
+            "created",
+            None,
+            Some(&created_note),
+            Some(window.label().to_string()),
+        ),
+        Some(window.label()),
+    );
+
+    Ok(created_note)
+}
+
+#[tauri::command]
+async fn duplicate_note(
+    id: String,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<Note, String> {
+    let workspace = state.workspace_for_window(window.label())?;
+    let folder = workspace.notes_folder()?;
+    let folder_path = PathBuf::from(&folder);
+
+    let original = read_note(id.clone(), window.clone(), state.clone())
+        .await
+        .map_err(|e| format!("Failed to read original note: {e}"))?;
+
+    let base_title = extract_title(&original.content);
+    let copy_title = if base_title.trim().is_empty() {
+        "Copy"
+    } else {
+        &base_title
+    };
+    let copy_title = format!("{} (Copy)", copy_title);
+    let sanitized = sanitize_filename(&copy_title);
+
+    let folder_prefix = if let Some(pos) = id.rfind('/') {
+        Some(id[..pos].to_string())
+    } else {
+        None
+    };
+    let sanitized = if let Some(ref prefix) = folder_prefix {
+        format!("{}/{}", prefix, sanitized)
+    } else {
+        sanitized
+    };
+
+    let mut final_id = sanitized.clone();
+    let mut counter = 1;
+    while abs_path_from_id(&folder_path, &final_id)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+    {
+        final_id = if let Some(ref prefix) = folder_prefix {
+            format!("{}/{}-{}", prefix, copy_title, counter)
+        } else {
+            format!("{}-{}", copy_title, counter)
+        };
+        counter += 1;
+    }
+
+    let duplicated_content = if original.content.starts_with("# ") {
+        if let Some(rest) = original.content.strip_prefix("# ") {
+            let first_line_end = rest.find('\n').map_or(rest.len(), |i| i);
+            let title = &rest[..first_line_end];
+            format!("# {} (Copy){}", title, &rest[first_line_end..])
+        } else {
+            format!("# {} (Copy)", base_title)
+        }
+    } else {
+        original.content.clone()
+    };
+    let display_title = extract_title_from_id(&final_id);
+    let content = duplicated_content;
+    let file_path = abs_path_from_id(&folder_path, &final_id)?;
+
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    loop {
+        let create_path = file_path.clone();
+        let create_content = content.clone();
+        let _create_id = final_id.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            persistence::save_if_revision(&create_path, &create_content, None)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+        match result {
+            persistence::SaveResult::Saved { .. } => break,
+            persistence::SaveResult::Conflict { current } => {
+                if current.is_none() {
+                    return Err("Duplicate note file unexpectedly already exists".to_string());
+                }
+                final_id = if let Some(ref prefix) = folder_prefix {
+                    format!("{}/{}-{}", prefix, copy_title, counter)
+                } else {
+                    format!("{}-{}", copy_title, counter)
+                };
+                counter += 1;
+            }
+        }
+    }
+
+    let modified = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    {
+        let index = workspace.search_index().lock().expect("search index mutex");
+        if let Some(ref search_index) = *index {
+            let _ = search_index.index_note(&final_id, &display_title, &content, modified);
+        }
+    }
+
+    let created_note = Note {
+        id: final_id,
+        title: display_title,
+        revision: persistence::content_revision(&content).to_string(),
+        content,
+        path: file_path.to_string_lossy().into_owned(),
+        modified,
+    };
+
+    {
+        let mut cache = workspace.notes_cache().write().expect("cache write lock");
+        cache.insert(created_note.id.clone(), NoteMetadata {
+            id: created_note.id.clone(),
+            title: created_note.title.clone(),
+            preview: generate_preview(&created_note.content),
+            modified: created_note.modified,
+        });
+    }
+
+    emit_workspace_file_change(
+        window.app_handle(),
+        &state,
+        Path::new(&created_note.path),
+        semantic_file_change_event(
+            folder,
+            "created",
+            None,
+            Some(&created_note),
+            Some(window.label().to_string()),
+        ),
+        Some(window.label()),
+    );
+
+    Ok(created_note)
 }
 
 /// Validate a relative folder path against traversal attacks
@@ -3640,13 +3862,18 @@ fn update_git_enabled(
         return Err("Notes folder changed".to_string());
     }
 
+    let updated = {
+        let settings = workspace.settings().read().expect("settings read lock");
+        let mut updated = settings.clone();
+        updated.git_enabled = enabled;
+        updated
+    };
+    save_settings(&folder, &updated).map_err(|e| e.to_string())?;
+
     {
         let mut settings = workspace.settings().write().expect("settings write lock");
-        settings.git_enabled = enabled;
+        *settings = updated;
     }
-
-    let settings = workspace.settings().read().expect("settings read lock");
-    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -3951,12 +4178,10 @@ async fn import_file_to_folder(
         cache.insert(metadata.id.clone(), metadata.clone());
     }
 
-    // Tell the main window to select the imported note and focus it
-    let _ = app.emit_to("main", "select-note", &metadata.id);
-    if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.show();
-        let _ = main_window.set_focus();
-    }
+    // Tell the invoking window to select the imported note and focus it
+    let _ = app.emit_to(window.label(), "select-note", &metadata.id);
+    let _ = window.show();
+    let _ = window.set_focus();
 
     Ok(metadata)
 }
@@ -5784,12 +6009,7 @@ fn open_preferences_window(app: AppHandle) -> Result<(), String> {
 
 // Preview mode: create a lightweight window for editing a single file
 fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    file_path.hash(&mut hasher);
-    let label = format!("preview-{:x}", hasher.finish());
+    let label = format!("preview-{}", crate::hashing::sha256_hex(file_path.as_bytes()));
 
     // If window already exists for this file, focus it
     if let Some(window) = app.get_webview_window(&label) {
@@ -5945,7 +6165,7 @@ pub fn run() {
             if let Some((args, cwd)) = defer_single_instance_open_if_needed(app, args, cwd) {
                 let opened_preview = handle_cli_args(app, &args, &cwd);
                 if opened_preview {
-                    suppress_full_windows_for_preview(app);
+                    request_full_window_closure_for_preview(app);
                 }
                 hide_main_window_for_standalone_preview(app, opened_preview);
             }
@@ -6064,7 +6284,7 @@ pub fn run() {
                 opened_preview |= handle_cli_args(app.handle(), &args, &cwd);
             }
             if opened_preview {
-                suppress_full_windows_for_preview(app.handle());
+                request_full_window_closure_for_preview(app.handle());
             }
 
             let app_state = app.state::<AppState>();
@@ -6178,6 +6398,7 @@ pub fn run() {
             list_draft_checkpoints,
             delete_note,
             create_note,
+            duplicate_note,
             list_folders,
             create_folder,
             delete_folder,
@@ -6256,7 +6477,7 @@ pub fn run() {
                 }
 
                 if opened_preview {
-                    suppress_full_windows_for_preview(_app_handle);
+                    request_full_window_closure_for_preview(_app_handle);
                 }
                 hide_main_window_for_standalone_preview(_app_handle, opened_preview);
             }
@@ -6723,6 +6944,61 @@ mod window_session_tests {
             WindowSession::for_workspace("/notes/client".to_string())
         );
     }
+
+    #[test]
+    fn fallback_main_session_clears_selected_note_when_workspace_changes() {
+        let mut config = AppConfig::default();
+        config.records.insert(
+            "main".to_string(),
+            WindowSession {
+                workspace: "/notes/old".to_string(),
+                selected_note_id: Some("Roadmap".to_string()),
+                sidebar_visible: true,
+                focus_mode: false,
+                geometry: None,
+            },
+        );
+
+        let fallback = fallback_main_session(
+            &config,
+            Some("/notes/new"),
+            false,
+            false,
+            |path| path == "/notes/new",
+        )
+        .expect("valid default should produce a fallback");
+
+        assert_eq!(fallback.workspace, "/notes/new");
+        assert_eq!(fallback.selected_note_id, None);
+        assert_eq!(config.records["main"].selected_note_id, Some("Roadmap".to_string()));
+    }
+
+    #[test]
+    fn fallback_main_session_preserves_selected_note_when_workspace_matches() {
+        let mut config = AppConfig::default();
+        config.records.insert(
+            "main".to_string(),
+            WindowSession {
+                workspace: "/notes/default".to_string(),
+                selected_note_id: Some("Roadmap".to_string()),
+                sidebar_visible: true,
+                focus_mode: false,
+                geometry: None,
+            },
+        );
+
+        let fallback = fallback_main_session(
+            &config,
+            Some("/notes/default"),
+            false,
+            false,
+            |path| path == "/notes/default",
+        )
+        .expect("matching default should produce a fallback");
+
+        assert_eq!(fallback.workspace, "/notes/default");
+        assert_eq!(fallback.selected_note_id, Some("Roadmap".to_string()));
+    }
 }
 
 #[cfg(test)]
@@ -6805,7 +7081,7 @@ mod window_chrome_tests {
 mod native_new_window_menu_tests {
     use super::{
         focused_window_target, native_new_window_menu_spec, native_open_folder_menu_spec,
-        native_preferences_menu_spec, new_window_event_target,
+        native_preferences_menu_spec, new_window_event_target, is_full_editor_window,
     };
 
     #[test]
@@ -6856,12 +7132,22 @@ mod native_new_window_menu_tests {
         let windows = [("main", false), ("preview-note", true)];
         assert_eq!(focused_window_target(windows.iter().copied()), Some("preview-note"));
     }
+
+    #[test]
+    fn is_full_editor_window_targets_only_main_and_workspace_windows() {
+        assert!(is_full_editor_window("main"));
+        assert!(is_full_editor_window("workspace-alpha"));
+        assert!(is_full_editor_window("workspace-123"));
+        assert!(!is_full_editor_window("preview-note"));
+        assert!(!is_full_editor_window("preferences"));
+        assert!(!is_full_editor_window("other"));
+    }
 }
 
 #[cfg(test)]
 mod workspace_registry_tests {
     use std::collections::HashMap;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier, Mutex, RwLock};
 
@@ -6872,7 +7158,7 @@ mod workspace_registry_tests {
         note_change_targets, save_note_in_workspace, semantic_file_change_event,
         workspace_window_label,
         AppConfig, AppState, WorkspaceBindings, WorkspaceSession,
-        WindowSession, WorkspaceRuntime,
+        WindowSession, WorkspaceRuntime, persistence, abs_path_from_id,
     };
 
     #[test]
@@ -7554,5 +7840,60 @@ mod workspace_registry_tests {
         );
 
         std::fs::remove_dir_all(root).expect("remove workspace save test");
+    }
+
+    #[test]
+    fn create_note_persists_content_with_create_only_loop() {
+        let root = std::env::temp_dir().join(format!(
+            "scratch-create-note-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create test root");
+
+        let folder = root.to_string_lossy().into_owned();
+        let folder_path = PathBuf::from(&folder);
+        let sanitized = "Untitled".to_string();
+        let file_path = abs_path_from_id(&folder_path, &sanitized).expect("resolve note path");
+
+        std::fs::create_dir_all(file_path.parent().expect("note has parent"))
+            .expect("create parent dirs");
+
+        let content = "# Untitled\n\n";
+        let result = persistence::save_if_revision(&file_path, &content, None)
+            .expect("atomic create succeeds");
+        assert!(matches!(result, persistence::SaveResult::Saved { .. }));
+        assert!(file_path.exists());
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), content);
+
+        std::fs::remove_dir_all(root).expect("cleanup create note test");
+    }
+
+    #[test]
+    fn create_note_retries_on_create_conflict() {
+        let root = std::env::temp_dir().join(format!(
+            "scratch-create-conflict-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create test root");
+
+        let folder = root.to_string_lossy().into_owned();
+        let folder_path = PathBuf::from(&folder);
+        let sanitized = "Untitled".to_string();
+        let file_path = abs_path_from_id(&folder_path, &sanitized).expect("resolve note path");
+
+        std::fs::create_dir_all(file_path.parent().expect("note has parent"))
+            .expect("create parent dirs");
+
+        std::fs::write(&file_path, "existing content").expect("seed existing file");
+
+        let content = "# Untitled\n\n";
+        let result = persistence::save_if_revision(&file_path, &content, None)
+            .expect("conflict is typed");
+        assert!(matches!(result, persistence::SaveResult::Conflict { .. }));
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "existing content");
+
+        std::fs::remove_dir_all(root).expect("cleanup create conflict test");
     }
 }
