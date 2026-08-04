@@ -1,3 +1,4 @@
+use crate::hashing::sha256_hex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -181,7 +182,7 @@ fn checkpoint_file_name(key: &DraftCheckpointKey) -> String {
     identity.extend_from_slice(key.window_label.as_bytes());
     identity.extend_from_slice(&(key.note_id.len() as u64).to_be_bytes());
     identity.extend_from_slice(key.note_id.as_bytes());
-    format!("{}.json", hex_sha256(&identity))
+    format!("{}.json", sha256_hex(&identity))
 }
 
 fn ensure_identity_matches(
@@ -323,100 +324,138 @@ fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn hex_sha256(input: &[u8]) -> String {
-    let digest = sha256(input);
-    let mut hex = String::with_capacity(64);
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    for byte in digest {
-        hex.push(DIGITS[(byte >> 4) as usize] as char);
-        hex.push(DIGITS[(byte & 0x0f) as usize] as char);
-    }
-    hex
-}
 
-fn sha256(input: &[u8]) -> [u8; 32] {
-    const INITIAL: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-        0x5be0cd19,
-    ];
-    const ROUND_CONSTANTS: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
-        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
-        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
-        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
-        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
-        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-        0xc67178f2,
-    ];
-    let mut state = INITIAL;
-    let mut chunks = input.chunks_exact(64);
-    for chunk in &mut chunks {
-        sha256_compress(&mut state, chunk, &ROUND_CONSTANTS);
-    }
-    let remainder = chunks.remainder();
-    let mut tail = [0_u8; 128];
-    tail[..remainder.len()].copy_from_slice(remainder);
-    tail[remainder.len()] = 0x80;
-    let tail_length = if remainder.len() < 56 { 64 } else { 128 };
-    tail[tail_length - 8..tail_length]
-        .copy_from_slice(&(input.len() as u64).wrapping_mul(8).to_be_bytes());
-    for chunk in tail[..tail_length].chunks_exact(64) {
-        sha256_compress(&mut state, chunk, &ROUND_CONSTANTS);
-    }
-    let mut digest = [0_u8; 32];
-    for (output, word) in digest.chunks_exact_mut(4).zip(state) {
-        output.copy_from_slice(&word.to_be_bytes());
-    }
-    digest
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-fn sha256_compress(state: &mut [u32; 8], chunk: &[u8], constants: &[u32; 64]) {
-    let mut schedule = [0_u32; 64];
-    for (index, word) in chunk.chunks_exact(4).enumerate() {
-        schedule[index] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDirectory {
+        path: PathBuf,
     }
-    for index in 16..64 {
-        let s0 = schedule[index - 15].rotate_right(7)
-            ^ schedule[index - 15].rotate_right(18)
-            ^ (schedule[index - 15] >> 3);
-        let s1 = schedule[index - 2].rotate_right(17)
-            ^ schedule[index - 2].rotate_right(19)
-            ^ (schedule[index - 2] >> 10);
-        schedule[index] = schedule[index - 16]
-            .wrapping_add(s0)
-            .wrapping_add(schedule[index - 7])
-            .wrapping_add(s1);
+
+    impl TestDirectory {
+        fn new(test_name: &str) -> Self {
+            let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "scratch-draft-checkpoint-{test_name}-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("create test directory");
+            Self { path }
+        }
+
+        fn app_data_dir(&self) -> PathBuf {
+            self.path.clone()
+        }
     }
-    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
-    for index in 0..64 {
-        let big_s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-        let choice = (e & f) ^ ((!e) & g);
-        let temp1 = h
-            .wrapping_add(big_s1)
-            .wrapping_add(choice)
-            .wrapping_add(constants[index])
-            .wrapping_add(schedule[index]);
-        let big_s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-        let majority = (a & b) ^ (a & c) ^ (b & c);
-        let temp2 = big_s0.wrapping_add(majority);
-        h = g;
-        g = f;
-        f = e;
-        e = d.wrapping_add(temp1);
-        d = c;
-        c = b;
-        b = a;
-        a = temp1.wrapping_add(temp2);
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
-    state[0] = state[0].wrapping_add(a);
-    state[1] = state[1].wrapping_add(b);
-    state[2] = state[2].wrapping_add(c);
-    state[3] = state[3].wrapping_add(d);
-    state[4] = state[4].wrapping_add(e);
-    state[5] = state[5].wrapping_add(f);
-    state[6] = state[6].wrapping_add(g);
-    state[7] = state[7].wrapping_add(h);
+
+    fn write_valid_checkpoint(dir: &PathBuf, window_label: &str, note_id: &str, content: &str) {
+        let checkpoint = DraftCheckpoint {
+            key: DraftCheckpointKey {
+                window_label: window_label.to_string(),
+                note_id: note_id.to_string(),
+            },
+            markdown: content.to_string(),
+            metadata: DraftCheckpointMetadata {
+                source_path: format!("/notes/{note_id}.md"),
+                base_revision: Some("abc123".to_string()),
+                updated_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+        };
+        write_checkpoint(dir, &checkpoint).expect("write checkpoint");
+    }
+
+    #[test]
+    fn list_checkpoints_returns_valid_checkpoint() {
+        let directory = TestDirectory::new("list-valid");
+        let app_data = directory.app_data_dir();
+        write_valid_checkpoint(&app_data, "main", "note1", "valid content");
+
+        let checkpoints = list_checkpoints(&app_data).expect("list checkpoints");
+        assert_eq!(checkpoints.len(), 1);
+        assert_eq!(checkpoints[0].key.window_label, "main");
+        assert_eq!(checkpoints[0].key.note_id, "note1");
+        assert_eq!(checkpoints[0].markdown, "valid content");
+    }
+
+    #[test]
+    fn list_checkpoints_skips_truncated_json() {
+        let directory = TestDirectory::new("list-truncated");
+        let app_data = directory.app_data_dir();
+        write_valid_checkpoint(&app_data, "main", "note1", "valid content");
+
+        // Write a truncated JSON file directly
+        let checkpoint_dir = app_data.join(CHECKPOINT_DIRECTORY_NAME);
+        let truncated_path = checkpoint_dir.join("truncated.json");
+        fs::write(&truncated_path, r#"{"key":{"window_label":"main","note_id":"note2"#).unwrap();
+
+        let checkpoints = list_checkpoints(&app_data).expect("list checkpoints");
+        // Only the valid checkpoint should be returned
+        assert_eq!(checkpoints.len(), 1);
+        assert_eq!(checkpoints[0].key.note_id, "note1");
+    }
+
+    #[test]
+    fn list_checkpoints_skips_identity_mismatch() {
+        let directory = TestDirectory::new("list-identity-mismatch");
+        let app_data = directory.app_data_dir();
+        write_valid_checkpoint(&app_data, "main", "note1", "valid content");
+
+        // Write a checkpoint with mismatched identity (wrong hash in filename)
+        let checkpoint_dir = app_data.join(CHECKPOINT_DIRECTORY_NAME);
+        let mismatch_path = checkpoint_dir.join("mismatch.json");
+        let mismatch_content = r#"{"key":{"window_label":"main","note_id":"note2"},"markdown":"mismatch","metadata":{"source_path":"/notes/note2.md","base_revision":"abc","updated_at":"2024-01-01T00:00:00Z"}}"#;
+        fs::write(&mismatch_path, mismatch_content).unwrap();
+
+        let checkpoints = list_checkpoints(&app_data).expect("list checkpoints");
+        // Only the valid checkpoint should be returned
+        assert_eq!(checkpoints.len(), 1);
+        assert_eq!(checkpoints[0].key.note_id, "note1");
+    }
+
+    #[test]
+    fn list_checkpoints_skips_unreadable_entry() {
+        let directory = TestDirectory::new("list-unreadable");
+        let app_data = directory.app_data_dir();
+        write_valid_checkpoint(&app_data, "main", "note1", "valid content");
+
+        // Create a directory entry instead of a file (unreadable as JSON)
+        let checkpoint_dir = app_data.join(CHECKPOINT_DIRECTORY_NAME);
+        fs::create_dir(checkpoint_dir.join("not-a-file.json")).unwrap();
+
+        let checkpoints = list_checkpoints(&app_data).expect("list checkpoints");
+        assert_eq!(checkpoints.len(), 1);
+        assert_eq!(checkpoints[0].key.note_id, "note1");
+    }
+
+    #[test]
+    fn list_checkpoints_preserves_deterministic_sorting() {
+        let directory = TestDirectory::new("list-sorting");
+        let app_data = directory.app_data_dir();
+        write_valid_checkpoint(&app_data, "main", "note1", "content1");
+        write_valid_checkpoint(&app_data, "main", "note2", "content2");
+        write_valid_checkpoint(&app_data, "workspace-1", "note1", "content3");
+
+        let checkpoints = list_checkpoints(&app_data).expect("list checkpoints");
+        assert_eq!(checkpoints.len(), 3);
+        // Sorted by updated_at descending, then window_label, then note_id
+        // All have same updated_at, so sort by window_label then note_id
+        assert_eq!(checkpoints[0].key.window_label, "main");
+        assert_eq!(checkpoints[0].key.note_id, "note1");
+        assert_eq!(checkpoints[1].key.window_label, "main");
+        assert_eq!(checkpoints[1].key.note_id, "note2");
+        assert_eq!(checkpoints[2].key.window_label, "workspace-1");
+        assert_eq!(checkpoints[2].key.note_id, "note1");
+    }
 }
