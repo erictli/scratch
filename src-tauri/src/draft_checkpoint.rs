@@ -118,12 +118,24 @@ pub fn list_checkpoints(
     let mut checkpoints = Vec::new();
 
     for entry in entries {
-        let path = entry?.path();
+        let path = match entry {
+            Ok(entry) => entry.path(),
+            Err(_) => continue,
+        };
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
             continue;
         }
-        let checkpoint: DraftCheckpoint = serde_json::from_slice(&fs::read(&path)?)?;
-        ensure_identity_matches(&path, &checkpoint)?;
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        let checkpoint: DraftCheckpoint = match serde_json::from_slice(&bytes) {
+            Ok(checkpoint) => checkpoint,
+            Err(_) => continue,
+        };
+        if ensure_identity_matches(&path, &checkpoint).is_err() {
+            continue;
+        }
         checkpoints.push(checkpoint);
     }
 

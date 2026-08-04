@@ -22,7 +22,9 @@ describe("global shortcut call sites", () => {
   it("keeps Back only for in-window Settings navigation", () => {
     const source = readSource("src/App.tsx");
     const preferencesStart = source.indexOf("function PreferencesApp()");
+    expect(preferencesStart).toBeGreaterThanOrEqual(0);
     const preferencesEnd = source.indexOf("function App()", preferencesStart);
+    expect(preferencesEnd).toBeGreaterThan(preferencesStart);
     const preferencesSource = source.slice(preferencesStart, preferencesEnd);
 
     expect(source).toContain("<SettingsPage onBack={closeSettings} />");
