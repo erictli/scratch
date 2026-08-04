@@ -975,6 +975,12 @@ export function Editor({
     await checkpointScheduler.flush();
   }, [checkpointScheduler, currentNote, getOpenDraftSnapshot]);
 
+  const persistCurrentCrashCheckpointRef = useRef(persistCurrentCrashCheckpoint);
+
+  useLayoutEffect(() => {
+    persistCurrentCrashCheckpointRef.current = persistCurrentCrashCheckpoint;
+  }, [persistCurrentCrashCheckpoint]);
+
   queueCheckpointCaptureRef.current = () => {
     const now = Date.now();
     checkpointCaptureStartedAtRef.current ??= now;
@@ -1827,6 +1833,13 @@ export function Editor({
   // cannot await I/O, so it must never fire-and-forget the only draft.
   useEffect(() => {
     return () => {
+      const hasPendingSave =
+        needsSaveRef.current || sourceNeedsSaveRef.current;
+      if (hasPendingSave) {
+        void persistCurrentCrashCheckpointRef.current().catch((error) => {
+          console.error("Failed to persist crash checkpoint on unmount:", error);
+        });
+      }
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
@@ -1837,7 +1850,11 @@ export function Editor({
         clearTimeout(checkpointCaptureTimerRef.current);
         checkpointCaptureStartedAtRef.current = null;
       }
-      void checkpointScheduler.dispose();
+      if (checkpointSchedulerRef.current) {
+        void checkpointSchedulerRef.current.dispose().catch((error) => {
+          console.error("Failed to dispose checkpoint scheduler:", error);
+        });
+      }
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
       }

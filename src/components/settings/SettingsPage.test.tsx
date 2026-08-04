@@ -37,20 +37,24 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+function mountSettingsPage(onBack?: () => void) {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  act(() =>
+    root.render(
+      <TooltipProvider>
+        <SettingsPage onBack={onBack} />
+      </TooltipProvider>,
+    ),
+  );
+  return { container, root };
+}
+
 describe("SettingsPage navigation context", () => {
   it("shows Back when Settings replace the main editor", () => {
     const onBack = vi.fn();
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-
-    act(() =>
-      root.render(
-        <TooltipProvider>
-          <SettingsPage onBack={onBack} />
-        </TooltipProvider>,
-      ),
-    );
+    const { container } = mountSettingsPage(onBack);
 
     const backButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label^="Back"]',
@@ -58,29 +62,51 @@ describe("SettingsPage navigation context", () => {
     expect(backButton).not.toBeNull();
     act(() => backButton?.click());
     expect(onBack).toHaveBeenCalledOnce();
-
-    act(() => root.unmount());
   });
 
   it("hides Back when Settings are the root of a dedicated window", () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-
-    act(() =>
-      root.render(
-        <TooltipProvider>
-          <SettingsPage onBack={undefined} />
-        </TooltipProvider>,
-      ),
-    );
+    const { container } = mountSettingsPage(undefined);
 
     expect(container.textContent).toContain("Settings");
     expect(container.querySelector('button[aria-label^="Back"]')).toBeNull();
     expect(container.querySelectorAll("[data-tauri-drag-region]")).toHaveLength(
       2,
     );
+  });
+});
 
+describe("SettingsPage drag regions on Windows", () => {
+  it("omits drag regions when isWindows is true", async () => {
+    const originalUA = globalThis.navigator?.userAgent;
+    Object.defineProperty(globalThis.navigator || {}, "userAgent", {
+      value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      configurable: true,
+    });
+
+    vi.resetModules();
+    const { SettingsPage: WindowsSettingsPage } = await import("./SettingsPage");
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <TooltipProvider>
+          <WindowsSettingsPage onBack={undefined} />
+        </TooltipProvider>,
+      ),
+    );
+
+    expect(container.querySelectorAll("[data-tauri-drag-region]")).toHaveLength(
+      0,
+    );
     act(() => root.unmount());
+
+    if (originalUA !== undefined) {
+      Object.defineProperty(globalThis.navigator, "userAgent", {
+        value: originalUA,
+        configurable: true,
+      });
+    }
   });
 });
