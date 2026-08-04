@@ -1825,13 +1825,11 @@ fn update_git_enabled(
         folder
     };
 
-    {
-        let mut settings = state.settings.write().expect("settings write lock");
-        settings.git_enabled = enabled;
-    }
-
-    let settings = state.settings.read().expect("settings read lock");
-    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+    let mut settings = state.settings.write().expect("settings write lock");
+    let mut updated = settings.clone();
+    updated.git_enabled = enabled;
+    save_settings(&folder, &updated).map_err(|e| e.to_string())?;
+    *settings = updated;
 
     Ok(())
 }
