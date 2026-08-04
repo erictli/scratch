@@ -177,21 +177,42 @@ fn atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     drop(temporary_file);
 
     match fs::hard_link(temporary_path.path(), path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::Unsupported => {
-            let mut destination = OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(path)?;
-            destination.write_all(bytes)?;
-            destination.sync_all()?;
-            drop(destination);
+        Ok(()) => {
+            fs::remove_file(temporary_path.path())?;
+            temporary_path.commit();
+            sync_parent_directory(parent)?;
+            return Ok(());
         }
-        Err(error) => return Err(error),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            return Err(error);
+        }
+        Err(_) => {}
     }
-    fs::remove_file(temporary_path.path())?;
+
+    let mut direct = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) => {
+            let _ = fs::remove_file(temporary_path.path());
+            temporary_path.commit();
+            return Err(error);
+        }
+    };
+    let write_result = direct.write_all(bytes);
+    let flush_result = direct.flush();
+    let sync_result = direct.sync_all();
+    drop(direct);
+
+    let _ = fs::remove_file(temporary_path.path());
     temporary_path.commit();
     sync_parent_directory(parent)?;
+
+    write_result?;
+    flush_result?;
+    sync_result?;
     Ok(())
 }
 
