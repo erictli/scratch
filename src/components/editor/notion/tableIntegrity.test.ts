@@ -1,6 +1,13 @@
 import type { JSONContent } from "@tiptap/core";
-import { describe, expect, it } from "vitest";
-import { normalizeNestedTablesInJson } from "./tableIntegrity";
+import { Editor } from "@tiptap/core";
+import { TableKit } from "@tiptap/extension-table";
+import StarterKit from "@tiptap/starter-kit";
+import { afterEach, describe, expect, it } from "vitest";
+import { ScratchTableRow } from "./tableExtensions";
+import {
+  containsNestedTableNode,
+  normalizeNestedTablesInJson,
+} from "./tableIntegrity";
 
 function paragraph(text: string): JSONContent {
   return {
@@ -167,5 +174,84 @@ describe("normalizeNestedTablesInJson table integrity", () => {
     ).toBe(true);
     expect(sourceText(normalized)).toBe(sourceText(source));
     expect(elapsed).toBeLessThan(500);
+  });
+});
+
+describe("containsNestedTableNode", () => {
+  const buildDoc = (content: JSONContent) =>
+    new Editor({
+      extensions: [StarterKit, TableKit.configure({ tableRow: false }), ScratchTableRow],
+      content,
+    }).state.doc;
+
+  afterEach(() => {
+    Editor.description = undefined;
+  });
+
+  it("detects a table nested inside a tableCell without serializing the document", () => {
+    const doc = buildDoc({
+      type: "doc",
+      content: [
+        {
+          type: "table",
+          content: [
+            {
+              type: "tableRow",
+              content: [
+                {
+                  type: "tableCell",
+                  content: [
+                    {
+                      type: "table",
+                      content: [
+                        {
+                          type: "tableRow",
+                          content: [
+                            {
+                              type: "tableCell",
+                              content: [
+                                { type: "paragraph", content: [{ type: "text", text: "nested" }] },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(containsNestedTableNode(doc)).toBe(true);
+  });
+
+  it("returns false for a top-level table without nested tables", () => {
+    const doc = buildDoc({
+      type: "doc",
+      content: [
+        {
+          type: "table",
+          content: [
+            {
+              type: "tableRow",
+              content: [
+                {
+                  type: "tableCell",
+                  content: [
+                    { type: "paragraph", content: [{ type: "text", text: "plain" }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(containsNestedTableNode(doc)).toBe(false);
   });
 });

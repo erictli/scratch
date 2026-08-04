@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 const TABLE_STRUCTURE_TYPES = new Set([
   "table",
@@ -151,5 +152,25 @@ export function containsNestedTable(content: JSONContent): boolean {
   }
 
   visit(content, false);
+  return found;
+}
+
+export function containsNestedTableNode(doc: ProseMirrorNode): boolean {
+  let found = false;
+
+  function visit(node: ProseMirrorNode, insideTableCell: boolean): void {
+    if (found) return;
+    if (insideTableCell && node.type.name === "table") {
+      found = true;
+      return;
+    }
+    const childIsInsideTableCell =
+      insideTableCell ||
+      node.type.name === "tableCell" ||
+      node.type.name === "tableHeader";
+    node.content?.forEach((child) => visit(child, childIsInsideTableCell));
+  }
+
+  visit(doc, false);
   return found;
 }
