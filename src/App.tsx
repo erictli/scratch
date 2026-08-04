@@ -37,7 +37,7 @@ import { isMac, isWindows } from "./lib/platform";
 import { shouldSyncMainFolderLocation } from "./lib/workspace";
 import { runSafeWindowClose } from "./lib/windowClose";
 import { useWindowSessionPersistence } from "./lib/useWindowSessionPersistence";
-import { closeWindowAfterSave } from "./services/windowLifecycle";
+import { closeWindowAfterSave, requestCurrentWindowClose } from "./services/windowLifecycle";
 import { useWindowShortcuts } from "./lib/useWindowShortcuts";
 
 // Detect preview mode from URL search params
@@ -195,7 +195,18 @@ function AppContent() {
     setView("notes");
   }, []);
 
-  useWindowShortcuts({ onOpenPreferences: toggleSettings });
+  const openSettings = useCallback(async () => {
+    if (view === "settings") return;
+    try {
+      await persistenceControllerRef.current?.flush();
+    } catch (error) {
+      toast.error(`Settings not opened: ${error}`);
+      return;
+    }
+    setView("settings");
+  }, [view]);
+
+  useWindowShortcuts({ onOpenPreferences: openSettings });
 
   // Go back to command palette from AI modal
   const handleBackToPalette = useCallback(() => {
@@ -755,7 +766,7 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
         e.preventDefault();
-        getCurrentWindow().close().catch(console.error);
+        void requestCurrentWindowClose().catch(console.error);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
