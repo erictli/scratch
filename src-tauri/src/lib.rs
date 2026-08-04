@@ -758,16 +758,24 @@ fn get_search_index_path(app: &AppHandle) -> Result<PathBuf> {
 fn load_app_config(app: &AppHandle) -> AppConfig {
     let path = match get_app_config_path(app) {
         Ok(p) => p,
-        Err(_) => return AppConfig::default(),
+        Err(error) => {
+            eprintln!("app config path resolution failed: {error}");
+            return AppConfig::default();
+        }
     };
 
-    if path.exists() {
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|content| serde_json::from_str(&content).ok())
-            .unwrap_or_default()
-    } else {
-        AppConfig::default()
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("app config deserialization failed: {error}");
+                AppConfig::default()
+            }
+        },
+        Err(error) => {
+            eprintln!("app config read failed: {error}");
+            AppConfig::default()
+        }
     }
 }
 
@@ -783,13 +791,24 @@ fn save_app_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
 fn load_settings(notes_folder: &str) -> Settings {
     let path = get_settings_path(notes_folder);
 
-    if path.exists() {
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|content| serde_json::from_str(&content).ok())
-            .unwrap_or_default()
-    } else {
-        Settings::default()
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(settings) => settings,
+            Err(error) => {
+                eprintln!(
+                    "settings deserialization failed for {}: {error}",
+                    path.display()
+                );
+                Settings::default()
+            }
+        },
+        Err(error) => {
+            eprintln!(
+                "settings read failed for {}: {error}",
+                path.display()
+            );
+            Settings::default()
+        }
     }
 }
 
