@@ -18,4 +18,13 @@ describe("safe window close call sites", () => {
       expect(source).not.toContain("appWindow.destroy()");
     },
   );
+
+  it("uses requestCurrentWindowClose for Cmd/Ctrl+W in App.tsx", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/App.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("requestCurrentWindowClose");
+  });
 });

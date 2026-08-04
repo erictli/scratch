@@ -36,7 +36,7 @@ import * as aiService from "./services/ai";
 import * as notesService from "./services/notes";
 import type { AiProvider } from "./services/ai";
 import { isMac, isWindows } from "./lib/platform";
-import { closeWindowAfterSave } from "./services/windowLifecycle";
+import { closeWindowAfterSave, requestCurrentWindowClose } from "./services/windowLifecycle";
 import { useWindowShortcuts } from "./lib/useWindowShortcuts";
 import { runSafeWindowClose } from "./lib/windowClose";
 
@@ -710,7 +710,7 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
         e.preventDefault();
-        getCurrentWindow().close().catch(console.error);
+        void requestCurrentWindowClose().catch(console.error);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
