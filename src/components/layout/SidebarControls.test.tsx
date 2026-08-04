@@ -62,4 +62,24 @@ describe("NoteSortMenu", () => {
 
     act(() => root.unmount());
   });
+
+  it("does not prevent Radix focus restoration on the sort trigger", () => {
+    const onChange = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <NoteSortMenu sortOrder="newest" onChange={onChange} />
+        </TooltipProvider>,
+      );
+    });
+
+    const source = container.innerHTML;
+    expect(source).not.toContain("onCloseAutoFocus");
+
+    act(() => root.unmount());
+  });
 });
