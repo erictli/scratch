@@ -662,9 +662,6 @@ export function Editor({
     );
   }
   const checkpointScheduler = checkpointSchedulerRef.current;
-  const persistCurrentCrashCheckpointRef = useRef<
-    (() => Promise<void>) | null
-  >(null);
   const linkPopupRef = useRef<TippyInstance | null>(null);
   const blockMathPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);

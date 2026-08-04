@@ -477,7 +477,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setSidebarWidthPxState(null);
     setCustomColorsLightState({});
     setCustomColorsDarkState({});
-    await updateGlobalSettings({
+    try {
+      await updateGlobalSettings({
         editorFont: defaultEditorFontSettings,
         textDirection: "auto",
         editorWidth: "normal",
