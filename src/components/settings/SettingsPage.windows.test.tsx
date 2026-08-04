@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "../ui";
 
 vi.mock("../../lib/platform", () => ({
-  isWindows: false,
+  isWindows: true,
   isMac: false,
   mod: "Ctrl",
   alt: "Alt",
@@ -37,32 +37,8 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-describe("SettingsPage navigation context", () => {
-  it("shows Back when Settings replace the main editor", () => {
-    const onBack = vi.fn();
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-
-    act(() =>
-      root.render(
-        <TooltipProvider>
-          <SettingsPage onBack={onBack} />
-        </TooltipProvider>,
-      ),
-    );
-
-    const backButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label^="Back"]',
-    );
-    expect(backButton).not.toBeNull();
-    act(() => backButton?.click());
-    expect(onBack).toHaveBeenCalledOnce();
-
-    act(() => root.unmount());
-  });
-
-  it("hides Back when Settings are the root of a dedicated window", () => {
+describe("SettingsPage Windows context", () => {
+  it("renders no drag regions on Windows", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -75,10 +51,8 @@ describe("SettingsPage navigation context", () => {
       ),
     );
 
-    expect(container.textContent).toContain("Settings");
-    expect(container.querySelector('button[aria-label^="Back"]')).toBeNull();
     expect(container.querySelectorAll("[data-tauri-drag-region]")).toHaveLength(
-      2,
+      0,
     );
 
     act(() => root.unmount());
