@@ -101,35 +101,48 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
 
   // Load file on mount
   useEffect(() => {
+    let cancelled = false;
     filesService
       .readFileDirect(filePath)
       .then(async (result) => {
+        if (cancelled) return;
         const checkpoint = await draftCheckpointService
           .getDraftCheckpoint(filePath)
           .catch(() => null);
+        if (cancelled) return;
         const recovered =
           checkpoint && checkpoint.markdown !== result.content
             ? checkpoint.markdown
             : result.content;
+        if (cancelled) return;
         setContent(recovered);
+        if (cancelled) return;
         setTitle(result.title);
+        if (cancelled) return;
         setModified(result.modified);
         revisionRef.current = result.revision;
+        if (cancelled) return;
         setRevision(result.revision);
         if (checkpoint && checkpoint.markdown === result.content) {
           await draftCheckpointService
             .clearDraftCheckpoint(checkpoint.key)
             .catch(() => undefined);
         } else if (checkpoint) {
+          if (cancelled) return;
           setHasExternalChanges(true);
+          if (cancelled) return;
           setHasSaveConflict(true);
           toast.warning("Recovered an unsaved draft from an interrupted session");
         }
       })
       .catch((error) => {
+        if (cancelled) return;
         console.error("Failed to load file:", error);
         toast.error(`Failed to load file: ${error}`);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [filePath]);
 
   // Listen for window focus to detect external changes
