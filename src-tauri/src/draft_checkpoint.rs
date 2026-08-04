@@ -324,7 +324,6 @@ fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,7 +397,11 @@ mod tests {
         // Write a truncated JSON file directly
         let checkpoint_dir = app_data.join(CHECKPOINT_DIRECTORY_NAME);
         let truncated_path = checkpoint_dir.join("truncated.json");
-        fs::write(&truncated_path, r#"{"key":{"window_label":"main","note_id":"note2"#).unwrap();
+        fs::write(
+            &truncated_path,
+            r#"{"key":{"window_label":"main","note_id":"note2"#,
+        )
+        .unwrap();
 
         let checkpoints = list_checkpoints(&app_data).expect("list checkpoints");
         // Only the valid checkpoint should be returned
