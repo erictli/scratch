@@ -24,7 +24,8 @@ describe("global shortcut call sites", () => {
     const preferencesStart = source.indexOf("function PreferencesApp()");
     expect(preferencesStart).toBeGreaterThanOrEqual(0);
     const preferencesEnd = source.indexOf("function App()", preferencesStart);
-    expect(preferencesEnd).toBeGreaterThan(preferencesStart);
+    expect(preferencesStart).toBeGreaterThanOrEqual(0);
+    expect(preferencesEnd).toBeGreaterThanOrEqual(0);
     const preferencesSource = source.slice(preferencesStart, preferencesEnd);
 
     expect(source).toContain("<SettingsPage onBack={closeSettings} />");

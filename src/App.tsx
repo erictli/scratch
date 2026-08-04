@@ -501,6 +501,63 @@ function AppContent() {
     view,
   ]);
 
+  // Native File > New Window opens a new window for the current workspace.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("new-window", async () => {
+      if (disposed || !notesFolder) return;
+      try {
+        await notesService.openWorkspaceWindow(notesFolder);
+      } catch (error) {
+        console.error("Failed to open new window:", error);
+        if (!disposed) toast.error("Failed to open new window");
+      }
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [notesFolder]);
+
+  // Native File > Open Folder… works from any focused window, including a
+  // standalone Markdown editor or Preferences.
+  const openFolderInWorkspaceWindow = useCallback(async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Open Folder",
+    });
+
+    if (typeof selected === "string") {
+      await notesService.openWorkspaceWindow(selected);
+    }
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("open-folder", async () => {
+      if (disposed) return;
+      try {
+        await openFolderInWorkspaceWindow();
+      } catch (error) {
+        console.error("Failed to open folder:", error);
+        if (!disposed) toast.error("Failed to open folder");
+      }
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [openFolderInWorkspaceWindow]);
+
   const handleClosePalette = useCallback(() => {
     setPaletteOpen(false);
     editorRef.current?.commands.focus();
@@ -716,35 +773,6 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  // Native File > Open Folder… works from any focused window, including a
-  // standalone Markdown editor or Preferences.
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void listen("open-folder-in-new-window", async () => {
-      try {
-        const selected = await open({
-          directory: true,
-          multiple: false,
-          title: "Open Folder",
-        });
-        if (!disposed && typeof selected === "string") {
-          await notesService.openWorkspaceWindow(selected);
-        }
-      } catch (error) {
-        console.error("Failed to open folder:", error);
-        if (!disposed) toast.error("Failed to open folder");
-      }
-    }).then((cleanup) => {
-      if (disposed) cleanup();
-      else unlisten = cleanup;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
   }, []);
 
   // Add platform class for OS-specific styling (e.g., keyboard shortcuts)
