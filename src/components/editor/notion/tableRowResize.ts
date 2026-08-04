@@ -27,7 +27,7 @@ function getExactElementSelector(element: Element): string {
       ? Array.prototype.indexOf.call(parentElement.children, current) + 1
       : 1;
     segments.unshift(
-      `${current.tagName.toLocaleLowerCase()}:nth-child(${siblingIndex})`,
+      `${current.tagName.toLowerCase()}:nth-child(${siblingIndex})`,
     );
     current = parentElement;
   }
