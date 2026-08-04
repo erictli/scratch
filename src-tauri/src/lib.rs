@@ -10,17 +10,17 @@ use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use tauri::webview::{WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
-mod git;
-mod persistence;
 mod draft_checkpoint;
-mod watcher_debounce;
+mod git;
 mod hashing;
+mod persistence;
+mod watcher_debounce;
 
 use watcher_debounce::{WatcherDebounce, WATCHER_DEBOUNCE_WINDOW};
 
@@ -64,8 +64,12 @@ pub struct NoteConflictSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum NoteSaveResult {
-    Saved { note: Note },
-    Conflict { current: Option<NoteConflictSnapshot> },
+    Saved {
+        note: Note,
+    },
+    Conflict {
+        current: Option<NoteConflictSnapshot>,
+    },
 }
 
 // Theme color customization
@@ -163,11 +167,7 @@ impl WindowSession {
     }
 }
 
-fn upsert_window_session_workspace(
-    config: &mut AppConfig,
-    label: &str,
-    workspace: String,
-) {
+fn upsert_window_session_workspace(config: &mut AppConfig, label: &str, workspace: String) {
     config
         .records
         .entry(label.to_string())
@@ -203,9 +203,7 @@ fn restorable_window_sessions(
         })
         .map(|(label, record)| (label.clone(), record.clone()))
         .collect();
-    records.sort_by(|(left, _), (right, _)| {
-        (left != "main", left).cmp(&(right != "main", right))
-    });
+    records.sort_by(|(left, _), (right, _)| (left != "main", left).cmp(&(right != "main", right)));
     records
 }
 
@@ -342,9 +340,7 @@ fn new_window_event_target<'a>(
     main.or(first_full_editor)
 }
 
-fn build_application_menu(
-    app_handle: &AppHandle,
-) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
     let menu = Menu::default(app_handle)?;
@@ -454,7 +450,10 @@ fn emit_native_open_folder_request(app: &AppHandle) {
 
 fn workspace_path_key(path: &Path) -> String {
     let path_str = path.to_string_lossy();
-    format!("workspace-{}", crate::hashing::sha256_hex(path_str.as_bytes()))
+    format!(
+        "workspace-{}",
+        crate::hashing::sha256_hex(path_str.as_bytes())
+    )
 }
 
 fn workspace_window_label(path: &Path, sequence: u64) -> String {
@@ -474,11 +473,7 @@ struct WorkspaceBindings {
 }
 
 impl WorkspaceBindings {
-    fn bind(
-        &mut self,
-        window_label: impl Into<String>,
-        path: impl Into<String>,
-    ) -> Option<String> {
+    fn bind(&mut self, window_label: impl Into<String>, path: impl Into<String>) -> Option<String> {
         let window_label = window_label.into();
         let path = path.into();
 
@@ -1158,7 +1153,7 @@ impl WorkspaceSession {
 
 // App state with improved structure
 pub struct AppState {
-    pub app_config: RwLock<AppConfig>,  // notes_folder path (stored in app data)
+    pub app_config: RwLock<AppConfig>, // notes_folder path (stored in app data)
     pub settings: RwLock<WorkspaceSettings>, // per-folder settings (stored in .scratch/)
     pub notes_cache: RwLock<HashMap<String, NoteMetadata>>,
     pub file_watcher: Mutex<Option<FileWatcherState>>,
@@ -1239,9 +1234,7 @@ impl WorkspaceRuntime<'_> {
 }
 
 fn uses_default_workspace_fallback(window_label: &str) -> bool {
-    window_label == "main"
-        || window_label == "preferences"
-        || window_label.starts_with("preview-")
+    window_label == "main" || window_label == "preferences" || window_label.starts_with("preview-")
 }
 
 impl AppState {
@@ -1384,7 +1377,8 @@ impl AppState {
                 .cloned();
         }
 
-        let removed = self.workspace_sessions
+        let removed = self
+            .workspace_sessions
             .write()
             .expect("workspace sessions write lock")
             .remove(&notes_folder);
@@ -1590,7 +1584,12 @@ fn strip_markdown(text: &str) -> String {
     while let Some(start) = result.find("~~") {
         if let Some(end) = result[start + 2..].find("~~") {
             let inner = &result[start + 2..start + 2 + end];
-            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                inner,
+                &result[start + 4 + end..]
+            );
         } else {
             break;
         }
@@ -1600,7 +1599,12 @@ fn strip_markdown(text: &str) -> String {
     while let Some(start) = result.find("**") {
         if let Some(end) = result[start + 2..].find("**") {
             let inner = &result[start + 2..start + 2 + end];
-            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                inner,
+                &result[start + 4 + end..]
+            );
         } else {
             break;
         }
@@ -1608,7 +1612,12 @@ fn strip_markdown(text: &str) -> String {
     while let Some(start) = result.find("__") {
         if let Some(end) = result[start + 2..].find("__") {
             let inner = &result[start + 2..start + 2 + end];
-            result = format!("{}{}{}", &result[..start], inner, &result[start + 4 + end..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                inner,
+                &result[start + 4 + end..]
+            );
         } else {
             break;
         }
@@ -1618,7 +1627,12 @@ fn strip_markdown(text: &str) -> String {
     while let Some(start) = result.find('`') {
         if let Some(end) = result[start + 1..].find('`') {
             let inner = &result[start + 1..start + 1 + end];
-            result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                inner,
+                &result[start + 2 + end..]
+            );
         } else {
             break;
         }
@@ -1638,7 +1652,12 @@ fn strip_markdown(text: &str) -> String {
         if let Some(end) = result[start + 1..].find('*') {
             if end > 0 {
                 let inner = &result[start + 1..start + 1 + end];
-                result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+                result = format!(
+                    "{}{}{}",
+                    &result[..start],
+                    inner,
+                    &result[start + 2 + end..]
+                );
             } else {
                 break;
             }
@@ -1651,7 +1670,12 @@ fn strip_markdown(text: &str) -> String {
         if let Some(end) = result[start + 1..].find('_') {
             if end > 0 {
                 let inner = &result[start + 1..start + 1 + end];
-                result = format!("{}{}{}", &result[..start], inner, &result[start + 2 + end..]);
+                result = format!(
+                    "{}{}{}",
+                    &result[..start],
+                    inner,
+                    &result[start + 2 + end..]
+                );
             } else {
                 break;
             }
@@ -1700,9 +1724,10 @@ const DEFAULT_IGNORED_DIRS: &[&str] = &[
 
 /// Get the effective ignored directories from settings (or defaults if not customized).
 fn get_effective_ignored_dirs(settings: &WorkspaceSettings) -> Vec<String> {
-    settings.ignored_patterns.clone().unwrap_or_else(|| {
-        DEFAULT_IGNORED_DIRS.iter().map(|s| s.to_string()).collect()
-    })
+    settings
+        .ignored_patterns
+        .clone()
+        .unwrap_or_else(|| DEFAULT_IGNORED_DIRS.iter().map(|s| s.to_string()).collect())
 }
 
 /// Filter for WalkDir: skips excluded and user-ignored directories.
@@ -1716,7 +1741,11 @@ fn is_visible_notes_entry(entry: &walkdir::DirEntry, ignored_dirs: &[String]) ->
 
 /// Convert an absolute file path to a note ID (relative path from notes root, no .md extension, POSIX separators).
 /// Returns None if the path is outside the root, not a .md file, or in an excluded/ignored directory.
-fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]) -> Option<String> {
+fn id_from_abs_path(
+    notes_root: &Path,
+    file_path: &Path,
+    ignored_dirs: &[String],
+) -> Option<String> {
     let rel = file_path.strip_prefix(notes_root).ok()?;
 
     // Skip files inside excluded or ignored directories.
@@ -1739,7 +1768,9 @@ fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]
     // Strip .md by converting to string and trimming (avoids with_extension
     // which breaks on stems containing dots like "meeting.2024-01-15.md").
     let rel_str = rel.to_str()?;
-    let id = rel_str.strip_suffix(".md")?.replace(std::path::MAIN_SEPARATOR, "/");
+    let id = rel_str
+        .strip_suffix(".md")?
+        .replace(std::path::MAIN_SEPARATOR, "/");
 
     if id.is_empty() {
         None
@@ -1808,7 +1839,9 @@ fn get_workspace_search_index_path(app: &AppHandle, notes_folder: &Path) -> Resu
 
 fn remove_workspace_search_index(app: &AppHandle, path: &str) -> Result<()> {
     let app_data = app.path().app_data_dir()?;
-    let index_path = app_data.join("workspace_search_indexes").join(workspace_path_key(Path::new(path)));
+    let index_path = app_data
+        .join("workspace_search_indexes")
+        .join(workspace_path_key(Path::new(path)));
     if index_path.exists() {
         std::fs::remove_dir_all(index_path)?;
     }
@@ -2001,9 +2034,7 @@ fn update_window_session(
     window: WebviewWindow,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let workspace = state
-        .workspace_for_window(window.label())?
-        .notes_folder()?;
+    let workspace = state.workspace_for_window(window.label())?.notes_folder()?;
     let mut patch = patch;
     let patch_object = patch
         .as_object_mut()
@@ -2059,12 +2090,7 @@ fn handle_window_destroyed(app: &AppHandle, label: &str) {
     {
         let mut config = state.app_config.write().expect("app config write lock");
         let mut next = config.clone();
-        if remove_window_session_on_destroy(
-            &mut next,
-            label,
-            is_quitting,
-            preserve_for_preview,
-        ) {
+        if remove_window_session_on_destroy(&mut next, label, is_quitting, preserve_for_preview) {
             match save_app_config(app, &next) {
                 Ok(()) => *config = next,
                 Err(error) => {
@@ -2103,10 +2129,7 @@ fn request_full_window_closure_for_preview(app: &AppHandle) {
 }
 
 #[tauri::command]
-fn clear_window_session(
-    window: WebviewWindow,
-    state: State<AppState>,
-) -> Result<(), String> {
+fn clear_window_session(window: WebviewWindow, state: State<AppState>) -> Result<(), String> {
     clear_window_session_record(window.app_handle(), &state, window.label())?;
     Ok(())
 }
@@ -2225,11 +2248,7 @@ async fn switch_workspace(
             let mut config = state.app_config.write().expect("app_config write lock");
             let mut next = config.clone();
             remember_workspace(&mut next, notes_folder.clone());
-            upsert_window_session_workspace(
-                &mut next,
-                window.label(),
-                notes_folder.clone(),
-            );
+            upsert_window_session_workspace(&mut next, window.label(), notes_folder.clone());
             save_app_config(&app, &next).map_err(|error| error.to_string())?;
             *config = next;
         }
@@ -2266,10 +2285,7 @@ fn restore_window_session(
             .ok_or_else(|| "Main window not found".to_string())?;
         if let Some(geometry) = &record.geometry {
             let _ = window.set_position(tauri::PhysicalPosition::new(geometry.x, geometry.y));
-            let _ = window.set_size(tauri::PhysicalSize::new(
-                geometry.width,
-                geometry.height,
-            ));
+            let _ = window.set_size(tauri::PhysicalSize::new(geometry.width, geometry.height));
         }
         return Ok(());
     }
@@ -2463,9 +2479,9 @@ async fn list_notes(
         let b_pinned = pinned_ids.contains(&b.id);
 
         match (a_pinned, b_pinned) {
-            (true, false) => std::cmp::Ordering::Less,    // a pinned, b not -> a first
+            (true, false) => std::cmp::Ordering::Less, // a pinned, b not -> a first
             (false, true) => std::cmp::Ordering::Greater, // b pinned, a not -> b first
-            _ => b.modified.cmp(&a.modified),             // both same status -> sort by date (newest first)
+            _ => b.modified.cmp(&a.modified), // both same status -> sort by date (newest first)
         }
     });
 
@@ -2616,16 +2632,13 @@ async fn persist_recovery_snapshot(
     content: String,
     reason: String,
 ) -> Result<String, String> {
-    let recovery_root = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let recovery_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
-        write_recovery_snapshot(
-            &recovery_root,
-            &note_id,
-            &source_path,
-            &content,
-            &reason,
-        )
-        .map(|path| path.to_string_lossy().into_owned())
+        write_recovery_snapshot(&recovery_root, &note_id, &source_path, &content, &reason)
+            .map(|path| path.to_string_lossy().into_owned())
     })
     .await
     .map_err(|error| format!("Recovery snapshot task failed: {error}"))?
@@ -2639,7 +2652,10 @@ async fn write_draft_checkpoint(
     markdown: String,
     metadata: draft_checkpoint::DraftCheckpointMetadata,
 ) -> Result<(), String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let checkpoint = draft_checkpoint::DraftCheckpoint {
         key: draft_checkpoint::DraftCheckpointKey {
             window_label: window.label().to_string(),
@@ -2649,8 +2665,7 @@ async fn write_draft_checkpoint(
         metadata,
     };
     tauri::async_runtime::spawn_blocking(move || {
-        draft_checkpoint::write_checkpoint(app_data, &checkpoint)
-            .map_err(|error| error.to_string())
+        draft_checkpoint::write_checkpoint(app_data, &checkpoint).map_err(|error| error.to_string())
     })
     .await
     .map_err(|error| format!("Draft checkpoint task failed: {error}"))?
@@ -2662,7 +2677,10 @@ async fn get_draft_checkpoint(
     window: WebviewWindow,
     note_id: String,
 ) -> Result<Option<draft_checkpoint::DraftCheckpoint>, String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let key = draft_checkpoint::DraftCheckpointKey {
         window_label: window.label().to_string(),
         note_id,
@@ -2680,7 +2698,10 @@ async fn clear_draft_checkpoint(
     window: WebviewWindow,
     note_id: String,
 ) -> Result<(), String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let key = draft_checkpoint::DraftCheckpointKey {
         window_label: window.label().to_string(),
         note_id,
@@ -2697,7 +2718,10 @@ async fn list_draft_checkpoints(
     app: AppHandle,
     window: WebviewWindow,
 ) -> Result<Vec<draft_checkpoint::DraftCheckpoint>, String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let window_label = window.label().to_string();
     tauri::async_runtime::spawn_blocking(move || {
         draft_checkpoint::list_checkpoints(app_data)
@@ -2767,7 +2791,10 @@ async fn save_note_in_workspace(
         // Preserve directory prefix for notes in subfolders
         let (dir_prefix, desired_id) = if let Some(pos) = existing_id.rfind('/') {
             let prefix = &existing_id[..pos];
-            (Some(prefix.to_string()), format!("{}/{}", prefix, sanitized_leaf))
+            (
+                Some(prefix.to_string()),
+                format!("{}/{}", prefix, sanitized_leaf),
+            )
         } else {
             (None, sanitized_leaf.clone())
         };
@@ -2842,11 +2869,9 @@ async fn save_note_in_workspace(
                 persistence::SaveResult::Saved { .. } => Ok(NoteSaveResult::Saved {
                     note: read_note_from_path(create_id, &create_path)?,
                 }),
-                persistence::SaveResult::Conflict { current } => {
-                    Ok(NoteSaveResult::Conflict {
-                        current: note_conflict_snapshot(current),
-                    })
-                }
+                persistence::SaveResult::Conflict { current } => Ok(NoteSaveResult::Conflict {
+                    current: note_conflict_snapshot(current),
+                }),
             }
         })
         .await
@@ -3078,12 +3103,15 @@ async fn create_note(
 
     {
         let mut cache = workspace.notes_cache().write().expect("cache write lock");
-        cache.insert(created_note.id.clone(), NoteMetadata {
-            id: created_note.id.clone(),
-            title: created_note.title.clone(),
-            preview: generate_preview(&created_note.content),
-            modified: created_note.modified,
-        });
+        cache.insert(
+            created_note.id.clone(),
+            NoteMetadata {
+                id: created_note.id.clone(),
+                title: created_note.title.clone(),
+                preview: generate_preview(&created_note.content),
+                modified: created_note.modified,
+            },
+        );
     }
 
     emit_workspace_file_change(
@@ -3218,12 +3246,15 @@ async fn duplicate_note(
 
     {
         let mut cache = workspace.notes_cache().write().expect("cache write lock");
-        cache.insert(created_note.id.clone(), NoteMetadata {
-            id: created_note.id.clone(),
-            title: created_note.title.clone(),
-            preview: generate_preview(&created_note.content),
-            modified: created_note.modified,
-        });
+        cache.insert(
+            created_note.id.clone(),
+            NoteMetadata {
+                id: created_note.id.clone(),
+                title: created_note.title.clone(),
+                preview: generate_preview(&created_note.content),
+                modified: created_note.modified,
+            },
+        );
     }
 
     emit_workspace_file_change(
@@ -3323,9 +3354,7 @@ async fn create_folder(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let folder = state
-        .workspace_for_window(window.label())?
-        .notes_folder()?;
+    let folder = state.workspace_for_window(window.label())?.notes_folder()?;
 
     validate_folder_path(&path)?;
 
@@ -3533,7 +3562,9 @@ async fn move_note(
 
     // Ensure target directory exists
     if let Some(parent) = dest_path.parent() {
-        fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     // Handle collision
@@ -3652,7 +3683,9 @@ async fn move_folder(
 
     // Ensure target parent exists
     if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     // Compute old and new path prefixes for updating IDs
@@ -3917,8 +3950,12 @@ pub struct FileContent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum FileSaveResult {
-    Saved { file: FileContent },
-    Conflict { current: Option<NoteConflictSnapshot> },
+    Saved {
+        file: FileContent,
+    },
+    Conflict {
+        current: Option<NoteConflictSnapshot>,
+    },
 }
 
 fn read_file_content_from_path(path: &Path) -> Result<FileContent, String> {
@@ -3969,13 +4006,8 @@ fn save_file_content_to_path(
     }
 }
 
-fn recreate_file_content_to_path(
-    path: &Path,
-    content: String,
-) -> Result<FileSaveResult, String> {
-    match persistence::save_if_revision(path, &content, None)
-        .map_err(|error| error.to_string())?
-    {
+fn recreate_file_content_to_path(path: &Path, content: String) -> Result<FileSaveResult, String> {
+    match persistence::save_if_revision(path, &content, None).map_err(|error| error.to_string())? {
         persistence::SaveResult::Saved { .. } => Ok(FileSaveResult::Saved {
             file: read_file_content_from_path(path)?,
         }),
@@ -4020,7 +4052,10 @@ fn validate_preview_create_path(path: &str) -> Result<PathBuf, String> {
     }) {
         return Err("Path traversal is not allowed".to_string());
     }
-    match file_path.extension().and_then(|extension| extension.to_str()) {
+    match file_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
         Some(extension)
             if extension.eq_ignore_ascii_case("md")
                 || extension.eq_ignore_ascii_case("markdown") => {}
@@ -4146,7 +4181,7 @@ async fn import_file_to_folder(
             }
             Err(_) => return Err("Failed to create file".to_string()),
         }
-    };
+    }
 
     let modified = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -4206,7 +4241,9 @@ async fn search_notes(
     let indexed_result = {
         let index = workspace.search_index().lock().expect("search index mutex");
         (*index).as_ref().map(|search_index| {
-            search_index.search(&trimmed_query, 20).map_err(|e| e.to_string())
+            search_index
+                .search(&trimmed_query, 20)
+                .map_err(|e| e.to_string())
         })
     };
 
@@ -4217,7 +4254,10 @@ async fn search_notes(
             fallback_search(&trimmed_query, &workspace).await
         }
         Some(Err(e)) => {
-            eprintln!("Tantivy search error, falling back to substring search: {}", e);
+            eprintln!(
+                "Tantivy search error, falling back to substring search: {}",
+                e
+            );
             fallback_search(&trimmed_query, &workspace).await
         }
         None => {
@@ -4290,7 +4330,11 @@ async fn fallback_search(
         }
     }
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(20);
 
     Ok(results)
@@ -4327,13 +4371,15 @@ fn semantic_file_change_event(
         }
     }
 
-    let path = current_note.map(|note| note.path.clone()).unwrap_or_else(|| {
-        let id = previous_id.as_deref().unwrap_or_default();
-        PathBuf::from(&workspace)
-            .join(format!("{id}.md"))
-            .to_string_lossy()
-            .into_owned()
-    });
+    let path = current_note
+        .map(|note| note.path.clone())
+        .unwrap_or_else(|| {
+            let id = previous_id.as_deref().unwrap_or_default();
+            PathBuf::from(&workspace)
+                .join(format!("{id}.md"))
+                .to_string_lossy()
+                .into_owned()
+        });
 
     FileChangeEvent {
         workspace,
@@ -4392,17 +4438,10 @@ fn process_external_note_change(
                             let modified = std::fs::metadata(&path)
                                 .ok()
                                 .and_then(|metadata| metadata.modified().ok())
-                                .and_then(|time| {
-                                    time.duration_since(std::time::UNIX_EPOCH).ok()
-                                })
+                                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
                                 .map(|duration| duration.as_secs() as i64)
                                 .unwrap_or(0);
-                            let _ = search_index.index_note(
-                                &note_id,
-                                &title,
-                                &content,
-                                modified,
-                            );
+                            let _ = search_index.index_note(&note_id, &title, &content, modified);
                         }
                         Err(_) if !path.exists() => {
                             let _ = search_index.delete_note(&note_id);
@@ -4576,9 +4615,7 @@ async fn save_clipboard_image(
         return Err("Clipboard data is empty".to_string());
     }
 
-    let folder = state
-        .workspace_for_window(window.label())?
-        .notes_folder()?;
+    let folder = state.workspace_for_window(window.label())?.notes_folder()?;
 
     // Decode base64
     let image_data = base64::engine::general_purpose::STANDARD
@@ -4627,9 +4664,7 @@ async fn copy_image_to_assets(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let folder = state
-        .workspace_for_window(window.label())?
-        .notes_folder()?;
+    let folder = state.workspace_for_window(window.label())?.notes_folder()?;
 
     let source = PathBuf::from(&source_path);
     if !source.exists() {
@@ -4686,10 +4721,7 @@ async fn copy_image_to_assets(
 }
 
 #[tauri::command]
-fn rebuild_search_index(
-    window: WebviewWindow,
-    state: State<AppState>,
-) -> Result<(), String> {
+fn rebuild_search_index(window: WebviewWindow, state: State<AppState>) -> Result<(), String> {
     let workspace = state.workspace_for_window(window.label())?;
     let folder = workspace.notes_folder()?;
 
@@ -4815,30 +4847,21 @@ async fn git_get_status(
 
     match folder {
         Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::get_status(&PathBuf::from(path))
-            })
-            .await
-            .map_err(|e| e.to_string())
+            tauri::async_runtime::spawn_blocking(move || git::get_status(&PathBuf::from(path)))
+                .await
+                .map_err(|e| e.to_string())
         }
         None => Ok(git::GitStatus::default()),
     }
 }
 
 #[tauri::command]
-async fn git_init_repo(
-    window: WebviewWindow,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let folder = state
-        .workspace_for_window(window.label())?
-        .notes_folder()?;
+async fn git_init_repo(window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+    let folder = state.workspace_for_window(window.label())?.notes_folder()?;
 
-    tauri::async_runtime::spawn_blocking(move || {
-        git::git_init(&PathBuf::from(folder))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || git::git_init(&PathBuf::from(folder)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -4853,13 +4876,11 @@ async fn git_commit(
         .and_then(|workspace| workspace.notes_folder().ok());
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::commit_all(&PathBuf::from(path), &message)
-            })
-            .await
-            .map_err(|e| e.to_string())
-        }
+        Some(path) => tauri::async_runtime::spawn_blocking(move || {
+            git::commit_all(&PathBuf::from(path), &message)
+        })
+        .await
+        .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -4879,13 +4900,9 @@ async fn git_push(
         .and_then(|workspace| workspace.notes_folder().ok());
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::push(&PathBuf::from(path))
-            })
+        Some(path) => tauri::async_runtime::spawn_blocking(move || git::push(&PathBuf::from(path)))
             .await
-            .map_err(|e| e.to_string())
-        }
+            .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -4906,11 +4923,9 @@ async fn git_fetch(
 
     match folder {
         Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::fetch(&PathBuf::from(path))
-            })
-            .await
-            .map_err(|e| e.to_string())
+            tauri::async_runtime::spawn_blocking(move || git::fetch(&PathBuf::from(path)))
+                .await
+                .map_err(|e| e.to_string())
         }
         None => Ok(git::GitResult {
             success: false,
@@ -4931,13 +4946,9 @@ async fn git_pull(
         .and_then(|workspace| workspace.notes_folder().ok());
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::pull(&PathBuf::from(path))
-            })
+        Some(path) => tauri::async_runtime::spawn_blocking(move || git::pull(&PathBuf::from(path)))
             .await
-            .map_err(|e| e.to_string())
-        }
+            .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -4958,13 +4969,11 @@ async fn git_add_remote(
         .and_then(|workspace| workspace.notes_folder().ok());
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::add_remote(&PathBuf::from(path), &url)
-            })
-            .await
-            .map_err(|e| e.to_string())
-        }
+        Some(path) => tauri::async_runtime::spawn_blocking(move || {
+            git::add_remote(&PathBuf::from(path), &url)
+        })
+        .await
+        .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -4985,13 +4994,11 @@ async fn git_set_remote_url(
         .and_then(|workspace| workspace.notes_folder().ok());
 
     match folder {
-        Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::set_remote_url(&PathBuf::from(path), &url)
-            })
-            .await
-            .map_err(|e| e.to_string())
-        }
+        Some(path) => tauri::async_runtime::spawn_blocking(move || {
+            git::set_remote_url(&PathBuf::from(path), &url)
+        })
+        .await
+        .map_err(|e| e.to_string()),
         None => Ok(git::GitResult {
             success: false,
             message: None,
@@ -5012,11 +5019,9 @@ async fn git_remove_remote(
 
     match folder {
         Some(path) => {
-            tauri::async_runtime::spawn_blocking(move || {
-                git::remove_remote(&PathBuf::from(path))
-            })
-            .await
-            .map_err(|e| e.to_string())
+            tauri::async_runtime::spawn_blocking(move || git::remove_remote(&PathBuf::from(path)))
+                .await
+                .map_err(|e| e.to_string())
         }
         None => Ok(git::GitResult {
             success: false,
@@ -5043,10 +5048,9 @@ async fn git_push_with_upstream(
                 let status = git::get_status(&PathBuf::from(&path));
                 match status.current_branch {
                     Some(branch) => {
-                        if !branch
-                            .chars()
-                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
-                        {
+                        if !branch.chars().all(|c| {
+                            c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.')
+                        }) {
                             return git::GitResult {
                                 success: false,
                                 message: None,
@@ -5178,26 +5182,42 @@ fn cli_target_path() -> PathBuf {
 #[tauri::command]
 fn get_cli_status() -> Result<CliStatus, String> {
     #[cfg(not(target_os = "macos"))]
-    return Ok(CliStatus { supported: false, installed: false, path: None });
+    return Ok(CliStatus {
+        supported: false,
+        installed: false,
+        path: None,
+    });
 
     #[cfg(target_os = "macos")]
     {
         let target = cli_target_path();
         if !target.exists() && target.symlink_metadata().is_err() {
-            return Ok(CliStatus { supported: true, installed: false, path: None });
+            return Ok(CliStatus {
+                supported: true,
+                installed: false,
+                path: None,
+            });
         }
         // Verify this is our wrapper (has marker) and points to the current binary
         let content = std::fs::read_to_string(&target).unwrap_or_default();
         if !content.contains(SCRATCH_CLI_MARKER) {
             // Foreign binary at this path — don't claim it as ours
-            return Ok(CliStatus { supported: true, installed: false, path: None });
+            return Ok(CliStatus {
+                supported: true,
+                installed: false,
+                path: None,
+            });
         }
         let current_exe = std::env::current_exe()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
         if !current_exe.is_empty() && !content.contains(&current_exe) {
             // Our wrapper but points to a moved/deleted binary — needs reinstall
-            return Ok(CliStatus { supported: true, installed: false, path: None });
+            return Ok(CliStatus {
+                supported: true,
+                installed: false,
+                path: None,
+            });
         }
         Ok(CliStatus {
             supported: true,
@@ -5236,8 +5256,8 @@ fn install_cli() -> Result<String, String> {
                 .map_err(|e| format!("Failed to remove existing file: {}", e))?;
         }
 
-        let exe_path = std::env::current_exe()
-            .map_err(|e| format!("Cannot find exe path: {}", e))?;
+        let exe_path =
+            std::env::current_exe().map_err(|e| format!("Cannot find exe path: {}", e))?;
 
         // Shell-escape the exe path using single quotes to prevent
         // interpretation of $, `, ", and other metacharacters.
@@ -5248,8 +5268,7 @@ fn install_cli() -> Result<String, String> {
         // the terminal is not blocked waiting for the GUI app to exit.
         let script = format!(
             "#!/bin/sh\n{}\nnohup {} \"$@\" >/dev/null 2>&1 &\n",
-            SCRATCH_CLI_MARKER,
-            escaped_exe
+            SCRATCH_CLI_MARKER, escaped_exe
         );
         std::fs::write(&target, script.as_bytes())
             .map_err(|e| format!("Failed to write CLI script: {}", e))?;
@@ -5536,9 +5555,7 @@ async fn ai_execute_claude(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<AiExecutionResult, String> {
-    let folder = state
-        .workspace_for_window(window.label())?
-        .notes_folder()?;
+    let folder = state.workspace_for_window(window.label())?.notes_folder()?;
     let path = PathBuf::from(&file_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if !ext.eq_ignore_ascii_case("md") && !ext.eq_ignore_ascii_case("markdown") {
@@ -5604,9 +5621,7 @@ async fn ai_execute_opencode(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<AiExecutionResult, String> {
-    let folder = state
-        .workspace_for_window(window.label())?
-        .notes_folder()?;
+    let folder = state.workspace_for_window(window.label())?.notes_folder()?;
     let path = PathBuf::from(&file_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if !ext.eq_ignore_ascii_case("md") && !ext.eq_ignore_ascii_case("markdown") {
@@ -5671,9 +5686,7 @@ async fn ai_execute_ollama(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<AiExecutionResult, String> {
-    let folder = state
-        .workspace_for_window(window.label())?
-        .notes_folder()?;
+    let folder = state.workspace_for_window(window.label())?.notes_folder()?;
     let path = PathBuf::from(&file_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if !ext.eq_ignore_ascii_case("md") && !ext.eq_ignore_ascii_case("markdown") {
@@ -5774,7 +5787,10 @@ async fn ai_execute_ollama(
                 return Ok(AiExecutionResult {
                     success: false,
                     output: String::new(),
-                    error: Some("Authentication required. Run `ollama login` in your terminal to sign in.".to_string()),
+                    error: Some(
+                        "Authentication required. Run `ollama login` in your terminal to sign in."
+                            .to_string(),
+                    ),
                 });
             }
         }
@@ -6013,7 +6029,10 @@ fn open_preferences_window(app: AppHandle) -> Result<(), String> {
 
 // Preview mode: create a lightweight window for editing a single file
 fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String> {
-    let label = format!("preview-{}", crate::hashing::sha256_hex(file_path.as_bytes()));
+    let label = format!(
+        "preview-{}",
+        crate::hashing::sha256_hex(file_path.as_bytes())
+    );
 
     // If window already exists for this file, focus it
     if let Some(window) = app.get_webview_window(&label) {
@@ -6208,7 +6227,10 @@ pub fn run() {
                     Ok(normalized) => {
                         // Path is structurally valid but not currently a directory
                         // (e.g., unmounted drive). Preserve the user's preference.
-                        eprintln!("Notes folder not found (may be temporarily unavailable): {:?}", normalized);
+                        eprintln!(
+                            "Notes folder not found (may be temporarily unavailable): {:?}",
+                            normalized
+                        );
                     }
                     Err(_) => {
                         app_config.notes_folder = None;
@@ -6260,7 +6282,14 @@ pub fn run() {
             app.manage(state);
 
             // Add notes folder to asset protocol scope so images can be served
-            if let Some(ref folder) = app.state::<AppState>().app_config.read().expect("app_config read lock").notes_folder.clone() {
+            if let Some(ref folder) = app
+                .state::<AppState>()
+                .app_config
+                .read()
+                .expect("app_config read lock")
+                .notes_folder
+                .clone()
+            {
                 let _ = app.asset_protocol_scope().allow_directory(folder, true);
             }
 
@@ -6304,26 +6333,19 @@ pub fn run() {
                     .filter(|workspace| Path::new(workspace).is_dir())
                 {
                     let mut next = config_snapshot.clone();
-                    upsert_window_session_workspace(
-                        &mut next,
-                        "main",
-                        default_workspace.clone(),
-                    );
+                    upsert_window_session_workspace(&mut next, "main", default_workspace.clone());
                     if save_app_config(app.handle(), &next).is_ok() {
-                        *app_state
-                            .app_config
-                            .write()
-                            .expect("app config write lock") = next.clone();
+                        *app_state.app_config.write().expect("app config write lock") =
+                            next.clone();
                         config_snapshot = next;
                     }
                 }
             }
 
-            let restore_candidates = restorable_window_sessions(
-                &config_snapshot,
-                opened_preview,
-                |workspace| Path::new(workspace).is_dir(),
-            );
+            let restore_candidates =
+                restorable_window_sessions(&config_snapshot, opened_preview, |workspace| {
+                    Path::new(workspace).is_dir()
+                });
             let mut main_restored = false;
             for (label, record) in restore_candidates {
                 match restore_window_session(app.handle(), &app_state, &label, &record) {
@@ -6517,8 +6539,7 @@ mod windows_title_bar {
 
         // Windows COLORREF is little-endian 0x00BBGGRR
         let (r, g, b) = rgb;
-        let caption_color: u32 =
-            ((b as u32) << 16) | ((g as u32) << 8) | (r as u32);
+        let caption_color: u32 = ((b as u32) << 16) | ((g as u32) << 8) | (r as u32);
 
         unsafe {
             let set_attr = |attr: u32, value: *const std::ffi::c_void, size: u32| {
@@ -6567,17 +6588,16 @@ fn set_title_bar_theme(
 #[cfg(test)]
 mod settings_tests {
     use super::{
-        merge_settings, migrate_legacy_settings, settings_change_targets, split_settings,
-        apply_settings_patch, AppConfig, GlobalSettings, Settings, SettingsChangedPayload,
-        SettingsChangeScope, SettingsChangeTargets, WorkspaceBindings, WorkspaceSettings,
+        apply_settings_patch, merge_settings, migrate_legacy_settings, settings_change_targets,
+        split_settings, AppConfig, GlobalSettings, Settings, SettingsChangeScope,
+        SettingsChangeTargets, SettingsChangedPayload, WorkspaceBindings, WorkspaceSettings,
     };
 
     #[test]
     fn settings_preserve_sidebar_note_sort_order() {
-        let settings: Settings = serde_json::from_str(
-            r#"{"theme":{"mode":"system"},"sidebarSortOrder":"oldest"}"#,
-        )
-        .expect("settings should deserialize");
+        let settings: Settings =
+            serde_json::from_str(r#"{"theme":{"mode":"system"},"sidebarSortOrder":"oldest"}"#)
+                .expect("settings should deserialize");
 
         assert_eq!(settings.sidebar_sort_order.as_deref(), Some("oldest"));
 
@@ -6624,14 +6644,12 @@ mod settings_tests {
 
     #[test]
     fn legacy_default_workspace_settings_migrate_only_once() {
-        let mut config: AppConfig = serde_json::from_str(
-            r#"{"notes_folder":"/notes/main","workspaces":["/notes/main"]}"#,
-        )
-        .expect("legacy config should deserialize");
-        let legacy: Settings = serde_json::from_str(
-            r#"{"theme":{"mode":"dark"},"pinnedNoteIds":["Main"]}"#,
-        )
-        .expect("legacy settings should deserialize");
+        let mut config: AppConfig =
+            serde_json::from_str(r#"{"notes_folder":"/notes/main","workspaces":["/notes/main"]}"#)
+                .expect("legacy config should deserialize");
+        let legacy: Settings =
+            serde_json::from_str(r#"{"theme":{"mode":"dark"},"pinnedNoteIds":["Main"]}"#)
+                .expect("legacy settings should deserialize");
 
         let workspace = migrate_legacy_settings(&mut config, legacy)
             .expect("missing global config should trigger migration");
@@ -6648,12 +6666,13 @@ mod settings_tests {
         assert_eq!(workspace.pinned_note_ids, Some(vec!["Main".to_string()]));
         let config_json = serde_json::to_value(&config).expect("migrated config should serialize");
         assert_eq!(config_json["global_settings"]["theme"]["mode"], "dark");
-        assert!(config_json["global_settings"].get("pinnedNoteIds").is_none());
+        assert!(config_json["global_settings"]
+            .get("pinnedNoteIds")
+            .is_none());
 
-        let later_legacy: Settings = serde_json::from_str(
-            r#"{"theme":{"mode":"light"},"pinnedNoteIds":["Other"]}"#,
-        )
-        .expect("later legacy settings should deserialize");
+        let later_legacy: Settings =
+            serde_json::from_str(r#"{"theme":{"mode":"light"},"pinnedNoteIds":["Other"]}"#)
+                .expect("later legacy settings should deserialize");
         assert!(migrate_legacy_settings(&mut config, later_legacy).is_none());
         assert_eq!(
             config.global_settings.as_ref().unwrap().theme.mode,
@@ -6688,10 +6707,7 @@ mod settings_tests {
                 SettingsChangeScope::Workspace,
                 Some("/notes/shared"),
             ),
-            SettingsChangeTargets::Windows(vec![
-                "main".to_string(),
-                "workspace-copy".to_string(),
-            ])
+            SettingsChangeTargets::Windows(vec!["main".to_string(), "workspace-copy".to_string(),])
         );
     }
 
@@ -6708,7 +6724,10 @@ mod settings_tests {
         })
         .expect("workspace payload should serialize");
 
-        assert_eq!(global, serde_json::json!({"scope":"global","workspace":null}));
+        assert_eq!(
+            global,
+            serde_json::json!({"scope":"global","workspace":null})
+        );
         assert_eq!(
             workspace,
             serde_json::json!({"scope":"workspace","workspace":"/notes/shared"})
@@ -6717,16 +6736,12 @@ mod settings_tests {
 
     #[test]
     fn global_patch_preserves_unmentioned_global_fields() {
-        let current: GlobalSettings = serde_json::from_str(
-            r#"{"theme":{"mode":"dark"},"editorWidth":"wide"}"#,
-        )
-        .expect("current global settings should deserialize");
+        let current: GlobalSettings =
+            serde_json::from_str(r#"{"theme":{"mode":"dark"},"editorWidth":"wide"}"#)
+                .expect("current global settings should deserialize");
 
-        let updated = apply_settings_patch(
-            &current,
-            serde_json::json!({"editorWidth":"narrow"}),
-        )
-        .expect("global patch should apply");
+        let updated = apply_settings_patch(&current, serde_json::json!({"editorWidth":"narrow"}))
+            .expect("global patch should apply");
 
         assert_eq!(updated.theme.mode, "dark");
         assert_eq!(updated.editor_width.as_deref(), Some("narrow"));
@@ -6734,10 +6749,9 @@ mod settings_tests {
 
     #[test]
     fn workspace_patch_preserves_unmentioned_workspace_fields() {
-        let current: WorkspaceSettings = serde_json::from_str(
-            r#"{"gitEnabled":true,"pinnedNoteIds":["Roadmap"]}"#,
-        )
-        .expect("current workspace settings should deserialize");
+        let current: WorkspaceSettings =
+            serde_json::from_str(r#"{"gitEnabled":true,"pinnedNoteIds":["Roadmap"]}"#)
+                .expect("current workspace settings should deserialize");
 
         let updated = apply_settings_patch(
             &current,
@@ -6756,17 +6770,16 @@ mod settings_tests {
 #[cfg(test)]
 mod window_session_tests {
     use super::{
-        apply_settings_patch, remove_window_session_on_destroy, restorable_window_sessions,
-        fallback_main_session, upsert_window_session_workspace, AppConfig, WindowGeometry,
+        apply_settings_patch, fallback_main_session, remove_window_session_on_destroy,
+        restorable_window_sessions, upsert_window_session_workspace, AppConfig, WindowGeometry,
         WindowSession,
     };
 
     #[test]
     fn legacy_app_config_deserializes_with_no_window_records() {
-        let config: AppConfig = serde_json::from_str(
-            r#"{"notes_folder":"/notes/main","workspaces":["/notes/main"]}"#,
-        )
-        .expect("legacy config should deserialize");
+        let config: AppConfig =
+            serde_json::from_str(r#"{"notes_folder":"/notes/main","workspaces":["/notes/main"]}"#)
+                .expect("legacy config should deserialize");
 
         assert!(config.records.is_empty());
     }
@@ -6838,7 +6851,11 @@ mod window_session_tests {
         let restored = restorable_window_sessions(&config, true, |_| true);
 
         assert!(restored.is_empty());
-        assert_eq!(config.records.len(), 2, "preview bypass must not delete preferences");
+        assert_eq!(
+            config.records.len(),
+            2,
+            "preview bypass must not delete preferences"
+        );
     }
 
     #[test]
@@ -6863,14 +6880,11 @@ mod window_session_tests {
         let mut config = AppConfig::default();
         upsert_window_session_workspace(&mut config, "main", "/notes/missing".to_string());
 
-        let fallback = fallback_main_session(
-            &config,
-            Some("/notes/default"),
-            false,
-            false,
-            |path| path == "/notes/default",
-        )
-        .expect("valid default should keep a normal launch visible");
+        let fallback =
+            fallback_main_session(&config, Some("/notes/default"), false, false, |path| {
+                path == "/notes/default"
+            })
+            .expect("valid default should keep a normal launch visible");
 
         assert_eq!(fallback.workspace, "/notes/default");
         assert_eq!(config.records["main"].workspace, "/notes/missing");
@@ -6963,18 +6977,17 @@ mod window_session_tests {
             },
         );
 
-        let fallback = fallback_main_session(
-            &config,
-            Some("/notes/new"),
-            false,
-            false,
-            |path| path == "/notes/new",
-        )
+        let fallback = fallback_main_session(&config, Some("/notes/new"), false, false, |path| {
+            path == "/notes/new"
+        })
         .expect("valid default should produce a fallback");
 
         assert_eq!(fallback.workspace, "/notes/new");
         assert_eq!(fallback.selected_note_id, None);
-        assert_eq!(config.records["main"].selected_note_id, Some("Roadmap".to_string()));
+        assert_eq!(
+            config.records["main"].selected_note_id,
+            Some("Roadmap".to_string())
+        );
     }
 
     #[test]
@@ -6991,14 +7004,11 @@ mod window_session_tests {
             },
         );
 
-        let fallback = fallback_main_session(
-            &config,
-            Some("/notes/default"),
-            false,
-            false,
-            |path| path == "/notes/default",
-        )
-        .expect("matching default should produce a fallback");
+        let fallback =
+            fallback_main_session(&config, Some("/notes/default"), false, false, |path| {
+                path == "/notes/default"
+            })
+            .expect("matching default should produce a fallback");
 
         assert_eq!(fallback.workspace, "/notes/default");
         assert_eq!(fallback.selected_note_id, Some("Roadmap".to_string()));
@@ -7008,8 +7018,7 @@ mod window_session_tests {
 #[cfg(test)]
 mod standalone_window_tests {
     use super::{
-        should_defer_open_request,
-        should_hide_main_window_for_standalone_preview,
+        should_defer_open_request, should_hide_main_window_for_standalone_preview,
         should_show_main_window,
     };
 
@@ -7084,8 +7093,8 @@ mod window_chrome_tests {
 #[cfg(test)]
 mod native_new_window_menu_tests {
     use super::{
-        focused_window_target, native_new_window_menu_spec, native_open_folder_menu_spec,
-        native_preferences_menu_spec, new_window_event_target, is_full_editor_window,
+        focused_window_target, is_full_editor_window, native_new_window_menu_spec,
+        native_open_folder_menu_spec, native_preferences_menu_spec, new_window_event_target,
     };
 
     #[test]
@@ -7134,7 +7143,10 @@ mod native_new_window_menu_tests {
     #[test]
     fn open_folder_targets_the_focused_window_including_standalone_preview() {
         let windows = [("main", false), ("preview-note", true)];
-        assert_eq!(focused_window_target(windows.iter().copied()), Some("preview-note"));
+        assert_eq!(
+            focused_window_target(windows.iter().copied()),
+            Some("preview-note")
+        );
     }
 
     #[test]
@@ -7156,13 +7168,11 @@ mod workspace_registry_tests {
     use std::sync::{Arc, Barrier, Mutex, RwLock};
 
     use super::{
-        build_workspace_infos, ensure_shared_resource, get_or_initialize_shared,
-        forget_workspace, remember_workspace, workspace_is_remembered,
-        uses_default_workspace_fallback,
-        note_change_targets, save_note_in_workspace, semantic_file_change_event,
-        workspace_window_label,
-        AppConfig, AppState, WorkspaceBindings, WorkspaceSession,
-        WindowSession, WorkspaceRuntime, persistence, abs_path_from_id,
+        abs_path_from_id, build_workspace_infos, ensure_shared_resource, forget_workspace,
+        get_or_initialize_shared, note_change_targets, persistence, remember_workspace,
+        save_note_in_workspace, semantic_file_change_event, uses_default_workspace_fallback,
+        workspace_is_remembered, workspace_window_label, AppConfig, AppState, WindowSession,
+        WorkspaceBindings, WorkspaceRuntime, WorkspaceSession,
     };
 
     #[test]
@@ -7200,8 +7210,14 @@ mod workspace_registry_tests {
             workspaces: vec!["/notes/main".to_string(), "/notes/client".to_string()],
             global_settings: None,
             records: HashMap::from([
-                ("main".to_string(), WindowSession::for_workspace("/notes/main".to_string())),
-                ("client".to_string(), WindowSession::for_workspace("/notes/client".to_string())),
+                (
+                    "main".to_string(),
+                    WindowSession::for_workspace("/notes/main".to_string()),
+                ),
+                (
+                    "client".to_string(),
+                    WindowSession::for_workspace("/notes/client".to_string()),
+                ),
             ]),
         };
 
@@ -7274,11 +7290,7 @@ mod workspace_registry_tests {
         bindings.bind("workspace-other", "/notes/other");
 
         assert_eq!(
-            note_change_targets(
-                &bindings,
-                Path::new("/notes/shared/a.md"),
-                Some("main"),
-            ),
+            note_change_targets(&bindings, Path::new("/notes/shared/a.md"), Some("main"),),
             vec!["workspace-copy".to_string()]
         );
     }
@@ -7589,23 +7601,20 @@ mod workspace_registry_tests {
             .bind_existing_workspace_session("workspace-copy", "/notes/shared")
             .expect("bind second window to main workspace");
 
-        let main_runtime = state
-            .workspace_for_window("main")
-            .expect("main runtime");
+        let main_runtime = state.workspace_for_window("main").expect("main runtime");
         let copy_runtime = state
             .workspace_for_window("workspace-copy")
             .expect("copy runtime");
-        let (WorkspaceRuntime::Session(main_from_router), WorkspaceRuntime::Session(copy_from_router)) =
-            (main_runtime, copy_runtime)
+        let (
+            WorkspaceRuntime::Session(main_from_router),
+            WorkspaceRuntime::Session(copy_from_router),
+        ) = (main_runtime, copy_runtime)
         else {
             panic!("all full editor windows must route through canonical sessions");
         };
 
         assert!(std::sync::Arc::ptr_eq(&main_session, &copy_session));
-        assert!(std::sync::Arc::ptr_eq(
-            &main_from_router,
-            &copy_from_router,
-        ));
+        assert!(std::sync::Arc::ptr_eq(&main_from_router, &copy_from_router,));
         assert_eq!(state.workspace_session_count(), 1);
     }
 
@@ -7848,10 +7857,8 @@ mod workspace_registry_tests {
 
     #[test]
     fn create_note_persists_content_with_create_only_loop() {
-        let root = std::env::temp_dir().join(format!(
-            "scratch-create-note-test-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("scratch-create-note-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("create test root");
 
@@ -7893,10 +7900,13 @@ mod workspace_registry_tests {
         std::fs::write(&file_path, "existing content").expect("seed existing file");
 
         let content = "# Untitled\n\n";
-        let result = persistence::save_if_revision(&file_path, content, None)
-            .expect("conflict is typed");
+        let result =
+            persistence::save_if_revision(&file_path, content, None).expect("conflict is typed");
         assert!(matches!(result, persistence::SaveResult::Conflict { .. }));
-        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "existing content");
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "existing content"
+        );
 
         std::fs::remove_dir_all(root).expect("cleanup create conflict test");
     }

@@ -391,8 +391,7 @@ fn standalone_read_and_save_use_the_same_revision_conflict_contract() {
     let path = directory.note_path("External.md");
     fs::write(&path, "# External\n\nOriginal").expect("write standalone note");
     let loaded = read_file_content_from_path(&path).expect("read standalone note");
-    fs::write(&path, "# External\n\nChanged outside Scratch")
-        .expect("write external update");
+    fs::write(&path, "# External\n\nChanged outside Scratch").expect("write external update");
 
     let result = save_file_content_to_path(
         &path,
@@ -518,7 +517,11 @@ fn deleted_preview_path_uses_canonical_parent_and_rejects_traversal() {
 
     assert_eq!(
         validated,
-        directory.path.canonicalize().unwrap().join("Deleted.markdown")
+        directory
+            .path
+            .canonicalize()
+            .unwrap()
+            .join("Deleted.markdown")
     );
     assert!(!validated.exists());
 
@@ -549,7 +552,9 @@ fn recovery_snapshot_preserves_the_exact_dirty_markdown_in_a_hidden_store() {
     assert!(recovery_path.starts_with(directory.path.join("recovery")));
     assert_eq!(fs::read_to_string(&recovery_path).unwrap(), dirty_markdown);
     assert_eq!(
-        recovery_path.extension().and_then(|extension| extension.to_str()),
+        recovery_path
+            .extension()
+            .and_then(|extension| extension.to_str()),
         Some("md")
     );
 }
