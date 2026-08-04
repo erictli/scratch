@@ -5,6 +5,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -29,6 +30,7 @@ import type {
   ThemeColorKey,
   Settings,
 } from "../types/note";
+import { toast } from "sonner";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -476,9 +478,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         customColorsDark: undefined,
       });
     } catch (error) {
-      console.error("Failed to reset editor settings:", error);
+      console.error("Failed to reset appearance settings:", error);
+      toast.error("Appearance settings could not be reset");
+      await loadSettingsFromBackend();
     }
-  }, [applyTitleBarNoteInfoVisibility]);
+  }, [applyTitleBarNoteInfoVisibility, loadSettingsFromBackend]);
 
   // Save and set text direction
   const setTextDirection = useCallback(async (dir: TextDirection) => {
@@ -719,45 +723,82 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     return null;
   }
 
+  const contextValue = useMemo<ThemeContextType>(
+    () => ({
+      theme,
+      resolvedTheme,
+      setTheme,
+      cycleTheme,
+      editorFontSettings,
+      setEditorFontSetting,
+      resetEditorFontSettings,
+      reloadSettings,
+      textDirection,
+      setTextDirection,
+      editorWidth,
+      setEditorWidth,
+      interfaceZoom,
+      setInterfaceZoom,
+      customEditorWidthPx,
+      setCustomEditorWidthPx,
+      editorWidthResizeEnabled,
+      setEditorWidthResizeEnabled,
+      editorToolbarVisible,
+      setEditorToolbarVisible,
+      titleBarModifiedDateVisible:
+        titleBarNoteInfoVisibility.modifiedDateVisible,
+      setTitleBarModifiedDateVisible,
+      titleBarFilenameVisible: titleBarNoteInfoVisibility.filenameVisible,
+      setTitleBarFilenameVisible,
+      setEditorMaxWidthLive,
+      sidebarWidthPx,
+      setSidebarWidthPx,
+      setSidebarWidthLive,
+      customColorsLight,
+      customColorsDark,
+      setCustomColor,
+      resetCustomColor,
+      resetAllCustomColors,
+    }),
+    [
+      theme,
+      resolvedTheme,
+      setTheme,
+      cycleTheme,
+      editorFontSettings,
+      setEditorFontSetting,
+      resetEditorFontSettings,
+      reloadSettings,
+      textDirection,
+      setTextDirection,
+      editorWidth,
+      setEditorWidth,
+      interfaceZoom,
+      setInterfaceZoom,
+      customEditorWidthPx,
+      setCustomEditorWidthPx,
+      editorWidthResizeEnabled,
+      setEditorWidthResizeEnabled,
+      editorToolbarVisible,
+      setEditorToolbarVisible,
+      titleBarNoteInfoVisibility.modifiedDateVisible,
+      setTitleBarModifiedDateVisible,
+      titleBarNoteInfoVisibility.filenameVisible,
+      setTitleBarFilenameVisible,
+      setEditorMaxWidthLive,
+      sidebarWidthPx,
+      setSidebarWidthPx,
+      setSidebarWidthLive,
+      customColorsLight,
+      customColorsDark,
+      setCustomColor,
+      resetCustomColor,
+      resetAllCustomColors,
+    ],
+  );
+
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        resolvedTheme,
-        setTheme,
-        cycleTheme,
-        editorFontSettings,
-        setEditorFontSetting,
-        resetEditorFontSettings,
-        reloadSettings,
-        textDirection,
-        setTextDirection,
-        editorWidth,
-        setEditorWidth,
-        interfaceZoom,
-        setInterfaceZoom,
-        customEditorWidthPx,
-        setCustomEditorWidthPx,
-        editorWidthResizeEnabled,
-        setEditorWidthResizeEnabled,
-        editorToolbarVisible,
-        setEditorToolbarVisible,
-        titleBarModifiedDateVisible:
-          titleBarNoteInfoVisibility.modifiedDateVisible,
-        setTitleBarModifiedDateVisible,
-        titleBarFilenameVisible: titleBarNoteInfoVisibility.filenameVisible,
-        setTitleBarFilenameVisible,
-        setEditorMaxWidthLive,
-        sidebarWidthPx,
-        setSidebarWidthPx,
-        setSidebarWidthLive,
-        customColorsLight,
-        customColorsDark,
-        setCustomColor,
-        resetCustomColor,
-        resetAllCustomColors,
-      }}
-    >
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );
