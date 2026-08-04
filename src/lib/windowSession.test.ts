@@ -35,6 +35,22 @@ describe("restoreWindowSession", () => {
     });
   });
 
+  it("ignores a session saved for a different workspace", async () => {
+    const restored = await restoreWindowSession({
+      isPreview: false,
+      workspace: "/notes/personal",
+      noteIds: ["projects/plan"],
+      load: async () => savedSession,
+    });
+
+    expect(restored).toEqual({
+      selectedNoteId: null,
+      sidebarVisible: true,
+      focusMode: false,
+      geometry: null,
+    });
+  });
+
   it("restores a full window session when its selected note still exists", async () => {
     const restored = await restoreWindowSession({
       isPreview: false,

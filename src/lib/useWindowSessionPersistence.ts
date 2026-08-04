@@ -179,7 +179,11 @@ export function useWindowSessionPersistence({
   }, [writer]);
 
   return useCallback(async () => {
-    await geometryCaptureRef.current();
+    try {
+      await geometryCaptureRef.current();
+    } catch {
+      // Best-effort geometry capture; flush pending patches regardless.
+    }
     await writer.flush();
   }, [writer]);
 }

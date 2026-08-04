@@ -133,6 +133,11 @@ export function createWindowSessionPatchWriter(
       .catch((error: unknown) => {
         if (!cancelled) {
           pending = pending ? { ...patch, ...pending } : patch;
+          clearTimer();
+          timer = setTimeout(() => {
+            timer = null;
+            void flush().catch((error: unknown) => options.onError?.(error));
+          }, delayMs);
         }
         throw error;
       })

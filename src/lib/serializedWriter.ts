@@ -17,6 +17,11 @@ export function createSerializedTaskQueue(): SerializedTaskQueue {
   };
 }
 
+/**
+ * Serializes writes. Failures are reported through `onError` only. The
+ * returned promise always fulfills, so callers cannot detect a failed write.
+ * Use `createSerializedTaskQueue` when the caller must observe rejections.
+ */
 export function createSerializedWriter<T>(
   write: (value: T) => Promise<void>,
   onError: (error: unknown) => void = () => {},
