@@ -177,13 +177,11 @@ fn atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     drop(temporary_file);
 
     match fs::hard_link(temporary_path.path(), path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::Unsupported => {
-            let mut destination = OpenOptions::new().create_new(true).write(true).open(path)?;
-            destination.write_all(bytes)?;
-            destination.sync_all()?;
-            drop(destination);
-        }
+        Ok(()) => {
+            fs::remove_file(temporary_path.path())?;
+            temporary_path.commit();
+            sync_parent_directory(parent)?;
+            return Ok(());
         }
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             return Err(error);
@@ -191,11 +189,7 @@ fn atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
         Err(_) => {}
     }
 
-    let mut direct = match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-    {
+    let mut direct = match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(file) => file,
         Err(error) => {
             let _ = fs::remove_file(temporary_path.path());
