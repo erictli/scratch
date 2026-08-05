@@ -32,10 +32,24 @@ import { FolderNameDialog } from "../notes/FolderNameDialog";
 import { NoteSortMenu } from "./SidebarControls";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 import type { NoteSortOrder } from "../../types/note";
-import { SETTINGS_CHANGED_DOM_EVENT } from "../../lib/settingsScope";
+import {
+  SETTINGS_CHANGED_DOM_EVENT,
+  shouldApplySettingsChange,
+  type SettingsChangedEvent,
+} from "../../lib/settingsScope";
 
 interface SidebarProps {
   onOpenSettings?: () => void;
+}
+
+export function getWorkspaceSwitchErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return `Could not switch folder: ${error.message}`;
+  }
+  if (typeof error === "string" && error.trim()) {
+    return `Could not switch folder: ${error}`;
+  }
+  return "Could not switch folder";
 }
 
 export function Sidebar({ onOpenSettings }: SidebarProps) {
@@ -99,11 +113,18 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     async (path: string) => {
       try {
         await switchWorkspace(path);
+      } catch (error) {
+        console.error("Failed to switch workspace:", error);
+        toast.error(getWorkspaceSwitchErrorMessage(error));
+        return;
+      }
+
+      try {
         await reloadSettings();
         await refreshWorkspaces();
       } catch (error) {
-        console.error("Failed to switch workspace:", error);
-        toast.error("Workspace switch cancelled");
+        console.error("Failed to refresh after workspace switch:", error);
+        toast.error("Workspace switched, but the sidebar could not refresh");
       }
     },
     [refreshWorkspaces, reloadSettings, switchWorkspace],
@@ -261,14 +282,19 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   // Workspace settings update live in every window bound to that workspace.
   useEffect(() => {
     void loadWorkspaceSettings();
-    const handleSettingsChanged = () => void loadWorkspaceSettings();
+    const handleSettingsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<SettingsChangedEvent>).detail;
+      if (detail && shouldApplySettingsChange(detail, notesFolder)) {
+        void loadWorkspaceSettings();
+      }
+    };
     window.addEventListener(SETTINGS_CHANGED_DOM_EVENT, handleSettingsChanged);
     return () =>
       window.removeEventListener(
         SETTINGS_CHANGED_DOM_EVENT,
         handleSettingsChanged,
       );
-  }, [loadWorkspaceSettings]);
+  }, [loadWorkspaceSettings, notesFolder]);
 
   const handleNoteSortOrderChange = useCallback(
     (nextSortOrder: NoteSortOrder) => {

@@ -2,8 +2,8 @@ import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 export type ImageOpenTarget =
-  | { kind: "path"; value: string }
-  | { kind: "url"; value: string };
+  | { kind: "external-url"; value: string }
+  | { kind: "local-asset"; source: string };
 
 export function getImageOpenTarget(source: string): ImageOpenTarget | null {
   try {
@@ -12,19 +12,12 @@ export function getImageOpenTarget(source: string): ImageOpenTarget | null {
       url.protocol === "asset:" || url.hostname === "asset.localhost";
 
     if (isTauriAsset) {
-      const encodedPath = url.pathname.replace(/^\//, "");
-      const filePath = decodeURIComponent(encodedPath);
-      if (
-        filePath.startsWith("/") ||
-        /^[a-zA-Z]:[\\/]/.test(filePath)
-      ) {
-        return { kind: "path", value: filePath };
-      }
-      return null;
+      // Return the source as-is for validation by the Rust command
+      return { kind: "local-asset", source };
     }
 
     if (url.protocol === "http:" || url.protocol === "https:") {
-      return { kind: "url", value: url.toString() };
+      return { kind: "external-url", value: url.toString() };
     }
   } catch {
     return null;

@@ -3,6 +3,7 @@ import {
   createDraftCheckpointScheduler,
   nextCheckpointCaptureDelay,
   reconcileDraftCheckpoint,
+  resolveDraftRecoverySourcePath,
   type DraftCheckpoint,
   type DraftCheckpointKey,
 } from "./draftCheckpoint";
@@ -50,6 +51,101 @@ describe("nextCheckpointCaptureDelay", () => {
 });
 
 describe("createDraftCheckpointScheduler", () => {
+  it("writes during continuous typing before the maximum wait expires", async () => {
+    vi.useFakeTimers();
+    let currentTime = 0;
+    const write = vi.fn(async () => undefined);
+    const scheduler = createDraftCheckpointScheduler(
+      { write, clear: vi.fn(async () => undefined) },
+      {
+        delayMs: 250,
+        maximumWaitMs: 750,
+        now: () => currentTime,
+      },
+    );
+    const advance = async (milliseconds: number) => {
+      currentTime += milliseconds;
+      await vi.advanceTimersByTimeAsync(milliseconds);
+    };
+
+    scheduler.markDirty(checkpoint("first", "2026-08-01T12:00:00Z"));
+    await advance(200);
+    scheduler.markDirty(checkpoint("second", "2026-08-01T12:00:00.200Z"));
+    await advance(200);
+    scheduler.markDirty(checkpoint("third", "2026-08-01T12:00:00.400Z"));
+    await advance(200);
+    scheduler.markDirty(checkpoint("latest", "2026-08-01T12:00:00.600Z"));
+    await advance(149);
+    expect(write).not.toHaveBeenCalled();
+
+    await advance(1);
+    expect(write).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledWith(
+      checkpoint("latest", "2026-08-01T12:00:00.600Z"),
+    );
+  });
+
+  it("starts a fresh maximum-wait window after a successful checkpoint", async () => {
+    vi.useFakeTimers();
+    let currentTime = 0;
+    const write = vi.fn(async () => undefined);
+    const scheduler = createDraftCheckpointScheduler(
+      { write, clear: vi.fn(async () => undefined) },
+      {
+        delayMs: 250,
+        maximumWaitMs: 500,
+        now: () => currentTime,
+      },
+    );
+    const advance = async (milliseconds: number) => {
+      currentTime += milliseconds;
+      await vi.advanceTimersByTimeAsync(milliseconds);
+    };
+
+    scheduler.markDirty(checkpoint("first", "2026-08-01T12:00:00Z"));
+    await advance(250);
+    expect(write).toHaveBeenCalledOnce();
+
+    scheduler.markDirty(checkpoint("second", "2026-08-01T12:00:00.250Z"));
+    await advance(249);
+    expect(write).toHaveBeenCalledOnce();
+    await advance(1);
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+
+  it("requeues a failed automatic write with a bounded retry delay", async () => {
+    vi.useFakeTimers();
+    let currentTime = 0;
+    const onError = vi.fn();
+    const write = vi
+      .fn<(draft: DraftCheckpoint) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("app data unavailable"))
+      .mockResolvedValueOnce(undefined);
+    const scheduler = createDraftCheckpointScheduler(
+      { write, clear: vi.fn(async () => undefined) },
+      {
+        delayMs: 250,
+        maximumWaitMs: 500,
+        now: () => currentTime,
+        onError,
+      },
+    );
+    const advance = async (milliseconds: number) => {
+      currentTime += milliseconds;
+      await vi.advanceTimersByTimeAsync(milliseconds);
+    };
+
+    scheduler.markDirty(checkpoint("retry", "2026-08-01T12:00:00Z"));
+    await advance(250);
+    expect(write).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledOnce();
+
+    await advance(249);
+    expect(write).toHaveBeenCalledOnce();
+    await advance(1);
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+
   it("writes the exact latest dirty draft at the trailing edge", async () => {
     vi.useFakeTimers();
     const write = vi.fn(async () => undefined);
@@ -244,5 +340,39 @@ describe("reconcileDraftCheckpoint", () => {
       recovered: false,
       shouldClear: true,
     });
+  });
+});
+
+describe("resolveDraftRecoverySourcePath", () => {
+  it("never uses the current note path when the dirty draft belongs to another note", async () => {
+    const currentNote: Note = {
+      id: "notes/b",
+      title: "B",
+      content: "# B",
+      path: "/workspace/notes/b.md",
+      modified: 1,
+      revision: "revision-b",
+    };
+    const readNote = vi.fn(async (id: string): Promise<Note> => ({
+      id,
+      title: "A",
+      content: "# A",
+      path: "/workspace/notes/a.md",
+      modified: 2,
+      revision: "revision-a",
+    }));
+
+    await expect(
+      resolveDraftRecoverySourcePath("notes/a", currentNote, readNote),
+    ).resolves.toBe("/workspace/notes/a.md");
+    expect(readNote).toHaveBeenCalledWith("notes/a");
+  });
+
+  it("returns an empty safe path when the matching note cannot be resolved", async () => {
+    const readNote = vi.fn(async () => Promise.reject(new Error("missing")));
+
+    await expect(
+      resolveDraftRecoverySourcePath("notes/a", null, readNote),
+    ).resolves.toBe("");
   });
 });

@@ -2,9 +2,11 @@ use crate::persistence::{
     content_revision, read_snapshot, save_if_revision, FileSnapshot, SaveResult,
 };
 use crate::{
-    read_file_content_from_path, read_note_from_path, recreate_file_content_to_path,
-    save_file_content_to_path, save_note_to_path, validate_preview_create_path,
-    write_recovery_snapshot, FileSaveResult, NoteConflictSnapshot, NoteSaveResult,
+    create_note_create_only, read_file_content_from_path, read_note_from_path,
+    recreate_file_content_to_path, save_file_content_to_path, save_note_to_path,
+    validate_preview_create_path, write_recovery_snapshot, write_recovery_snapshot_with,
+    FileSaveResult, NoteConflictSnapshot, NoteSaveResult, RecoverySnapshotRequest,
+    MAX_RECOVERY_NAME_ATTEMPTS,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -224,6 +226,42 @@ fn simultaneous_saves_from_one_revision_yield_exactly_one_save_and_one_conflict(
 }
 
 #[test]
+fn simultaneous_note_creators_retry_the_same_initial_id_without_overwriting() {
+    let directory = TestDirectory::new("simultaneous-creators");
+    let start = Arc::new(Barrier::new(3));
+
+    let first_folder = directory.path.clone();
+    let first_start = Arc::clone(&start);
+    let first = std::thread::spawn(move || {
+        first_start.wait();
+        create_note_create_only(&first_folder, "Untitled", false).expect("first creator succeeds")
+    });
+
+    let second_folder = directory.path.clone();
+    let second_start = Arc::clone(&start);
+    let second = std::thread::spawn(move || {
+        second_start.wait();
+        create_note_create_only(&second_folder, "Untitled", false).expect("second creator retries")
+    });
+
+    start.wait();
+    let first_note = first.join().expect("first creator completes");
+    let second_note = second.join().expect("second creator completes");
+    let mut ids = vec![first_note.id, second_note.id];
+    ids.sort();
+
+    assert_eq!(ids, vec!["Untitled", "Untitled-1"]);
+    assert_eq!(
+        fs::read_to_string(directory.note_path("Untitled.md")).unwrap(),
+        "# Untitled\n\n",
+    );
+    assert_eq!(
+        fs::read_to_string(directory.note_path("Untitled-1.md")).unwrap(),
+        "# Untitled 1\n\n",
+    );
+}
+
+#[test]
 fn command_read_exposes_the_note_content_and_its_deterministic_revision() {
     let directory = TestDirectory::new("command-read-revision");
     let path = directory.note_path("command-note.md");
@@ -391,8 +429,7 @@ fn standalone_read_and_save_use_the_same_revision_conflict_contract() {
     let path = directory.note_path("External.md");
     fs::write(&path, "# External\n\nOriginal").expect("write standalone note");
     let loaded = read_file_content_from_path(&path).expect("read standalone note");
-    fs::write(&path, "# External\n\nChanged outside Scratch")
-        .expect("write external update");
+    fs::write(&path, "# External\n\nChanged outside Scratch").expect("write external update");
 
     let result = save_file_content_to_path(
         &path,
@@ -518,7 +555,11 @@ fn deleted_preview_path_uses_canonical_parent_and_rejects_traversal() {
 
     assert_eq!(
         validated,
-        directory.path.canonicalize().unwrap().join("Deleted.markdown")
+        directory
+            .path
+            .canonicalize()
+            .unwrap()
+            .join("Deleted.markdown")
     );
     assert!(!validated.exists());
 
@@ -549,7 +590,9 @@ fn recovery_snapshot_preserves_the_exact_dirty_markdown_in_a_hidden_store() {
     assert!(recovery_path.starts_with(directory.path.join("recovery")));
     assert_eq!(fs::read_to_string(&recovery_path).unwrap(), dirty_markdown);
     assert_eq!(
-        recovery_path.extension().and_then(|extension| extension.to_str()),
+        recovery_path
+            .extension()
+            .and_then(|extension| extension.to_str()),
         Some("md")
     );
 }
@@ -578,4 +621,107 @@ fn repeated_recovery_snapshots_never_replace_an_earlier_draft() {
     assert_ne!(first, second);
     assert_eq!(fs::read_to_string(first).unwrap(), "first draft");
     assert_eq!(fs::read_to_string(second).unwrap(), "second draft");
+}
+
+#[test]
+fn recovery_snapshot_retries_collisions_and_uses_the_successful_stem_for_metadata() {
+    let directory = TestDirectory::new("recovery-collision-retry");
+    let mut sequence = 40_u64;
+    let mut markdown_attempts = 0_usize;
+    let mut written_paths = Vec::new();
+
+    let recovery_path = write_recovery_snapshot_with(
+        RecoverySnapshotRequest {
+            recovery_root: &directory.path,
+            note_id: "Plan",
+            source_path: "/notes/Plan.md",
+            content: "dirty draft",
+            reason: "window-close",
+            timestamp: 123_456,
+            process_id: 987,
+        },
+        || {
+            let current = sequence;
+            sequence += 1;
+            current
+        },
+        |path, content| {
+            written_paths.push(path.to_path_buf());
+            if path.extension().and_then(|value| value.to_str()) == Some("md") {
+                markdown_attempts += 1;
+                if markdown_attempts <= 3 {
+                    return Ok(SaveResult::Conflict { current: None });
+                }
+            }
+            Ok(SaveResult::Saved {
+                revision: content_revision(content),
+            })
+        },
+    )
+    .expect("retry recovery collision");
+
+    assert_eq!(markdown_attempts, 4);
+    assert!(recovery_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .is_some_and(|stem| stem.contains("123456-987-43-window-close-Plan")));
+    let metadata_path = written_paths
+        .iter()
+        .find(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .expect("metadata write path");
+    assert_eq!(metadata_path.file_stem(), recovery_path.file_stem());
+}
+
+#[test]
+fn recovery_snapshot_reports_collision_retry_exhaustion() {
+    let directory = TestDirectory::new("recovery-collision-exhaustion");
+    let mut attempts = 0_usize;
+
+    let error = write_recovery_snapshot_with(
+        RecoverySnapshotRequest {
+            recovery_root: &directory.path,
+            note_id: "Plan",
+            source_path: "/notes/Plan.md",
+            content: "dirty draft",
+            reason: "window-close",
+            timestamp: 123_456,
+            process_id: 987,
+        },
+        || 0,
+        |_path, _content| {
+            attempts += 1;
+            Ok(SaveResult::Conflict { current: None })
+        },
+    )
+    .expect_err("collision exhaustion must fail");
+
+    assert_eq!(attempts, MAX_RECOVERY_NAME_ATTEMPTS);
+    assert!(error.contains("collision"));
+}
+
+#[test]
+fn recovery_snapshot_returns_non_conflict_persistence_errors_immediately() {
+    let directory = TestDirectory::new("recovery-persistence-error");
+    let mut attempts = 0_usize;
+
+    let error = write_recovery_snapshot_with(
+        RecoverySnapshotRequest {
+            recovery_root: &directory.path,
+            note_id: "Plan",
+            source_path: "/notes/Plan.md",
+            content: "dirty draft",
+            reason: "window-close",
+            timestamp: 123_456,
+            process_id: 987,
+        },
+        || 0,
+        |_path, _content| {
+            attempts += 1;
+            Err("disk failure".to_string())
+        },
+    )
+    .expect_err("persistence failure must surface");
+
+    assert_eq!(attempts, 1);
+    assert_eq!(error, "disk failure");
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useTheme } from "../context/ThemeContext";
 import { resolveWindowShortcut } from "./windowShortcuts";
@@ -10,11 +10,12 @@ interface UseWindowShortcutsOptions {
 export function useWindowShortcuts({
   onOpenPreferences,
 }: UseWindowShortcutsOptions): void {
-  const { interfaceZoom, setInterfaceZoom } = useTheme();
-  const interfaceZoomRef = useRef(interfaceZoom);
+  const { setInterfaceZoom } = useTheme();
   const openPreferencesRef = useRef(onOpenPreferences);
-  interfaceZoomRef.current = interfaceZoom;
-  openPreferencesRef.current = onOpenPreferences;
+
+  useLayoutEffect(() => {
+    openPreferencesRef.current = onOpenPreferences;
+  }, [onOpenPreferences]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -23,7 +24,10 @@ export function useWindowShortcuts({
       event.preventDefault();
 
       if (action === "preferences") {
-        void openPreferencesRef.current();
+        void Promise.resolve(openPreferencesRef.current()).catch((error) => {
+          console.error("Failed to open Preferences:", error);
+          toast.error("Preferences could not be opened.");
+        });
         return;
       }
 
@@ -34,13 +38,15 @@ export function useWindowShortcuts({
       }
 
       const delta = action === "zoom-in" ? 0.05 : -0.05;
-      const next = Math.round(
-        Math.min(Math.max(interfaceZoomRef.current + delta, 0.7), 1.5) * 20,
-      ) / 20;
-      setInterfaceZoom(next);
-      toast(`Zoom ${Math.round(next * 100)}%`, {
-        id: "zoom",
-        duration: 1500,
+      setInterfaceZoom((previous) => {
+        const next = Math.round(
+          Math.min(Math.max(previous + delta, 0.7), 1.5) * 20,
+        ) / 20;
+        toast(`Zoom ${Math.round(next * 100)}%`, {
+          id: "zoom",
+          duration: 1500,
+        });
+        return next;
       });
     };
 

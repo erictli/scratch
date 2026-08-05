@@ -381,6 +381,32 @@ describe("Scratch table structural transactions", () => {
     expect(deleteTableRow(instance, 0, 0)).toBe(false);
   });
 
+  it("refuses insertion above a pinned header row", () => {
+    const instance = editor();
+    const before = instance.state.doc;
+    const tableBefore = before.nodeAt(0)!;
+    const headerLabels = Array.from(
+      { length: tableBefore.child(0).childCount },
+      (_, columnIndex) => tableBefore.child(0).child(columnIndex).textContent,
+    );
+
+    expect(insertTableRow(instance, 0, 0)).toBe(false);
+    expect(instance.state.doc.eq(before)).toBe(true);
+    const tableAfter = instance.state.doc.nodeAt(0)!;
+    expect(
+      Array.from(
+        { length: tableAfter.child(0).childCount },
+        (_, columnIndex) => tableAfter.child(0).child(columnIndex).textContent,
+      ),
+    ).toEqual(headerLabels);
+    expect(
+      Array.from(
+        { length: tableAfter.child(0).childCount },
+        (_, columnIndex) => tableAfter.child(0).child(columnIndex).type.name,
+      ),
+    ).toEqual(["tableHeader", "tableHeader", "tableHeader"]);
+  });
+
   it("changes multiple edge rows or columns in one history entry while preserving headers", () => {
     const instance = editor();
     expect(toggleTableHeaderColumn(instance, 0)).toBe(true);

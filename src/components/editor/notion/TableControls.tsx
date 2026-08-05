@@ -67,11 +67,60 @@ interface TableSelectionContext {
   columnIndex: number;
 }
 
-interface TableLayout extends TableSelectionContext {
+export interface TableLayout extends TableSelectionContext {
   tableRect: DOMRect;
   rowRects: DOMRect[];
   columnRects: DOMRect[];
   rowElements: HTMLTableRowElement[];
+}
+
+function rectsEquivalent(current: DOMRect, next: DOMRect): boolean {
+  return (
+    current.left === next.left &&
+    current.top === next.top &&
+    current.right === next.right &&
+    current.bottom === next.bottom &&
+    current.width === next.width &&
+    current.height === next.height
+  );
+}
+
+export function layoutsEquivalent(
+  current: TableLayout | null,
+  next: TableLayout | null,
+): boolean {
+  if (current === next) return true;
+  if (!current || !next || current.tablePos !== next.tablePos) return false;
+  if (
+    current.rowRects.length !== next.rowRects.length ||
+    current.columnRects.length !== next.columnRects.length ||
+    !rectsEquivalent(current.tableRect, next.tableRect)
+  ) {
+    return false;
+  }
+  return (
+    current.rowRects.every((rect, index) =>
+      rectsEquivalent(rect, next.rowRects[index]),
+    ) &&
+    current.columnRects.every((rect, index) =>
+      rectsEquivalent(rect, next.columnRects[index]),
+    )
+  );
+}
+
+export function hasValidRowResizeGeometry(
+  rowElements: readonly HTMLTableRowElement[],
+  rowRects: readonly DOMRect[],
+  documentRowCount: number,
+  rowIndex: number,
+): boolean {
+  return (
+    Number.isInteger(rowIndex) &&
+    rowIndex >= 0 &&
+    rowIndex < documentRowCount &&
+    rowElements[rowIndex] !== undefined &&
+    rowRects[rowIndex] !== undefined
+  );
 }
 
 interface TableDragIndicator {
@@ -135,8 +184,29 @@ function getTableSelectionContext(editor: Editor): TableSelectionContext | null 
 
 function findTableElement(editor: Editor, tablePos: number): HTMLTableElement | null {
   const nodeDom = editor.view.nodeDOM(tablePos);
-  if (nodeDom instanceof HTMLTableElement) return nodeDom;
-  if (nodeDom instanceof HTMLElement) return nodeDom.querySelector("table");
+  if (nodeDom instanceof HTMLTableElement && nodeDom.isConnected) return nodeDom;
+  if (nodeDom instanceof HTMLElement && nodeDom.isConnected) {
+    const nested = nodeDom.querySelector("table");
+    if (nested) return nested;
+  }
+  try {
+    const liveDom = editor.view.domAtPos(
+      Math.min(tablePos + 1, editor.state.doc.content.size),
+    ).node;
+    const liveElement =
+      liveDom instanceof Element ? liveDom : liveDom.parentElement;
+    const liveTable = liveElement?.closest("table");
+    if (liveTable instanceof HTMLTableElement) return liveTable;
+  } catch {
+    // Fall through to the bounded table scan below.
+  }
+  const liveTables = Array.from(
+    editor.view.dom.querySelectorAll<HTMLTableElement>("table"),
+  );
+  for (const table of liveTables) {
+    if (tablePositionFromDom(editor, table) === tablePos) return table;
+  }
+  if (liveTables.length === 1) return liveTables[0];
   return null;
 }
 
@@ -532,7 +602,7 @@ export function TableControls({ editor }: { editor: Editor }) {
       );
       clearHideTimer();
       if (pointerCandidate) {
-        if (pointerCandidate.layout.tablePos !== layoutRef.current?.tablePos) {
+        if (!layoutsEquivalent(layoutRef.current, pointerCandidate.layout)) {
           layoutRef.current = pointerCandidate.layout;
           setLayout(pointerCandidate.layout);
           setActionsOpen(false);
@@ -762,14 +832,46 @@ export function TableControls({ editor }: { editor: Editor }) {
       return;
     }
 
-    const rowElement = layout.rowElements[rowIndex];
+    const tableElement = findTableElement(editor, layout.tablePos);
+    const interactionLayout = tableElement
+      ? measureTableElement(editor, tableElement)
+      : layout;
+    const rowElement = interactionLayout?.rowElements[rowIndex];
+    const rowRect = interactionLayout?.rowRects[rowIndex];
     const table = editor.state.doc.nodeAt(layout.tablePos);
-    if (!rowElement || !table || rowIndex >= table.childCount) return;
+    if (
+      !rowElement ||
+      !rowRect ||
+      !table ||
+      !hasValidRowResizeGeometry(
+        interactionLayout?.rowElements ?? [],
+        interactionLayout?.rowRects ?? [],
+        table.childCount,
+        rowIndex,
+      )
+    ) {
+      return;
+    }
 
     const zoom = getInterfaceZoom();
     const startY = event.clientY / zoom;
-    const startHeight = (layout.rowRects[rowIndex]?.height ?? 28) / zoom;
-    const preview = createTableRowResizePreview(rowElement);
+    const startHeight = rowRect.height / zoom;
+    const preview = createTableRowResizePreview(
+      rowElement,
+      () => {
+        const liveTables = editor.view.dom.querySelectorAll<HTMLTableElement>(
+          "table",
+        );
+        if (liveTables.length === 1) {
+          return liveTables[0].rows[rowIndex] ?? null;
+        }
+        return (
+          (tableElement?.isConnected ? tableElement.rows[rowIndex] : null) ??
+          findTableElement(editor, layout.tablePos)?.rows[rowIndex] ??
+          null
+        );
+      },
+    );
 
     event.preventDefault();
     event.stopPropagation();
@@ -790,7 +892,7 @@ export function TableControls({ editor }: { editor: Editor }) {
         clientY,
       ));
       origin.style.top = `${
-        layout.rowRects[rowIndex].bottom / zoom + height - startHeight - 8
+        rowRect.bottom / zoom + height - startHeight - 8
       }px`;
     };
     const cancelPreviewFrame = () => {
@@ -1040,6 +1142,15 @@ export function TableControls({ editor }: { editor: Editor }) {
       return;
     }
 
+    const currentTable = editor.state.doc.nodeAt(layout.tablePos);
+    const indexOffset =
+      axis === "row" &&
+      currentTable &&
+      hasPinnedTableHeaderRow(currentTable)
+        ? 1
+        : 0;
+    if (sourceIndex < indexOffset) return;
+
     event.preventDefault();
     event.stopPropagation();
     clearHideTimer();
@@ -1053,14 +1164,6 @@ export function TableControls({ editor }: { editor: Editor }) {
     const startPoint = { left: event.clientX, top: event.clientY };
     const initialDoc = editor.state.doc;
     const tablePos = layout.tablePos;
-    const currentTable = editor.state.doc.nodeAt(tablePos);
-    const indexOffset =
-      axis === "row" &&
-      currentTable &&
-      hasPinnedTableHeaderRow(currentTable)
-        ? 1
-        : 0;
-    if (sourceIndex < indexOffset) return;
     const pointerSourceIndex = sourceIndex - indexOffset;
     let active = false;
     let lastDrop: TablePointerDrop | null = null;
@@ -1354,6 +1457,10 @@ export function TableControls({ editor }: { editor: Editor }) {
   const hasPinnedHeaderColumn = Boolean(
     tableNode && hasPinnedTableHeaderColumn(tableNode),
   );
+  const resizeColumnRect =
+    proximityTarget?.kind === "columnResize"
+      ? layout.columnRects[proximityTarget.index]
+      : undefined;
 
   return createPortal(
     <div className="notion-table-controls" aria-label="Table controls">
@@ -1798,14 +1905,14 @@ export function TableControls({ editor }: { editor: Editor }) {
           ) : null,
         )}
 
-      {proximityTarget?.kind === "columnResize" && (
+      {proximityTarget?.kind === "columnResize" && resizeColumnRect && (
         <button
           type="button"
           className="notion-table-column-resize"
           style={{
             left:
               viewportValueToInterface(
-                layout.columnRects[proximityTarget.index].right,
+                resizeColumnRect.right,
               ) - 8,
             top: viewportValueToInterface(layout.tableRect.top),
             height: viewportValueToInterface(layout.tableRect.height),

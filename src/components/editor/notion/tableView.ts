@@ -41,8 +41,11 @@ export function createScratchTableColumnResizePreview(
   });
   if (normalizedBaseline.some((width) => width === null)) return null;
 
+  const appendedColumns: HTMLTableColElement[] = [];
   while (colgroup.children.length < normalizedBaseline.length) {
-    colgroup.appendChild(colgroup.ownerDocument.createElement("col"));
+    const appended = colgroup.ownerDocument.createElement("col");
+    appendedColumns.push(appended);
+    colgroup.appendChild(appended);
   }
   const columns = Array.from(colgroup.children).slice(
     0,
@@ -59,6 +62,7 @@ export function createScratchTableColumnResizePreview(
       Math.max(minimumWidth, requestedWidth),
     );
     const width = normalized ?? minimumWidth;
+    if (restored) return width;
     const nextWidths = normalizedBaseline.map((baseline, index) =>
       index === columnIndex ? width : baseline!,
     );
@@ -87,6 +91,7 @@ export function createScratchTableColumnResizePreview(
       columns.forEach((column, index) =>
         restoreAttribute(column, "style", columnStyles[index]),
       );
+      appendedColumns.forEach((column) => column.remove());
     },
   };
 }

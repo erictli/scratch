@@ -3,7 +3,7 @@ import { TableKit } from "@tiptap/extension-table";
 import { Fragment } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ScratchTableMetadata } from "./tableMetadata";
 import {
@@ -15,6 +15,14 @@ const paragraph = (text: string): JSONContent => ({
   type: "paragraph",
   content: [{ type: "text", text }],
 });
+
+const moduleUrl = import.meta.url.startsWith("file:")
+  ? import.meta.url
+  : pathToFileURL(import.meta.filename).href;
+const appStyles = readFileSync(
+  fileURLToPath(new URL("../../../App.css", moduleUrl)),
+  "utf8",
+);
 
 describe("ScratchTableView", () => {
   it("previews only the manipulated column and restores the exact DOM snapshot", () => {
@@ -123,21 +131,53 @@ describe("ScratchTableView", () => {
     );
   });
 
-  it("allows fixed-width tables to overflow their wrapper without browser redistribution", () => {
-    const appStyles = readFileSync(
-      resolve(process.cwd(), "src/App.css"),
-      "utf8",
+  it("removes only temporary columns and ignores apply after repeated restore", () => {
+    const table = document.createElement("table");
+    const colgroup = document.createElement("colgroup");
+    const originalColumn = document.createElement("col");
+    originalColumn.setAttribute("style", "width: 111px; color: red");
+    colgroup.append(originalColumn);
+    table.append(colgroup, document.createElement("tbody"));
+    const preview = createScratchTableColumnResizePreview(
+      table,
+      [111, 222, 333],
+      1,
+      80,
     );
-    const wrapperRule = appStyles.match(/\.tableWrapper table\s*\{([^}]*)\}/)?.[1];
-    const tableStyleSection = appStyles.match(
-      /\/\* Table styles \*\/[\s\S]*?\/\* Avoid double lines/,
-    )?.[0];
+    if (!preview) throw new Error("Missing resize preview");
+
+    expect(colgroup.children).toHaveLength(3);
+    preview.apply(260);
+    preview.restore();
+    preview.restore();
+
+    expect(colgroup.children).toHaveLength(1);
+    expect(colgroup.firstElementChild).toBe(originalColumn);
+    expect(originalColumn.getAttribute("style")).toBe(
+      "width: 111px; color: red",
+    );
+    const tableStyle = table.getAttribute("style");
+    expect(preview.apply(400)).toBe(400);
+    expect(table.getAttribute("style")).toBe(tableStyle);
+    expect(colgroup.children).toHaveLength(1);
+  });
+
+  it("allows fixed-width tables to overflow their wrapper without browser redistribution", () => {
+    const wrapperMatch = appStyles.match(/\.tableWrapper table\s*\{([^}]*)\}/);
+    const cellMatch = appStyles.match(
+      /\.prose table th,[\s\S]*?table\.not-prose td\s*\{([^}]*)\}/,
+    );
+
+    expect(wrapperMatch).not.toBeNull();
+    expect(cellMatch).not.toBeNull();
+    const wrapperRule = wrapperMatch?.[1] ?? "";
+    const cellRule = cellMatch?.[1] ?? "";
 
     expect(wrapperRule).toContain("max-width: none");
     expect(wrapperRule).toContain("table-layout: fixed");
     expect(wrapperRule).not.toContain("max-width: 100% !important");
-    expect(tableStyleSection).toContain("min-width: 80px");
-    expect(tableStyleSection).not.toContain("min-width: 120px");
+    expect(cellRule).toContain("min-width: 80px");
+    expect(cellRule).not.toContain("min-width: 120px");
   });
 
   it("removes a stale DOM column width when the document width is undone", () => {

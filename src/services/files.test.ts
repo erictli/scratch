@@ -35,6 +35,30 @@ describe("saveFileDirect", () => {
       expectedRevision: "revision-1",
     });
   });
+
+  it("preserves conflict content and revision returned by the backend", async () => {
+    invokeMock.mockResolvedValueOnce({
+      status: "conflict",
+      current: {
+        content: "# External\n\nRemote edit",
+        revision: "remote-revision",
+      },
+    });
+
+    const result = await saveFileDirect(
+      "/tmp/External.md",
+      "# External\n\nLocal draft",
+      "stale-revision",
+    );
+
+    expect(result).toEqual({
+      status: "conflict",
+      current: {
+        content: "# External\n\nRemote edit",
+        revision: "remote-revision",
+      },
+    });
+  });
 });
 
 describe("recreateFileDirect", () => {

@@ -41,4 +41,16 @@ describe("resolveWindowShortcut", () => {
       }),
     ).toBeNull();
   });
+
+  it("maps Ctrl+plus to zoom in", () => {
+    expect(
+      resolveWindowShortcut({
+        key: "+",
+        metaKey: false,
+        ctrlKey: true,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toBe("zoom-in");
+  });
 });

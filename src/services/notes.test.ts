@@ -5,6 +5,7 @@ const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 
 import {
+  duplicateNote,
   listWorkspaces,
   openWorkspaceWindow,
   persistRecoverySnapshot,
@@ -14,6 +15,80 @@ import {
   updateGlobalSettings,
   updateWorkspaceSettings,
 } from "./notes";
+
+const originalNote = {
+  id: "Plans/Plan",
+  title: "Plan",
+  content: "# Plan\n\nOriginal",
+  path: "/notes/Plans/Plan.md",
+  modified: 1,
+  revision: "original-revision",
+};
+
+const placeholderNote = {
+  id: "Plans/Untitled",
+  title: "Untitled",
+  content: "# Untitled\n\n",
+  path: "/notes/Plans/Untitled.md",
+  modified: 2,
+  revision: "placeholder-revision",
+};
+
+describe("duplicateNote", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it("returns the saved duplicate", async () => {
+    const saved = {
+      ...placeholderNote,
+      title: "Plan (Copy)",
+      content: "# Plan (Copy)\n\nOriginal",
+      revision: "duplicate-revision",
+    };
+    invokeMock
+      .mockResolvedValueOnce(originalNote)
+      .mockResolvedValueOnce(placeholderNote)
+      .mockResolvedValueOnce({ status: "saved", note: saved });
+
+    await expect(duplicateNote(originalNote.id)).resolves.toEqual(saved);
+    expect(invokeMock).not.toHaveBeenCalledWith("delete_note", expect.anything());
+  });
+
+  it("removes only the new placeholder when the duplicate save conflicts", async () => {
+    invokeMock
+      .mockResolvedValueOnce(originalNote)
+      .mockResolvedValueOnce(placeholderNote)
+      .mockResolvedValueOnce({ status: "conflict", current: null })
+      .mockResolvedValueOnce(undefined);
+
+    await expect(duplicateNote(originalNote.id)).rejects.toThrow(
+      "The duplicated note changed before its content was saved",
+    );
+    expect(invokeMock).toHaveBeenLastCalledWith("delete_note", {
+      id: placeholderNote.id,
+    });
+  });
+
+  it("keeps the conflict failure when placeholder cleanup also fails", async () => {
+    const cleanupError = new Error("cleanup denied");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock
+      .mockResolvedValueOnce(originalNote)
+      .mockResolvedValueOnce(placeholderNote)
+      .mockResolvedValueOnce({ status: "conflict", current: null })
+      .mockRejectedValueOnce(cleanupError);
+
+    await expect(duplicateNote(originalNote.id)).rejects.toThrow(
+      "The duplicated note changed before its content was saved",
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to remove duplicate placeholder:",
+      cleanupError,
+    );
+    consoleError.mockRestore();
+  });
+});
 
 describe("draft recovery", () => {
   beforeEach(() => {

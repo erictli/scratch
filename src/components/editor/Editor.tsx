@@ -33,7 +33,7 @@ import {
 } from "@tiptap/pm/state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -99,6 +99,7 @@ import {
   handleImageDoubleClick,
 } from "./notion/imageInteractions";
 import {
+  createImageDragScaleFactorController,
   filterSupportedImagePaths,
   importDroppedImagePaths,
   physicalToLogicalPoint,
@@ -108,6 +109,7 @@ import {
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { getTitleBarNoteInfoText } from "../../lib/titleBarNoteInfo";
+import { persistCheckpointBeforeEditorDisposal } from "../../lib/editorCheckpointCleanup";
 import { SETTINGS_CHANGED_DOM_EVENT } from "../../lib/settingsScope";
 import type { ConflictResolutionStrategy } from "../../lib/conflictResolution";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -709,12 +711,16 @@ export function Editor({
   const checkpointCaptureTimerRef = useRef<number | null>(null);
   const checkpointCaptureStartedAtRef = useRef<number | null>(null);
   const queueCheckpointCaptureRef = useRef<() => void>(() => undefined);
+  const persistCrashCheckpointRef = useRef<() => Promise<void>>(
+    async () => undefined,
+  );
   const checkpointSchedulerRef = useRef<DraftCheckpointScheduler | null>(null);
   if (!checkpointSchedulerRef.current) {
     checkpointSchedulerRef.current = createDraftCheckpointScheduler(
       {
         write: draftCheckpointService.writeDraftCheckpoint,
-        clear: draftCheckpointService.clearDraftCheckpoint,
+        clear: (key) =>
+          draftCheckpointService.clearDraftCheckpoint(key.noteId),
       },
       {
         delayMs: 250,
@@ -731,6 +737,7 @@ export function Editor({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const imageDropSurfaceRef = useRef<HTMLDivElement>(null);
   const imageDragActiveRef = useRef(false);
+  const imageDragScaleFactorRef = useRef(1);
   const [imageDropIndicator, setImageDropIndicator] = useState<{
     top: number;
     left: number;
@@ -1045,23 +1052,32 @@ export function Editor({
     await checkpointScheduler.flush();
   }, [checkpointScheduler, currentNote, getOpenDraftSnapshot]);
 
-  queueCheckpointCaptureRef.current = () => {
-    const now = Date.now();
-    checkpointCaptureStartedAtRef.current ??= now;
-    if (checkpointCaptureTimerRef.current) {
-      clearTimeout(checkpointCaptureTimerRef.current);
-    }
-    const delay = nextCheckpointCaptureDelay(
-      now - checkpointCaptureStartedAtRef.current,
-      250,
-      750,
-    );
-    checkpointCaptureTimerRef.current = window.setTimeout(() => {
-      checkpointCaptureTimerRef.current = null;
-      checkpointCaptureStartedAtRef.current = null;
-      void persistCurrentCrashCheckpoint();
-    }, delay);
-  };
+  useEffect(() => {
+    persistCrashCheckpointRef.current = persistCurrentCrashCheckpoint;
+    const queueCheckpointCapture = () => {
+      const now = Date.now();
+      checkpointCaptureStartedAtRef.current ??= now;
+      if (checkpointCaptureTimerRef.current) {
+        clearTimeout(checkpointCaptureTimerRef.current);
+      }
+      const delay = nextCheckpointCaptureDelay(
+        now - checkpointCaptureStartedAtRef.current,
+        250,
+        750,
+      );
+      checkpointCaptureTimerRef.current = window.setTimeout(() => {
+        checkpointCaptureTimerRef.current = null;
+        checkpointCaptureStartedAtRef.current = null;
+        void persistCrashCheckpointRef.current();
+      }, delay);
+    };
+    queueCheckpointCaptureRef.current = queueCheckpointCapture;
+    return () => {
+      if (queueCheckpointCaptureRef.current === queueCheckpointCapture) {
+        queueCheckpointCaptureRef.current = () => undefined;
+      }
+    };
+  }, [persistCurrentCrashCheckpoint]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -1568,7 +1584,7 @@ export function Editor({
             parsedContent: null,
           })
         ) {
-          toast.error("A table can’t be pasted inside a table cell");
+          toast.error("A table cannot be pasted inside another table.");
           return true;
         }
 
@@ -1606,7 +1622,7 @@ export function Editor({
                   parsedContent: parsed,
                 })
               ) {
-                toast.error("A table can’t be pasted inside a table cell");
+                toast.error("A table cannot be pasted inside another table.");
                 return true;
               }
               currentEditor.commands.insertContent(parsed);
@@ -1665,6 +1681,10 @@ export function Editor({
       try {
         const currentWebview = getCurrentWebview();
         const currentWindow = getCurrentWindow();
+        const scaleFactorController = createImageDragScaleFactorController(
+          imageDragScaleFactorRef,
+          () => currentWindow.scaleFactor(),
+        );
         const removeListener = await currentWebview.onDragDropEvent(
           async (event) => {
             if (editor.isDestroyed || !editor.isEditable) {
@@ -1673,6 +1693,7 @@ export function Editor({
 
             if (event.payload.type === "leave") {
               imageDragActiveRef.current = false;
+              scaleFactorController.reset();
               setImageDropIndicator(null);
               return;
             }
@@ -1681,6 +1702,7 @@ export function Editor({
               imageDragActiveRef.current =
                 filterSupportedImagePaths(event.payload.paths).length > 0;
               if (!imageDragActiveRef.current) {
+                scaleFactorController.reset();
                 setImageDropIndicator(null);
                 return;
               }
@@ -1694,7 +1716,14 @@ export function Editor({
             }
 
             try {
-              const scaleFactor = await currentWindow.scaleFactor();
+              const scaleFactor = await scaleFactorController.enter();
+              if (scaleFactor === null) return;
+              if (
+                event.payload.type !== "drop" &&
+                !imageDragActiveRef.current
+              ) {
+                return;
+              }
               const point = physicalToLogicalPoint(
                 event.payload.position,
                 scaleFactor,
@@ -1731,6 +1760,7 @@ export function Editor({
               }
 
               imageDragActiveRef.current = false;
+              scaleFactorController.reset();
               setImageDropIndicator(null);
 
               const imagePaths = filterSupportedImagePaths(
@@ -1815,6 +1845,7 @@ export function Editor({
 
     return () => {
       disposed = true;
+      imageDragScaleFactorRef.current = 1;
       unlisten?.();
     };
   }, [editor, currentNote?.id]);
@@ -2134,6 +2165,13 @@ export function Editor({
   // cannot await I/O, so it must never fire-and-forget the only draft.
   useEffect(() => {
     return () => {
+      persistCheckpointBeforeEditorDisposal(
+        () => persistCrashCheckpointRef.current(),
+        () => checkpointScheduler.dispose(),
+        (stage, error) => {
+          console.error(`Failed to ${stage} editor crash checkpoint:`, error);
+        },
+      );
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
@@ -3166,14 +3204,19 @@ export function Editor({
                           await MenuItem.new({
                             text: "Open Image",
                             action: () => {
-                              const open =
-                                openTarget.kind === "path"
-                                  ? openPath(openTarget.value)
-                                  : openUrl(openTarget.value);
-                              void open.catch((error) => {
-                                console.error("Failed to open image:", error);
-                                toast.error("Failed to open image");
-                              });
+                              if (openTarget.kind === "local-asset") {
+                                void invoke("open_editor_image", {
+                                  source: openTarget.source,
+                                }).catch((error) => {
+                                  console.error("Failed to open image:", error);
+                                  toast.error("Failed to open image");
+                                });
+                              } else {
+                                void openUrl(openTarget.value).catch((error) => {
+                                  console.error("Failed to open image:", error);
+                                  toast.error("Failed to open image");
+                                });
+                              }
                             },
                           }),
                         ],

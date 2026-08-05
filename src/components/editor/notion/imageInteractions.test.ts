@@ -9,30 +9,41 @@ import {
 } from "./imageInteractions";
 
 describe("image interactions", () => {
-  it("resolves Tauri asset URLs back to their local file path", () => {
+  it("keeps Tauri asset URLs opaque for backend validation", () => {
     expect(
       getImageOpenTarget(
         "asset://localhost/%2FUsers%2Fmael%2FNotes%2Fassets%2Fphoto.png",
       ),
     ).toEqual({
-      kind: "path",
-      value: "/Users/mael/Notes/assets/photo.png",
+      kind: "local-asset",
+      source:
+        "asset://localhost/%2FUsers%2Fmael%2FNotes%2Fassets%2Fphoto.png",
     });
     expect(
       getImageOpenTarget(
         "http://asset.localhost/%2FUsers%2Fmael%2FNotes%2Fassets%2Fphoto.png",
       ),
     ).toEqual({
-      kind: "path",
-      value: "/Users/mael/Notes/assets/photo.png",
+      kind: "local-asset",
+      source:
+        "http://asset.localhost/%2FUsers%2Fmael%2FNotes%2Fassets%2Fphoto.png",
     });
   });
 
-  it("keeps ordinary web images as URLs", () => {
+  it("keeps ordinary HTTP and HTTPS images as external URLs", () => {
     expect(getImageOpenTarget("https://example.com/photo.png")).toEqual({
-      kind: "url",
+      kind: "external-url",
       value: "https://example.com/photo.png",
     });
+    expect(getImageOpenTarget("http://example.com/photo.png")).toEqual({
+      kind: "external-url",
+      value: "http://example.com/photo.png",
+    });
+  });
+
+  it("rejects unsupported URL schemes", () => {
+    expect(getImageOpenTarget("file:///etc/passwd")).toBeNull();
+    expect(getImageOpenTarget("javascript:alert(1)")).toBeNull();
   });
 
   it("prevents native double-click selection on an editor image", () => {

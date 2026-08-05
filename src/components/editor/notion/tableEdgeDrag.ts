@@ -13,6 +13,7 @@ interface TableEdgeDragInput {
 }
 
 const TABLE_EDGE_DRAG_STEP = 40;
+export const MAX_TABLE_EDGE_ADDITION_STEPS = 100;
 
 export function resolveTableEdgeDragDelta({
   axis,
@@ -24,6 +25,9 @@ export function resolveTableEdgeDragDelta({
     axis === "row" ? current.top - start.top : current.left - start.left;
   const steps = Math.trunc(distance / TABLE_EDGE_DRAG_STEP);
   const minimum = -(Math.max(1, Math.trunc(itemCount)) - 1);
-  const delta = Math.max(minimum, steps);
+  const delta = Math.min(
+    MAX_TABLE_EDGE_ADDITION_STEPS,
+    Math.max(minimum, steps),
+  );
   return Object.is(delta, -0) ? 0 : delta;
 }

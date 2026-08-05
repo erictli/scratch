@@ -1,5 +1,7 @@
 export function getInterfaceZoom(): number {
-  const zoom = Number.parseFloat(document.documentElement.style.zoom);
+  const zoom = Number.parseFloat(
+    getComputedStyle(document.documentElement).zoom,
+  );
   return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
 }
 

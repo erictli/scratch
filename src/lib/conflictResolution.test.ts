@@ -72,4 +72,25 @@ describe("runConflictResolution", () => {
 
     expect(overwriteRemote).not.toHaveBeenCalled();
   });
+
+  it("resolves a clean draft without creating a recovery snapshot", async () => {
+    const persistRecovery = vi.fn(async () => "/recovery/unused.md");
+    const acceptRemote = vi.fn(async () => undefined);
+
+    await expect(
+      runConflictResolution(
+        "useRemote",
+        { draft: { ...draft, dirty: false }, remote },
+        {
+          persistRecovery,
+          overwriteRemote: async () => undefined,
+          recreateDeleted: async () => undefined,
+          acceptRemote,
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(persistRecovery).not.toHaveBeenCalled();
+    expect(acceptRemote).toHaveBeenCalledWith(remote);
+  });
 });

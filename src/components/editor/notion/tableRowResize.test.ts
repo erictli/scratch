@@ -67,4 +67,24 @@ describe("table row resize", () => {
     expect(row.hasAttribute("style")).toBe(false);
     table.remove();
   });
+
+  it("targets one row by temporary attribute and restores a previous value", () => {
+    const table = document.createElement("table");
+    const first = document.createElement("tr");
+    const target = document.createElement("tr");
+    target.setAttribute("data-scratch-row-resize-preview-id", "existing");
+    table.append(first, target);
+    document.body.append(table);
+    const preview = createTableRowResizePreview(target);
+    const selector = getPreviewRule().selectorText;
+
+    expect(selector).toContain("data-scratch-row-resize-preview-id");
+    expect(selector).not.toContain("nth-child");
+    expect(document.querySelector(selector)).toBe(target);
+    preview.restore();
+    expect(target.getAttribute("data-scratch-row-resize-preview-id")).toBe(
+      "existing",
+    );
+    table.remove();
+  });
 });

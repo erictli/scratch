@@ -23,7 +23,11 @@ import {
 } from "../icons";
 import type { NoteSortOrder, Settings } from "../../types/note";
 import { sortNotesByModified } from "../../lib/folderTree";
-import { SETTINGS_CHANGED_DOM_EVENT } from "../../lib/settingsScope";
+import {
+  SETTINGS_CHANGED_DOM_EVENT,
+  shouldApplySettingsChange,
+  type SettingsChangedEvent,
+} from "../../lib/settingsScope";
 
 const menuItemClass =
   "px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2 rounded-sm";
@@ -254,6 +258,7 @@ export function NoteList({
     isLoading,
     searchQuery,
     searchResults,
+    notesFolder,
   } = useNotes();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -299,14 +304,19 @@ export function NoteList({
   }, []);
 
   useEffect(() => {
-    const handleSettingsChanged = () => refreshSettings();
+    const handleSettingsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<SettingsChangedEvent>).detail;
+      if (detail && shouldApplySettingsChange(detail, notesFolder)) {
+        refreshSettings();
+      }
+    };
     window.addEventListener(SETTINGS_CHANGED_DOM_EVENT, handleSettingsChanged);
     return () =>
       window.removeEventListener(
         SETTINGS_CHANGED_DOM_EVENT,
         handleSettingsChanged,
       );
-  }, [refreshSettings]);
+  }, [notesFolder, refreshSettings]);
 
   // Memoize display items to prevent recalculation on every render
   const displayItems = useMemo(() => {

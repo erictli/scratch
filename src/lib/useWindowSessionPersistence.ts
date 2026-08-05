@@ -32,6 +32,24 @@ interface PersistedUiState {
   focusMode: boolean;
 }
 
+export async function flushWindowSessionBestEffort(
+  captureGeometry: () => Promise<void>,
+  flushWriter: () => Promise<void>,
+  warn: (message: string, error: unknown) => void = console.warn,
+): Promise<void> {
+  try {
+    await captureGeometry();
+  } catch (error) {
+    warn("Window geometry capture failed", error);
+  }
+
+  try {
+    await flushWriter();
+  } catch (error) {
+    warn("Final window session update failed", error);
+  }
+}
+
 export function useWindowSessionPersistence({
   notesFolder,
   selectedNoteId,
@@ -179,7 +197,9 @@ export function useWindowSessionPersistence({
   }, [writer]);
 
   return useCallback(async () => {
-    await geometryCaptureRef.current();
-    await writer.flush();
+    await flushWindowSessionBestEffort(
+      geometryCaptureRef.current,
+      () => writer.flush(),
+    );
   }, [writer]);
 }

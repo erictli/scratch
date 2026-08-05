@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   reconcileRemoteNote,
   resolveRemoteNoteId,
+  shouldBlockSaveForActiveConflict,
   type OpenNoteSyncState,
 } from "./noteSync";
 import type { Note } from "../types/note";
@@ -147,5 +148,33 @@ describe("resolveRemoteNoteId", () => {
         current_id: "Other",
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("shouldBlockSaveForActiveConflict", () => {
+  it("suppresses repeated backend saves for the conflicted active note", async () => {
+    const backendSave = vi.fn(async () => undefined);
+    const conflict: OpenNoteSyncState["conflict"] = {
+      kind: "deleted",
+      remote: null,
+    };
+
+    for (let autosave = 0; autosave < 5; autosave += 1) {
+      if (!shouldBlockSaveForActiveConflict("Plan", "Plan", conflict)) {
+        await backendSave();
+      }
+    }
+
+    expect(backendSave).not.toHaveBeenCalled();
+  });
+
+  it("allows saving after the conflict is cleared or another note is active", () => {
+    expect(shouldBlockSaveForActiveConflict("Plan", "Plan", null)).toBe(false);
+    expect(
+      shouldBlockSaveForActiveConflict("Plan", "Other", {
+        kind: "deleted",
+        remote: null,
+      }),
+    ).toBe(false);
   });
 });

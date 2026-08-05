@@ -1,3 +1,5 @@
+import type { Note } from "../types/note";
+
 export interface DraftCheckpointKey {
   windowLabel: string;
   noteId: string;
@@ -36,10 +38,13 @@ export interface DraftCheckpointScheduler {
 
 export interface DraftCheckpointSchedulerOptions {
   delayMs?: number;
+  maximumWaitMs?: number;
+  now?: () => number;
   onError?: (error: unknown) => void;
 }
 
 const DEFAULT_DELAY_MS = 1_000;
+const DEFAULT_MAXIMUM_WAIT_MS = 5_000;
 
 export function nextCheckpointCaptureDelay(
   elapsedMs: number,
@@ -57,10 +62,14 @@ export function createDraftCheckpointScheduler(
   options: DraftCheckpointSchedulerOptions = {},
 ): DraftCheckpointScheduler {
   const delayMs = options.delayMs ?? DEFAULT_DELAY_MS;
+  const maximumWaitMs = options.maximumWaitMs ?? DEFAULT_MAXIMUM_WAIT_MS;
+  const now = options.now ?? Date.now;
   const onError = options.onError ?? (() => {});
   let pending: DraftCheckpoint | undefined;
+  let firstDirtyAt: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let operationTail: Promise<void> = Promise.resolve();
+  let queuedWrites = 0;
   let disposed = false;
 
   const cancelTimer = () => {
@@ -83,28 +92,46 @@ export function createDraftCheckpointScheduler(
     const checkpoint = pending;
     if (!checkpoint) return operationTail;
     pending = undefined;
+    queuedWrites += 1;
 
     return enqueue(async () => {
       try {
         await storage.write(checkpoint);
+        if (!pending) firstDirtyAt = undefined;
       } catch (error) {
-        pending ??= checkpoint;
+        if (!pending) {
+          pending = checkpoint;
+          firstDirtyAt = now();
+        }
+        if (!disposed) schedule();
         throw error;
+      } finally {
+        queuedWrites -= 1;
       }
     });
   };
 
   const schedule = () => {
     cancelTimer();
+    if (!pending || disposed) return;
+    const elapsedMs = firstDirtyAt === undefined ? 0 : now() - firstDirtyAt;
+    const waitMs = nextCheckpointCaptureDelay(
+      elapsedMs,
+      delayMs,
+      maximumWaitMs,
+    );
     timer = setTimeout(() => {
       timer = undefined;
       void flush().catch(onError);
-    }, delayMs);
+    }, waitMs);
   };
 
   return {
     markDirty(checkpoint) {
       if (disposed) throw new Error("Draft checkpoint scheduler is disposed");
+      if (firstDirtyAt === undefined || (queuedWrites > 0 && !pending)) {
+        firstDirtyAt = now();
+      }
       pending = cloneCheckpoint(checkpoint);
       schedule();
     },
@@ -115,6 +142,7 @@ export function createDraftCheckpointScheduler(
       if (outcome === "conflict") return operationTail;
       if (pending && keysEqual(pending.key, keyToClear)) {
         pending = undefined;
+        firstDirtyAt = undefined;
         cancelTimer();
       }
       return enqueue(() => storage.clear(cloneKey(keyToClear)));
@@ -148,6 +176,21 @@ function keysEqual(left: DraftCheckpointKey, right: DraftCheckpointKey): boolean
   return left.windowLabel === right.windowLabel && left.noteId === right.noteId;
 }
 
+export async function resolveDraftRecoverySourcePath(
+  noteId: string,
+  currentNote: Note | null,
+  readNote: (id: string) => Promise<Note>,
+): Promise<string> {
+  if (currentNote?.id === noteId) return currentNote.path;
+
+  try {
+    const matchingNote = await readNote(noteId);
+    return matchingNote.id === noteId ? matchingNote.path : "";
+  } catch {
+    return "";
+  }
+}
+
 export function reconcileDraftCheckpoint(
   diskNote: Note,
   checkpoint: DraftCheckpoint,
@@ -173,4 +216,3 @@ export function reconcileDraftCheckpoint(
     shouldClear: false,
   };
 }
-import type { Note } from "../types/note";

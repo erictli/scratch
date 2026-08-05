@@ -1,7 +1,10 @@
 import {
-  MAX_TABLE_ROW_HEIGHT,
   MIN_TABLE_ROW_HEIGHT,
+  normalizeTableRowHeight as normalizeStoredTableRowHeight,
 } from "./tableExtensions";
+
+const ROW_RESIZE_PREVIEW_ATTRIBUTE = "data-scratch-row-resize-preview-id";
+let nextRowResizePreviewId = 0;
 
 export interface TableRowResizePreview {
   apply: (requestedHeight: number) => number;
@@ -9,30 +12,7 @@ export interface TableRowResizePreview {
 }
 
 function normalizeTableRowHeight(height: number): number {
-  return Math.round(
-    Math.min(
-      MAX_TABLE_ROW_HEIGHT,
-      Math.max(MIN_TABLE_ROW_HEIGHT, Number.isFinite(height) ? height : MIN_TABLE_ROW_HEIGHT),
-    ),
-  );
-}
-
-function getExactElementSelector(element: Element): string {
-  const segments: string[] = [];
-  let current: Element | null = element;
-
-  while (current) {
-    const parentElement: Element | null = current.parentElement;
-    const siblingIndex = parentElement
-      ? Array.prototype.indexOf.call(parentElement.children, current) + 1
-      : 1;
-    segments.unshift(
-      `${current.tagName.toLocaleLowerCase()}:nth-child(${siblingIndex})`,
-    );
-    current = parentElement;
-  }
-
-  return segments.join(" > ");
+  return normalizeStoredTableRowHeight(height) ?? MIN_TABLE_ROW_HEIGHT;
 }
 
 /**
@@ -42,28 +22,83 @@ function getExactElementSelector(element: Element): string {
  */
 export function createTableRowResizePreview(
   row: HTMLTableRowElement,
+  resolveCurrentRow: () => HTMLTableRowElement | null = () => row,
 ): TableRowResizePreview {
   const ownerDocument = row.ownerDocument;
+  const previewId = `scratch-row-${++nextRowResizePreviewId}`;
+  const selector = `[${ROW_RESIZE_PREVIEW_ATTRIBUTE}="${previewId}"]`;
+  let targetRow = row;
+  let previousPreviewId = row.getAttribute(ROW_RESIZE_PREVIEW_ATTRIBUTE);
+
+  const restoreTargetAttribute = () => {
+    if (previousPreviewId === null) {
+      targetRow.removeAttribute(ROW_RESIZE_PREVIEW_ATTRIBUTE);
+    } else {
+      targetRow.setAttribute(ROW_RESIZE_PREVIEW_ATTRIBUTE, previousPreviewId);
+    }
+  };
+  const synchronizeTargetRow = () => {
+    const currentRow = resolveCurrentRow();
+    if (!currentRow || currentRow === targetRow) return;
+    restoreTargetAttribute();
+    targetRow = currentRow;
+    previousPreviewId = targetRow.getAttribute(ROW_RESIZE_PREVIEW_ATTRIBUTE);
+    targetRow.setAttribute(ROW_RESIZE_PREVIEW_ATTRIBUTE, previewId);
+  };
+  targetRow.setAttribute(ROW_RESIZE_PREVIEW_ATTRIBUTE, previewId);
   const styleElement = ownerDocument.createElement("style");
   styleElement.setAttribute("data-scratch-table-row-resize-preview", "true");
-  styleElement.textContent = `${getExactElementSelector(row)} {}`;
+  styleElement.textContent = `${selector} {}`;
   ownerDocument.head.append(styleElement);
+  const ownerWindow = ownerDocument.defaultView;
+  let synchronizationFrame = 0;
+  let synchronizationFramesRemaining = 0;
+  const scheduleTargetSynchronization = () => {
+    if (!ownerWindow) return;
+    synchronizationFramesRemaining = Math.max(
+      synchronizationFramesRemaining,
+      3,
+    );
+    if (synchronizationFrame !== 0) return;
+    const synchronizeOnFrame = () => {
+      synchronizationFrame = 0;
+      synchronizeTargetRow();
+      synchronizationFramesRemaining -= 1;
+      if (synchronizationFramesRemaining > 0) {
+        synchronizationFrame = ownerWindow.requestAnimationFrame(
+          synchronizeOnFrame,
+        );
+      }
+    };
+    synchronizationFrame = ownerWindow.requestAnimationFrame(
+      synchronizeOnFrame,
+    );
+  };
+  scheduleTargetSynchronization();
 
   const rule = styleElement.sheet?.cssRules[0];
   const styleRule = rule instanceof CSSStyleRule ? rule : null;
 
   return {
     apply(requestedHeight) {
+      synchronizeTargetRow();
+      scheduleTargetSynchronization();
       const height = normalizeTableRowHeight(requestedHeight);
       if (styleRule) {
         styleRule.style.setProperty("height", `${height}px`, "important");
       } else {
-        styleElement.textContent = `${getExactElementSelector(row)} { height: ${height}px !important; }`;
+        styleElement.textContent = `${selector} { height: ${height}px !important; }`;
       }
       return height;
     },
     restore() {
+      if (ownerWindow && synchronizationFrame !== 0) {
+        ownerWindow.cancelAnimationFrame(synchronizationFrame);
+        synchronizationFrame = 0;
+      }
+      synchronizationFramesRemaining = 0;
       styleElement.remove();
+      restoreTargetAttribute();
     },
   };
 }

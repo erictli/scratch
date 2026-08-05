@@ -10,10 +10,6 @@
     "core:window:allow-set-focus",
     "core:webview:allow-print",
     "opener:default",
-    {
-      "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "$HOME/**" }]
-    },
     "opener:allow-open-url",
     "opener:allow-reveal-item-in-dir",
     "dialog:default",

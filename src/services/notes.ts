@@ -113,6 +113,9 @@ export async function duplicateNote(id: string): Promise<Note> {
     newNote.revision,
   );
   if (result.status === "conflict") {
+    await deleteNote(newNote.id).catch((cleanupError) => {
+      console.error("Failed to remove duplicate placeholder:", cleanupError);
+    });
     throw new Error("The duplicated note changed before its content was saved");
   }
   return result.note;

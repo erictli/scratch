@@ -6,6 +6,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   pasteTableTsv,
+  parseTsv,
   serializeTableCellSelectionToTsv,
   shouldRejectTablePaste,
 } from "./tableClipboard";
@@ -296,5 +297,19 @@ describe("table clipboard safety decision", () => {
     expect(editor.state.doc.firstChild?.child(1).child(1).textContent).toBe("Z");
     expect(editor.commands.undo()).toBe(true);
     expect(editor.state.doc.eq(beforePaste)).toBe(true);
+  });
+});
+
+describe("TSV quoting", () => {
+  it("keeps a quote in the middle of an unquoted cell as ordinary text", () => {
+    expect(parseTsv('he said "hi" today\tfoo')).toEqual([
+      ['he said "hi" today', "foo"],
+    ]);
+  });
+
+  it("parses doubled quotes inside a quoted cell", () => {
+    expect(parseTsv('"he said ""hi"""\tfoo')).toEqual([
+      ['he said "hi"', "foo"],
+    ]);
   });
 });

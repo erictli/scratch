@@ -7,7 +7,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScratchTableRow } from "./tableExtensions";
 import { ScratchTableMetadata } from "./tableMetadata";
-import { TableControls } from "./TableControls";
+import {
+  TableControls,
+  hasValidRowResizeGeometry,
+  layoutsEquivalent,
+  type TableLayout,
+} from "./TableControls";
 
 (globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -36,6 +41,59 @@ function createRect(
     toJSON: () => ({}),
   };
 }
+
+function layoutWith(
+  rows: DOMRect[],
+  columns: DOMRect[],
+  tableRect = createRect(100, 100, 500, 220),
+): TableLayout {
+  return {
+    tablePos: 0,
+    rowIndex: 0,
+    columnIndex: 0,
+    tableRect,
+    rowRects: rows,
+    columnRects: columns,
+    rowElements: rows.map(() => document.createElement("tr")),
+  };
+}
+
+describe("table control geometry guards", () => {
+  it("rejects a stale DOM layout with fewer measured rows than the document", () => {
+    const rows = [document.createElement("tr"), document.createElement("tr")];
+    const rects = [
+      createRect(100, 100, 500, 160),
+      createRect(100, 160, 500, 220),
+    ];
+
+    expect(hasValidRowResizeGeometry(rows, rects, 3, 2)).toBe(false);
+    expect(hasValidRowResizeGeometry(rows, rects, 3, 1)).toBe(true);
+  });
+
+  it("detects structural and geometric layout changes at the same table position", () => {
+    const base = layoutWith(
+      [createRect(100, 100, 500, 220)],
+      [createRect(100, 100, 300, 220), createRect(300, 100, 500, 220)],
+    );
+    const insertedColumn = layoutWith(
+      base.rowRects,
+      [
+        createRect(100, 100, 233, 220),
+        createRect(233, 100, 366, 220),
+        createRect(366, 100, 500, 220),
+      ],
+    );
+    const movedTable = layoutWith(
+      base.rowRects,
+      base.columnRects,
+      createRect(120, 100, 520, 220),
+    );
+
+    expect(layoutsEquivalent(base, base)).toBe(true);
+    expect(layoutsEquivalent(base, insertedColumn)).toBe(false);
+    expect(layoutsEquivalent(base, movedTable)).toBe(false);
+  });
+});
 
 async function flushLayout(): Promise<void> {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -211,6 +269,7 @@ describe("TableControls without postponed structural controls", () => {
   it("does not render postponed controls before pointer interaction", async () => {
     await renderFixture();
 
+    expect(document.querySelector(".notion-table-controls")).not.toBeNull();
     expect(document.querySelector(REMOVED_TABLE_CONTROL_SELECTOR)).toBeNull();
   });
 
@@ -224,6 +283,7 @@ describe("TableControls without postponed structural controls", () => {
       { left: 516, top: 160 },
     ]) {
       await movePointer(currentFixture, point.left, point.top);
+      expect(document.querySelector(".notion-table-controls")).not.toBeNull();
       expect(document.querySelector(".notion-table-row-handle")).toBeNull();
       expect(document.querySelector(".notion-table-column-handle")).toBeNull();
       expect(document.querySelector(".notion-table-add-control")).toBeNull();
@@ -553,8 +613,9 @@ describe("TableControls without postponed structural controls", () => {
     const previewRule = previewStyle?.sheet?.cssRules[0];
     expect(previewRule).toBeInstanceOf(CSSStyleRule);
     expect((previewRule as CSSStyleRule).style.height).toBe("80px");
-    expect(document.querySelector((previewRule as CSSStyleRule).selectorText))
-      .toBe(currentFixture.rows[0]);
+    expect((previewRule as CSSStyleRule).selectorText).toContain(
+      "data-scratch-row-resize-preview-id",
+    );
     expect(currentFixture.rows[0].style.height).toBe("");
     expect(currentFixture.rows[1].style.height).toBe("");
     expect(resizeHandle.style.top).toBe("172px");
