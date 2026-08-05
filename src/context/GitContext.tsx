@@ -13,6 +13,10 @@ import * as gitService from "../services/git";
 import * as notesService from "../services/notes";
 import type { GitStatus } from "../services/git";
 import { useNotesData } from "./NotesContext";
+import {
+  isGitSettingsEventForFolder,
+  type GitSettingsChangedEvent,
+} from "../lib/settingsEvents";
 
 interface GitContextValue {
   // State
@@ -69,6 +73,32 @@ export function GitProvider({ children }: { children: ReactNode }) {
   notesFolderRef.current = notesFolder;
   const gitEnabledRef = useRef(gitEnabled);
   gitEnabledRef.current = gitEnabled;
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen<GitSettingsChangedEvent>("settings-changed", (event) => {
+      if (
+        disposed ||
+        !isGitSettingsEventForFolder(event.payload, notesFolderRef.current)
+      ) {
+        return;
+      }
+      settingsReadRequestIdRef.current += 1;
+      if (typeof event.payload.gitEnabled === "boolean") {
+        setGitEnabledState(event.payload.gitEnabled);
+      }
+    }).then((removeListener) => {
+      if (disposed) removeListener();
+      else unlisten = removeListener;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     if (!notesFolder || !gitEnabled) return;

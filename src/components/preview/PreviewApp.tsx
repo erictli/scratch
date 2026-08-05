@@ -2,48 +2,189 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
-import { Editor, type PreviewModeData } from "../editor/Editor";
+import {
+  Editor,
+  type EditorPersistenceController,
+  type PreviewModeData,
+} from "../editor/Editor";
 import * as filesService from "../../services/files";
+import * as notesService from "../../services/notes";
+import * as draftCheckpointService from "../../services/draftCheckpoint";
+import { createSerializedTaskQueue } from "../../lib/serializedWriter";
+import {
+  beginSafeWindowClose,
+  resolveCloseListenerRegistration,
+  runSafeWindowClose,
+} from "../../lib/windowClose";
+import { recordPendingRecoveryNotice } from "../../lib/recoveryNotice";
+import {
+  createLatestRequestGuard,
+  flushDirtyDraftBeforeReload,
+  standaloneRecoveryBaseRevision,
+} from "../../lib/standaloneReload";
+import { recreateDeletedStandaloneDraft } from "../../lib/standaloneRecreation";
+import {
+  runConflictResolution,
+  type ConflictResolutionStrategy,
+} from "../../lib/conflictResolution";
+import {
+  closeWindowAfterSave,
+  openPreferencesWindow,
+} from "../../services/windowLifecycle";
+import { useWindowShortcuts } from "../../lib/useWindowShortcuts";
 
 interface PreviewAppProps {
   filePath: string;
 }
-
 export function PreviewApp({ filePath }: PreviewAppProps) {
+  useWindowShortcuts({ onOpenPreferences: openPreferencesWindow });
   const [content, setContent] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [modified, setModified] = useState(0);
+  const [revision, setRevision] = useState("");
   const [hasExternalChanges, setHasExternalChanges] = useState(false);
+  const [hasSaveConflict, setHasSaveConflict] = useState(false);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [focusMode, setFocusMode] = useState(false);
-  const recentlySavedRef = useRef(false);
+  const revisionRef = useRef("");
+  const saveQueueRef = useRef(createSerializedTaskQueue());
+  const persistenceControllerRef = useRef<EditorPersistenceController | null>(
+    null,
+  );
+  const closeInProgressRef = useRef(false);
+  const fileLoadGuardRef = useRef(createLatestRequestGuard());
+
+  const registerPersistenceController = useCallback(
+    (controller: EditorPersistenceController) => {
+      persistenceControllerRef.current = controller;
+      return () => {
+        if (persistenceControllerRef.current === controller) {
+          persistenceControllerRef.current = null;
+        }
+      };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const appWindow = getCurrentWindow();
+
+    void resolveCloseListenerRegistration(
+      appWindow.onCloseRequested((event) => {
+        if (!beginSafeWindowClose(event, closeInProgressRef)) return;
+
+        void runSafeWindowClose({
+          flushDraft: () =>
+            persistenceControllerRef.current?.flush() ?? Promise.resolve(),
+          persistRecovery: async () => {
+            const draft = persistenceControllerRef.current?.getDraft();
+            if (!draft?.dirty) return { status: "not-needed" } as const;
+            const path = await notesService.persistRecoverySnapshot({
+              noteId: filePath,
+              sourcePath: filePath,
+              content: draft.content,
+              reason: "standalone-window-close",
+            });
+            return { status: "recovered", path } as const;
+          },
+          beforeClose: async ({ recoveredTo, saveError }) => {
+            if (recoveredTo && saveError) {
+              recordPendingRecoveryNotice(recoveredTo, saveError);
+            }
+          },
+          closeWindow: closeWindowAfterSave,
+        }).catch((error) => {
+          closeInProgressRef.current = false;
+          if (!disposed) {
+            toast.error(
+              `Window kept open because the draft could not be saved: ${error}`,
+            );
+          }
+        });
+      }),
+      (error) => {
+        if (!disposed) {
+          toast.error(`Safe window-close protection could not start: ${error}`);
+        }
+      },
+    ).then((removeListener) => {
+      if (disposed) removeListener();
+      else unlisten = removeListener;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [filePath]);
 
   // Load file on mount
   useEffect(() => {
+    let cancelled = false;
+    const isLatest = fileLoadGuardRef.current.begin();
+    const isStale = () => cancelled || !isLatest();
     filesService
       .readFileDirect(filePath)
-      .then((result) => {
-        setContent(result.content);
+      .then(async (result) => {
+        if (isStale()) return;
+        const checkpoint = await draftCheckpointService
+          .getDraftCheckpoint(filePath)
+          .catch(() => null);
+        if (isStale()) return;
+        const recovered =
+          checkpoint && checkpoint.markdown !== result.content
+            ? checkpoint.markdown
+            : result.content;
+        if (isStale()) return;
+        setContent(recovered);
+        if (isStale()) return;
         setTitle(result.title);
+        if (isStale()) return;
         setModified(result.modified);
+        const recoveryRevision = standaloneRecoveryBaseRevision(
+          result.revision,
+          result.content,
+          checkpoint,
+        );
+        revisionRef.current = recoveryRevision;
+        if (isStale()) return;
+        setRevision(recoveryRevision);
+        if (checkpoint && checkpoint.markdown === result.content) {
+          await draftCheckpointService
+            .clearDraftCheckpoint(checkpoint.key)
+            .catch(() => undefined);
+        } else if (checkpoint) {
+          if (isStale()) return;
+          setHasExternalChanges(true);
+          if (isStale()) return;
+          setHasSaveConflict(true);
+          if (isStale()) return;
+          toast.warning("Recovered an unsaved draft from an interrupted session");
+        }
       })
       .catch((error) => {
+        if (isStale()) return;
         console.error("Failed to load file:", error);
         toast.error(`Failed to load file: ${error}`);
       });
+    return () => {
+      cancelled = true;
+      fileLoadGuardRef.current.invalidate();
+    };
   }, [filePath]);
 
   // Listen for window focus to detect external changes
   useEffect(() => {
     const handleFocus = async () => {
-      if (recentlySavedRef.current) {
-        recentlySavedRef.current = false;
-        return;
-      }
       try {
         const result = await filesService.readFileDirect(filePath);
-        if (result.modified !== modified && content !== null) {
+        if (result.revision !== revisionRef.current && content !== null) {
           setHasExternalChanges(true);
+          if (persistenceControllerRef.current?.getDraft().dirty) {
+            setHasSaveConflict(true);
+          }
         }
       } catch {
         // File may have been deleted
@@ -55,39 +196,137 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   }, [filePath, modified, content]);
 
   const save = useCallback(
-    async (newContent: string) => {
-      try {
-        const result = await filesService.saveFileDirect(filePath, newContent);
-        recentlySavedRef.current = true;
-        setModified(result.modified);
-        setTitle(result.title);
-        setHasExternalChanges(false);
-      } catch (error) {
-        console.error("Failed to save file:", error);
-        toast.error(`Failed to save: ${error}`);
-      }
-    },
+    (newContent: string) =>
+      saveQueueRef.current(async () => {
+        try {
+          if (!revisionRef.current) {
+            throw new Error("Missing base revision for standalone note");
+          }
+          const result = await filesService.saveFileDirect(
+            filePath,
+            newContent,
+            revisionRef.current,
+          );
+          if (result.status === "conflict") {
+            setHasExternalChanges(true);
+            setHasSaveConflict(true);
+            throw new Error("Save conflict: local draft was preserved");
+          }
+          revisionRef.current = result.file.revision;
+          setRevision(result.file.revision);
+          setModified(result.file.modified);
+          setTitle(result.file.title);
+          setHasExternalChanges(false);
+          setHasSaveConflict(false);
+        } catch (error) {
+          console.error("Failed to save file:", error);
+          toast.error(`Failed to save: ${error}`);
+          throw error;
+        }
+      }),
     [filePath],
   );
 
   const reload = useCallback(async () => {
+    const isLatest = fileLoadGuardRef.current.begin();
     try {
+      await flushDirtyDraftBeforeReload(persistenceControllerRef.current);
+      if (!isLatest()) return;
       const result = await filesService.readFileDirect(filePath);
+      if (!isLatest()) return;
       setContent(result.content);
       setTitle(result.title);
       setModified(result.modified);
+      revisionRef.current = result.revision;
+      setRevision(result.revision);
       setHasExternalChanges(false);
+      setHasSaveConflict(false);
       setReloadVersion((v) => v + 1);
     } catch (error) {
+      if (!isLatest()) return;
       console.error("Failed to reload file:", error);
       toast.error(`Failed to reload: ${error}`);
     }
   }, [filePath]);
 
+  const resolveConflict = useCallback(
+    async (strategy: ConflictResolutionStrategy) => {
+      const draft = persistenceControllerRef.current?.getDraft();
+      if (!draft) throw new Error("No open draft to resolve");
+
+      let remote: filesService.FileContent | null = null;
+      try {
+        remote = await filesService.readFileDirect(filePath);
+      } catch {
+        remote = null;
+      }
+
+      const applyFile = (file: filesService.FileContent) => {
+        setContent(file.content);
+        setTitle(file.title);
+        setModified(file.modified);
+        revisionRef.current = file.revision;
+        setRevision(file.revision);
+        setHasExternalChanges(false);
+        setHasSaveConflict(false);
+        setReloadVersion((version) => version + 1);
+      };
+
+      await runConflictResolution(
+        strategy,
+        { draft, remote },
+        {
+          persistRecovery: () =>
+            notesService.persistRecoverySnapshot({
+              noteId: filePath,
+              sourcePath: filePath,
+              content: draft.content,
+              reason: `standalone-conflict-${strategy}`,
+            }),
+          overwriteRemote: async (localDraft, current) => {
+            const result = await filesService.saveFileDirect(
+              filePath,
+              localDraft.content,
+              current.revision,
+            );
+            if (result.status === "conflict") {
+              throw new Error("The disk version changed again; conflict preserved");
+            }
+            applyFile(result.file);
+          },
+          recreateDeleted: async (localDraft) => {
+            const recreated = await recreateDeletedStandaloneDraft(
+              filePath,
+              localDraft.content,
+              filesService.recreateFileDirect,
+            );
+            applyFile(recreated);
+          },
+          acceptRemote: async (current) => {
+            if (!current) {
+              throw new Error(
+                "Source file was deleted; local changes are safe in recovery storage",
+              );
+            }
+            applyFile(current);
+          },
+        },
+      );
+      await draftCheckpointService.clearDraftCheckpoint({
+        windowLabel: "",
+        noteId: filePath,
+      });
+    },
+    [filePath],
+  );
+
   // Listen for preview-file-change events
   useEffect(() => {
     const unlisten = listen<string>("preview-file-change", () => {
       setHasExternalChanges(true);
+      if (persistenceControllerRef.current?.getDraft().dirty) {
+        setHasSaveConflict(true);
+      }
     });
     return () => {
       unlisten.then((fn) => fn());
@@ -179,10 +418,14 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     title,
     filePath,
     modified,
+    revision,
     hasExternalChanges,
+    hasSaveConflict,
     reloadVersion,
     save,
     reload,
+    resolveConflict,
+    registerPersistenceController,
   };
 
   return (

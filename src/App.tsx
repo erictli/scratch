@@ -8,7 +8,10 @@ import { TooltipProvider, Toaster } from "./components/ui";
 import { Sidebar } from "./components/layout/Sidebar";
 import { SidebarResizeHandle } from "./components/layout/SidebarResizeHandle";
 import { SIDEBAR_DEFAULT_PX } from "./lib/sidebar";
-import { Editor } from "./components/editor/Editor";
+import {
+  Editor,
+  type EditorPersistenceController,
+} from "./components/editor/Editor";
 import type { Editor as TiptapEditor } from "@tiptap/react";
 import { FolderPicker } from "./components/layout/FolderPicker";
 import { CommandPalette } from "./components/command-palette/CommandPalette";
@@ -30,22 +33,21 @@ import {
 } from "@tauri-apps/plugin-updater";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as aiService from "./services/ai";
+import * as notesService from "./services/notes";
 import type { AiProvider } from "./services/ai";
 import { isMac, isWindows } from "./lib/platform";
-
-// Detect preview mode from URL search params
-function getWindowMode(): {
-  isPreview: boolean;
-  previewFile: string | null;
-} {
-  const params = new URLSearchParams(window.location.search);
-  const mode = params.get("mode");
-  const file = params.get("file");
-  return {
-    isPreview: mode === "preview" && !!file,
-    previewFile: file,
-  };
-}
+import { closeWindowAfterSave, requestCurrentWindowClose } from "./services/windowLifecycle";
+import { useWindowShortcuts } from "./lib/useWindowShortcuts";
+import {
+  beginSafeWindowClose,
+  resolveCloseListenerRegistration,
+  runSafeWindowClose,
+} from "./lib/windowClose";
+import {
+  consumePendingRecoveryNotices,
+  recordPendingRecoveryNotice,
+} from "./lib/recoveryNotice";
+import { getWindowMode } from "./lib/windowMode";
 
 type ViewState = "notes" | "settings";
 
@@ -64,9 +66,7 @@ function AppContent() {
     currentNote,
     syncNotesFolder,
   } = useNotes();
-  const { interfaceZoom, setInterfaceZoom, reloadSettings } = useTheme();
-  const interfaceZoomRef = useRef(interfaceZoom);
-  interfaceZoomRef.current = interfaceZoom;
+  const { reloadSettings } = useTheme();
   const currentNoteRef = useRef(currentNote);
   currentNoteRef.current = currentNote;
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -78,6 +78,82 @@ function AppContent() {
   const [focusMode, setFocusMode] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const editorRef = useRef<TiptapEditor | null>(null);
+  const persistenceControllerRef = useRef<EditorPersistenceController | null>(
+    null,
+  );
+  const closeInProgressRef = useRef(false);
+
+  useEffect(() => {
+    for (const notice of consumePendingRecoveryNotices()) {
+      toast.warning(
+        `A draft that could not be saved was recovered to ${notice.recoveredTo}`,
+      );
+    }
+  }, []);
+
+  const handlePersistenceControllerReady = useCallback(
+    (controller: EditorPersistenceController | null) => {
+      persistenceControllerRef.current = controller;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const appWindow = getCurrentWindow();
+
+    void resolveCloseListenerRegistration(
+      appWindow.onCloseRequested((event) => {
+        if (!beginSafeWindowClose(event, closeInProgressRef)) return;
+
+        void runSafeWindowClose({
+          flushDraft: () =>
+            persistenceControllerRef.current?.flush() ?? Promise.resolve(),
+          persistRecovery: async () => {
+            const draft = persistenceControllerRef.current?.getDraft();
+            const note = currentNoteRef.current;
+            if (!draft?.dirty || !draft.noteId || !note) {
+              return { status: "not-needed" } as const;
+            }
+            const path = await notesService.persistRecoverySnapshot({
+              noteId: draft.noteId,
+              sourcePath: note.path,
+              content: draft.content,
+              reason: "window-close",
+            });
+            return { status: "recovered", path } as const;
+          },
+          beforeClose: async ({ recoveredTo, saveError }) => {
+            if (recoveredTo && saveError) {
+              recordPendingRecoveryNotice(recoveredTo, saveError);
+            }
+          },
+          closeWindow: closeWindowAfterSave,
+        }).catch((error) => {
+          closeInProgressRef.current = false;
+          if (!disposed) {
+            toast.error(
+              `Window kept open because the draft could not be saved: ${error}`,
+            );
+          }
+        });
+      }),
+      (error) => {
+        if (!disposed) {
+          toast.error(`Safe window-close protection could not start: ${error}`);
+        }
+      },
+    ).then((removeListener) => {
+      if (disposed) removeListener();
+      else unlisten = removeListener;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Listen for set-notes-folder event from CLI (scratch .)
   // Placed here in AppContent where both NotesContext and ThemeContext are available
@@ -113,13 +189,36 @@ function AppContent() {
     });
   }, [selectedNoteId]);
 
-  const toggleSettings = useCallback(() => {
-    setView((prev) => (prev === "settings" ? "notes" : "settings"));
-  }, []);
+  const openSettings = useCallback(async () => {
+    if (view === "settings") return;
+    try {
+      await persistenceControllerRef.current?.flush();
+    } catch (error) {
+      toast.error(`Settings not opened: ${error}`);
+      return;
+    }
+    setView("settings");
+  }, [view]);
+
+  const toggleSettings = useCallback(async () => {
+    if (view === "settings") {
+      setView("notes");
+      return;
+    }
+    try {
+      await persistenceControllerRef.current?.flush();
+    } catch (error) {
+      toast.error(`Settings not opened: ${error}`);
+      return;
+    }
+    setView("settings");
+  }, [view]);
 
   const closeSettings = useCallback(() => {
     setView("notes");
   }, []);
+
+  useWindowShortcuts({ onOpenPreferences: openSettings });
 
   // Go back to command palette from AI modal
   const handleBackToPalette = useCallback(() => {
@@ -205,39 +304,6 @@ function AppContent() {
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
       const isEditorEmpty =
         isInEditor && currentNoteRef.current?.content.trim() === "";
-
-      // Cmd+, - Toggle settings (always works, even in settings)
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault();
-        toggleSettings();
-        return;
-      }
-
-      // Cmd+= or Cmd++ - Zoom in (works everywhere, including settings)
-      if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {
-        e.preventDefault();
-        setInterfaceZoom((prev) => prev + 0.05);
-        const newZoom = Math.round(Math.min(interfaceZoomRef.current + 0.05, 1.5) * 20) / 20;
-        toast(`Zoom ${Math.round(newZoom * 100)}%`, { id: "zoom", duration: 1500 });
-        return;
-      }
-
-      // Cmd+- - Zoom out (works everywhere, including settings)
-      if ((e.metaKey || e.ctrlKey) && (e.key === "-" || e.key === "_")) {
-        e.preventDefault();
-        setInterfaceZoom((prev) => prev - 0.05);
-        const newZoom = Math.round(Math.max(interfaceZoomRef.current - 0.05, 0.7) * 20) / 20;
-        toast(`Zoom ${Math.round(newZoom * 100)}%`, { id: "zoom", duration: 1500 });
-        return;
-      }
-
-      // Cmd+0 - Reset zoom (works everywhere, including settings)
-      if ((e.metaKey || e.ctrlKey) && e.key === "0") {
-        e.preventDefault();
-        setInterfaceZoom(1.0);
-        toast("Zoom 100%", { id: "zoom", duration: 1500 });
-        return;
-      }
 
       // Block all other shortcuts when in settings view
       if (view === "settings") {
@@ -443,7 +509,6 @@ function AppContent() {
     toggleFocusMode,
     focusMode,
     view,
-    setInterfaceZoom,
   ]);
 
   const handleClosePalette = useCallback(() => {
@@ -481,13 +546,16 @@ function AppContent() {
               <Sidebar onOpenSettings={toggleSettings} />
               {sidebarVisible && !focusMode && <SidebarResizeHandle />}
             </div>
-            <Editor
+             <Editor
               onToggleSidebar={toggleSidebar}
               sidebarVisible={sidebarVisible}
               focusMode={focusMode}
-              onEditorReady={(editor) => {
-                editorRef.current = editor;
-              }}
+               onEditorReady={(editor) => {
+                 editorRef.current = editor;
+               }}
+               onPersistenceControllerReady={
+                 handlePersistenceControllerReady
+               }
             />
           </>
         )}
@@ -635,15 +703,31 @@ function UpdateToast({
   );
 }
 
+function PreferencesApp() {
+  const keepPreferencesOpen = useCallback(() => {}, []);
+  useWindowShortcuts({ onOpenPreferences: keepPreferencesOpen });
+
+  return (
+    <NotesProvider>
+      <GitProvider>
+        <SettingsPage />
+      </GitProvider>
+    </NotesProvider>
+  );
+}
+
 function App() {
-  const { isPreview, previewFile } = useMemo(getWindowMode, []);
+  const { isPreview, isPreferences, previewFile } = useMemo(
+    () => getWindowMode(window.location.search),
+    [],
+  );
 
   // Cmd/Ctrl+W — close window (works in both preview and folder mode)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
         e.preventDefault();
-        getCurrentWindow().close().catch(console.error);
+        void requestCurrentWindowClose().catch(console.error);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -658,10 +742,21 @@ function App() {
 
   // Check for app updates on startup (folder mode only)
   useEffect(() => {
-    if (isPreview) return;
+    if (isPreview || isPreferences) return;
     const timer = setTimeout(() => showUpdateToast(), 3000);
     return () => clearTimeout(timer);
-  }, [isPreview]);
+  }, [isPreferences, isPreview]);
+
+  if (isPreferences) {
+    return (
+      <ThemeProvider>
+        <Toaster />
+        <TooltipProvider>
+          <PreferencesApp />
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+  }
 
   // Preview mode: lightweight editor without sidebar, search, git
   if (isPreview && previewFile) {
@@ -669,7 +764,7 @@ function App() {
       <ThemeProvider>
         <Toaster />
         <TooltipProvider>
-          <PreviewApp filePath={decodeURIComponent(previewFile)} />
+          <PreviewApp filePath={previewFile} />
         </TooltipProvider>
       </ThemeProvider>
     );

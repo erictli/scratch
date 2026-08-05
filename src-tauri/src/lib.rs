@@ -4,6 +4,7 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tantivy::collector::TopDocs;
@@ -11,12 +12,17 @@ use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
-use tauri::webview::WebviewWindowBuilder;
+use tauri::webview::{WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
+mod draft_checkpoint;
 mod git;
+mod persistence;
+mod sha256;
+
+static RECOVERY_SNAPSHOT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 // Note metadata for list display
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +48,13 @@ pub struct Note {
     pub content: String,
     pub path: String,
     pub modified: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteConflictSnapshot {
+    pub content: String,
+    pub revision: String,
 }
 
 // Theme color customization
@@ -122,6 +135,14 @@ pub struct Settings {
     pub interface_zoom: Option<f32>,
     #[serde(rename = "customEditorWidthPx")]
     pub custom_editor_width_px: Option<u32>,
+    #[serde(rename = "editorWidthResizeEnabled")]
+    pub editor_width_resize_enabled: Option<bool>,
+    #[serde(rename = "editorToolbarVisible")]
+    pub editor_toolbar_visible: Option<bool>,
+    #[serde(rename = "titleBarModifiedDateVisible")]
+    pub title_bar_modified_date_visible: Option<bool>,
+    #[serde(rename = "titleBarFilenameVisible")]
+    pub title_bar_filename_visible: Option<bool>,
     /// Custom sidebar width in px; `None` means the default width is used.
     #[serde(rename = "sidebarWidthPx")]
     pub sidebar_width_px: Option<u32>,
@@ -129,6 +150,8 @@ pub struct Settings {
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
+    #[serde(rename = "sidebarSortOrder")]
+    pub sidebar_sort_order: Option<String>,
     #[serde(rename = "ignoredPatterns")]
     pub ignored_patterns: Option<Vec<String>>,
     #[serde(rename = "customColorsLight")]
@@ -736,16 +759,24 @@ fn get_search_index_path(app: &AppHandle) -> Result<PathBuf> {
 fn load_app_config(app: &AppHandle) -> AppConfig {
     let path = match get_app_config_path(app) {
         Ok(p) => p,
-        Err(_) => return AppConfig::default(),
+        Err(error) => {
+            eprintln!("app config path resolution failed: {error}");
+            return AppConfig::default();
+        }
     };
 
-    if path.exists() {
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|content| serde_json::from_str(&content).ok())
-            .unwrap_or_default()
-    } else {
-        AppConfig::default()
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("app config deserialization failed: {error}");
+                AppConfig::default()
+            }
+        },
+        Err(error) => {
+            eprintln!("app config read failed: {error}");
+            AppConfig::default()
+        }
     }
 }
 
@@ -761,13 +792,21 @@ fn save_app_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
 fn load_settings(notes_folder: &str) -> Settings {
     let path = get_settings_path(notes_folder);
 
-    if path.exists() {
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|content| serde_json::from_str(&content).ok())
-            .unwrap_or_default()
-    } else {
-        Settings::default()
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(settings) => settings,
+            Err(error) => {
+                eprintln!(
+                    "settings deserialization failed for {}: {error}",
+                    path.display()
+                );
+                Settings::default()
+            }
+        },
+        Err(error) => {
+            eprintln!("settings read failed for {}: {error}", path.display());
+            Settings::default()
+        }
     }
 }
 
@@ -1767,15 +1806,31 @@ fn update_settings(
     Ok(())
 }
 
+fn persist_git_enabled(
+    notes_folder: &str,
+    settings: &mut Settings,
+    enabled: Option<bool>,
+) -> Result<(), String> {
+    let mut updated = settings.clone();
+    updated.git_enabled = enabled;
+    save_settings(notes_folder, &updated).map_err(|error| error.to_string())?;
+    *settings = updated;
+    Ok(())
+}
+
 #[tauri::command]
 fn update_git_enabled(
     enabled: Option<bool>,
     expected_folder: String,
+    app: AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
-        let folder = app_config.notes_folder.clone().ok_or("Notes folder not set")?;
+        let folder = app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?;
 
         if folder != expected_folder {
             return Err("Notes folder changed".to_string());
@@ -1784,13 +1839,19 @@ fn update_git_enabled(
         folder
     };
 
-    {
-        let mut settings = state.settings.write().expect("settings write lock");
-        settings.git_enabled = enabled;
-    }
+    let mut settings = state.settings.write().expect("settings write lock");
+    persist_git_enabled(&folder, &mut settings, enabled)?;
+    drop(settings);
 
-    let settings = state.settings.read().expect("settings read lock");
-    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
+    if let Err(error) = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "notesFolder": folder,
+            "gitEnabled": enabled,
+        }),
+    ) {
+        eprintln!("Failed to broadcast settings change: {error}");
+    }
 
     Ok(())
 }
@@ -1818,12 +1879,84 @@ fn preview_note_name(template: String) -> Result<String, String> {
 }
 
 // Preview mode: file content returned by read_file_direct / save_file_direct
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileContent {
     pub path: String,
     pub content: String,
     pub title: String,
     pub modified: i64,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum FileSaveResult {
+    Saved {
+        file: FileContent,
+    },
+    Conflict {
+        current: Option<NoteConflictSnapshot>,
+    },
+}
+
+fn note_conflict_snapshot(
+    snapshot: Option<persistence::FileSnapshot>,
+) -> Option<NoteConflictSnapshot> {
+    snapshot.map(|snapshot| NoteConflictSnapshot {
+        content: snapshot.content,
+        revision: snapshot.revision.to_string(),
+    })
+}
+
+fn read_file_content_from_path(path: &Path) -> Result<FileContent, String> {
+    let snapshot = persistence::read_snapshot(path)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "File not found".to_string())?;
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+
+    Ok(FileContent {
+        path: path.to_string_lossy().into_owned(),
+        title: extract_title(&snapshot.content),
+        content: snapshot.content,
+        modified,
+        revision: snapshot.revision.to_string(),
+    })
+}
+
+fn save_file_content_to_path(
+    path: &Path,
+    content: String,
+    expected_revision: String,
+) -> Result<FileSaveResult, String> {
+    let expected = persistence::ContentRevision::from_hex(&expected_revision)?;
+
+    match persistence::save_if_revision(path, &content, Some(&expected))
+        .map_err(|error| error.to_string())?
+    {
+        persistence::SaveResult::Saved { .. } => Ok(FileSaveResult::Saved {
+            file: read_file_content_from_path(path)?,
+        }),
+        persistence::SaveResult::Conflict { current } => Ok(FileSaveResult::Conflict {
+            current: note_conflict_snapshot(current),
+        }),
+    }
+}
+
+fn recreate_file_content_to_path(path: &Path, content: String) -> Result<FileSaveResult, String> {
+    match persistence::save_if_revision(path, &content, None).map_err(|error| error.to_string())? {
+        persistence::SaveResult::Saved { .. } => Ok(FileSaveResult::Saved {
+            file: read_file_content_from_path(path)?,
+        }),
+        persistence::SaveResult::Conflict { current } => Ok(FileSaveResult::Conflict {
+            current: note_conflict_snapshot(current),
+        }),
+    }
 }
 
 /// Validate a file path for preview mode direct file operations.
@@ -1841,8 +1974,53 @@ fn validate_preview_path(path: &str) -> Result<PathBuf, String> {
     let canonical = file_path
         .canonicalize()
         .map_err(|e| format!("Cannot resolve file path: {}", e))?;
+    if !is_markdown_extension(&canonical) {
+        return Err("Resolved file must be Markdown".to_string());
+    }
 
     Ok(canonical)
+}
+
+/// Validate a missing direct-file target through its existing canonical parent.
+/// The final component remains unresolved so create-only persistence can detect
+/// a concurrent recreation without ever replacing it.
+fn validate_preview_create_path(path: &str) -> Result<PathBuf, String> {
+    let file_path = PathBuf::from(path);
+    if !file_path.is_absolute() {
+        return Err("Standalone recreation requires an absolute path".to_string());
+    }
+    if file_path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir | std::path::Component::CurDir
+        )
+    }) {
+        return Err("Path traversal is not allowed".to_string());
+    }
+    match file_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        Some(extension)
+            if extension.eq_ignore_ascii_case("md")
+                || extension.eq_ignore_ascii_case("markdown") => {}
+        _ => return Err("Only .md and .markdown files are allowed".to_string()),
+    }
+
+    let file_name = file_path
+        .file_name()
+        .ok_or_else(|| "Standalone recreation target has no file name".to_string())?;
+    let parent = file_path
+        .parent()
+        .ok_or_else(|| "Standalone recreation target has no parent".to_string())?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|error| format!("Cannot resolve parent directory: {error}"))?;
+    if !canonical_parent.is_dir() {
+        return Err(format!("Not a directory: {}", parent.display()));
+    }
+
+    Ok(canonical_parent.join(file_name))
 }
 
 #[tauri::command]
@@ -1853,32 +2031,17 @@ async fn read_file_direct(path: String) -> Result<FileContent, String> {
         return Err(format!("Not a file: {}", path));
     }
 
-    let content = fs::read_to_string(&canonical)
+    tauri::async_runtime::spawn_blocking(move || read_file_content_from_path(&canonical))
         .await
-        .map_err(|_| "Failed to read file".to_string())?;
-    let metadata = fs::metadata(&canonical)
-        .await
-        .map_err(|_| "Failed to read metadata".to_string())?;
-
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-
-    let title = extract_title(&content);
-
-    Ok(FileContent {
-        path,
-        content,
-        title,
-        modified,
-    })
+        .map_err(|error| format!("Direct file read task failed: {error}"))?
 }
 
 #[tauri::command]
-async fn save_file_direct(path: String, content: String) -> Result<FileContent, String> {
+async fn save_file_direct(
+    path: String,
+    content: String,
+    expected_revision: String,
+) -> Result<FileSaveResult, String> {
     // For save, the file must already exist (we validate extension + path security)
     let canonical = validate_preview_path(&path)?;
 
@@ -1886,28 +2049,186 @@ async fn save_file_direct(path: String, content: String) -> Result<FileContent, 
         return Err(format!("Not a file: {}", path));
     }
 
-    fs::write(&canonical, &content)
-        .await
-        .map_err(|_| "Failed to write file".to_string())?;
-
-    let metadata = fs::metadata(&canonical)
-        .await
-        .map_err(|_| "Failed to read metadata".to_string())?;
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-
-    let title = extract_title(&content);
-
-    Ok(FileContent {
-        path,
-        content,
-        title,
-        modified,
+    tauri::async_runtime::spawn_blocking(move || {
+        save_file_content_to_path(&canonical, content, expected_revision)
     })
+    .await
+    .map_err(|error| format!("Direct file save task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn recreate_file_direct(path: String, content: String) -> Result<FileSaveResult, String> {
+    let create_path = validate_preview_create_path(&path)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        recreate_file_content_to_path(&create_path, content)
+    })
+    .await
+    .map_err(|error| format!("Direct file recreation task failed: {error}"))?
+}
+
+fn write_recovery_snapshot(
+    recovery_root: &Path,
+    note_id: &str,
+    source_path: &str,
+    content: &str,
+    reason: &str,
+) -> Result<PathBuf, String> {
+    let recovery_directory = recovery_root.join("recovery");
+    std::fs::create_dir_all(&recovery_directory).map_err(|error| error.to_string())?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let sequence = RECOVERY_SNAPSHOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let safe_note_id = sanitize_filename(&note_id.replace('/', "-"));
+    let safe_reason = sanitize_filename(reason);
+    let stem = format!("{timestamp}-{sequence}-{safe_reason}-{safe_note_id}");
+    let recovery_path = recovery_directory.join(format!("{stem}.md"));
+
+    match persistence::save_if_revision(&recovery_path, content, None)
+        .map_err(|error| error.to_string())?
+    {
+        persistence::SaveResult::Saved { .. } => {}
+        persistence::SaveResult::Conflict { .. } => {
+            return Err("Recovery snapshot path unexpectedly already exists".to_string());
+        }
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RecoveryMetadata<'a> {
+        note_id: &'a str,
+        source_path: &'a str,
+        reason: &'a str,
+        created_at_ms: u128,
+    }
+
+    let metadata = RecoveryMetadata {
+        note_id,
+        source_path,
+        reason,
+        created_at_ms: timestamp,
+    };
+    if let Ok(metadata_content) = serde_json::to_string_pretty(&metadata) {
+        let metadata_path = recovery_directory.join(format!("{stem}.json"));
+        let _ = persistence::save_if_revision(&metadata_path, &metadata_content, None);
+    }
+
+    Ok(recovery_path)
+}
+
+#[tauri::command]
+async fn persist_recovery_snapshot(
+    app: AppHandle,
+    note_id: String,
+    source_path: String,
+    content: String,
+    reason: String,
+) -> Result<String, String> {
+    let recovery_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        write_recovery_snapshot(&recovery_root, &note_id, &source_path, &content, &reason)
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|error| format!("Recovery snapshot task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn write_draft_checkpoint(
+    app: AppHandle,
+    window: WebviewWindow,
+    note_id: String,
+    markdown: String,
+    metadata: draft_checkpoint::DraftCheckpointMetadata,
+) -> Result<(), String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let checkpoint = draft_checkpoint::DraftCheckpoint {
+        key: draft_checkpoint::DraftCheckpointKey {
+            window_label: window.label().to_string(),
+            note_id,
+        },
+        markdown,
+        metadata,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        draft_checkpoint::write_checkpoint(app_data, &checkpoint).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Draft checkpoint task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn get_draft_checkpoint(
+    app: AppHandle,
+    window: WebviewWindow,
+    note_id: String,
+) -> Result<Option<draft_checkpoint::DraftCheckpoint>, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let key = draft_checkpoint::DraftCheckpointKey {
+        window_label: window.label().to_string(),
+        note_id,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        draft_checkpoint::read_checkpoint(app_data, &key).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Draft checkpoint read task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn clear_draft_checkpoint(
+    app: AppHandle,
+    window: WebviewWindow,
+    note_id: String,
+) -> Result<(), String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let key = draft_checkpoint::DraftCheckpointKey {
+        window_label: window.label().to_string(),
+        note_id,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        draft_checkpoint::clear_checkpoint(app_data, &key).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Draft checkpoint clear task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn list_draft_checkpoints(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Vec<draft_checkpoint::DraftCheckpoint>, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let window_label = window.label().to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        draft_checkpoint::list_checkpoints(app_data)
+            .map(|checkpoints| {
+                checkpoints
+                    .into_iter()
+                    .filter(|checkpoint| checkpoint.key.window_label == window_label)
+                    .collect()
+            })
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Draft checkpoint list task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -3558,6 +3879,153 @@ fn is_markdown_extension(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativePreferencesMenuSpec {
+    id: &'static str,
+    label: &'static str,
+    accelerator: &'static str,
+}
+
+fn native_preferences_menu_spec() -> NativePreferencesMenuSpec {
+    NativePreferencesMenuSpec {
+        id: "preferences",
+        label: "Preferences…",
+        accelerator: "CmdOrCtrl+,",
+    }
+}
+
+fn preferences_submenu_target(os: &str, application_name: &str) -> (String, usize) {
+    match os {
+        "macos" => (application_name.to_string(), 1),
+        "windows" => ("File".to_string(), 0),
+        "linux" | "dragonfly" | "freebsd" | "netbsd" | "openbsd" => ("Help".to_string(), 0),
+        _ => ("File".to_string(), 0),
+    }
+}
+
+fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+
+    let menu = Menu::default(app_handle)?;
+    let spec = native_preferences_menu_spec();
+    let preferences = MenuItem::with_id(
+        app_handle,
+        spec.id,
+        spec.label,
+        true,
+        Some(spec.accelerator),
+    )?;
+    let (target_submenu, insertion_index) =
+        preferences_submenu_target(std::env::consts::OS, &app_handle.package_info().name);
+
+    for item in menu.items()? {
+        let Some(submenu) = item.as_submenu() else {
+            continue;
+        };
+        if submenu.text()? == target_submenu {
+            let separator = PredefinedMenuItem::separator(app_handle)?;
+            submenu.insert_items(&[&preferences, &separator], insertion_index)?;
+            break;
+        }
+    }
+
+    Ok(menu)
+}
+
+fn should_hide_main_window_for_standalone_preview(
+    opened_preview: bool,
+    has_notes_folder: bool,
+) -> bool {
+    opened_preview && has_notes_folder
+}
+
+fn has_configured_notes_folder(app: &AppHandle) -> bool {
+    let Some(state) = app.try_state::<AppState>() else {
+        return false;
+    };
+    let has_notes_folder = state
+        .app_config
+        .read()
+        .expect("app_config read lock")
+        .notes_folder
+        .is_some();
+    has_notes_folder
+}
+
+fn hide_main_window_for_standalone_preview(app: &AppHandle, opened_preview: bool) -> bool {
+    let should_hide = should_hide_main_window_for_standalone_preview(
+        opened_preview,
+        has_configured_notes_folder(app),
+    );
+    if should_hide {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.hide();
+        }
+    }
+    should_hide
+}
+
+fn runtime_window_config_from_template(
+    template: &tauri::utils::config::WindowConfig,
+    label: &str,
+    url: WebviewUrl,
+) -> tauri::utils::config::WindowConfig {
+    let mut runtime = template.clone();
+    runtime.label = label.to_string();
+    runtime.url = url;
+    runtime.create = false;
+    runtime.visible = true;
+    runtime
+}
+
+fn first_window_template<T>(windows: &[T]) -> Result<&T, String> {
+    windows
+        .first()
+        .ok_or_else(|| "No window template is configured".to_string())
+}
+
+fn create_preferences_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("preferences") {
+        let _ = window.show();
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    let template = first_window_template(&app.config().app.windows)?;
+    let runtime_config = runtime_window_config_from_template(
+        template,
+        "preferences",
+        WebviewUrl::App("index.html?mode=preferences".into()),
+    );
+    let window = WebviewWindowBuilder::from_config(app, &runtime_config)
+        .map_err(|error| format!("Failed to configure Preferences window: {error}"))?
+        .title("Preferences")
+        .inner_size(900.0, 650.0)
+        .min_inner_size(720.0, 500.0)
+        .resizable(true)
+        .decorations(true)
+        .center()
+        .build()
+        .map_err(|error| format!("Failed to create Preferences window: {error}"))?;
+    let _ = window.show();
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_preferences_window(app: AppHandle) -> Result<(), String> {
+    create_preferences_window(&app)
+}
+
+/// Finalize a close only after the WebView has flushed the draft or persisted
+/// a recovery snapshot. Destruction remains in trusted Rust.
+#[tauri::command]
+fn close_window_after_save(window: WebviewWindow) -> Result<(), String> {
+    window
+        .destroy()
+        .map_err(|error| format!("Failed to close window after save: {error}"))
+}
+
 // Preview mode: create a lightweight window for editing a single file
 fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String> {
     use std::collections::hash_map::DefaultHasher;
@@ -3582,17 +4050,16 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
     let encoded_path = urlencoding::encode(file_path);
     let url = format!("index.html?mode=preview&file={}", encoded_path);
 
-    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+    let template = first_window_template(&app.config().app.windows)?;
+    let runtime_config =
+        runtime_window_config_from_template(template, &label, WebviewUrl::App(url.into()));
+    let builder = WebviewWindowBuilder::from_config(app, &runtime_config)
+        .map_err(|error| format!("Failed to configure preview window: {error}"))?
         .title(format!("{} — Scratch", filename))
         .inner_size(800.0, 600.0)
         .min_inner_size(400.0, 300.0)
         .resizable(true)
         .decorations(true);
-
-    #[cfg(target_os = "macos")]
-    let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
 
     let window = builder
         .build()
@@ -3714,13 +4181,22 @@ pub fn run() {
     let app = tauri::Builder::default()
         // Single-instance: forward CLI args from subsequent launches to the running instance
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            handle_cli_args(app, &args, &cwd);
+            let opened_preview = handle_cli_args(app, &args, &cwd);
+            hide_main_window_for_standalone_preview(app, opened_preview);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .menu(build_application_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == native_preferences_menu_spec().id {
+                if let Err(error) = create_preferences_window(app) {
+                    eprintln!("Failed to open Preferences: {error}");
+                }
+            }
+        })
         .setup(|app| {
             // Load app config on startup (contains notes folder path)
             let mut app_config = load_app_config(app.handle());
@@ -3800,15 +4276,10 @@ pub fn run() {
             };
 
             if let Some(main_window) = app.get_webview_window("main") {
-                let has_notes_folder = app
-                    .state::<AppState>()
-                    .app_config
-                    .read()
-                    .expect("app_config read lock")
-                    .notes_folder
-                    .is_some();
-
-                if opened_preview && has_notes_folder {
+                if should_hide_main_window_for_standalone_preview(
+                    opened_preview,
+                    has_configured_notes_folder(app.handle()),
+                ) {
                     // Existing user: notes folder is configured and a standalone preview
                     // was opened. Close the hidden main window so only the preview is visible.
                     let _ = main_window.hide();
@@ -3839,6 +4310,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_notes_folder,
+            close_window_after_save,
+            open_preferences_window,
             set_notes_folder,
             list_notes,
             read_note,
@@ -3887,6 +4360,12 @@ pub fn run() {
             ai_execute_ollama,
             read_file_direct,
             save_file_direct,
+            recreate_file_direct,
+            persist_recovery_snapshot,
+            write_draft_checkpoint,
+            get_draft_checkpoint,
+            clear_draft_checkpoint,
+            list_draft_checkpoints,
             import_file_to_folder,
             open_file_preview,
             install_cli,
@@ -3902,16 +4381,19 @@ pub fn run() {
     app.run(|_app_handle, _event| {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = _event {
+            let mut opened_preview = false;
             for url in urls {
                 if let Ok(path) = url.to_file_path() {
                     if is_markdown_extension(&path)
                         && path.is_file()
                         && !try_select_in_notes_folder(_app_handle, &path)
                     {
-                        let _ = create_preview_window(_app_handle, &path.to_string_lossy());
+                        opened_preview |=
+                            create_preview_window(_app_handle, &path.to_string_lossy()).is_ok();
                     }
                 }
             }
+            hide_main_window_for_standalone_preview(_app_handle, opened_preview);
         }
     });
 }
@@ -3993,4 +4475,225 @@ fn set_title_bar_theme(
         let _ = (app, is_dark, r, g, b);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        first_window_template, native_preferences_menu_spec, persist_git_enabled,
+        preferences_submenu_target, read_file_content_from_path, recreate_file_content_to_path,
+        save_file_content_to_path, should_hide_main_window_for_standalone_preview,
+        validate_preview_path, FileSaveResult, Settings,
+    };
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_STANDALONE_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct StandaloneTestDirectory {
+        path: PathBuf,
+    }
+
+    impl StandaloneTestDirectory {
+        fn new(name: &str) -> Self {
+            let sequence = NEXT_STANDALONE_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "scratch-standalone-{name}-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("create standalone test directory");
+            Self { path }
+        }
+    }
+
+    impl Drop for StandaloneTestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn settings_preserve_sidebar_note_sort_order() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"theme":{"mode":"system"},"sidebarSortOrder":"oldest"}"#,
+        )
+        .expect("settings should deserialize");
+
+        assert_eq!(settings.sidebar_sort_order.as_deref(), Some("oldest"));
+
+        let serialized = serde_json::to_value(settings).expect("settings should serialize");
+        assert_eq!(serialized["sidebarSortOrder"], "oldest");
+    }
+
+    #[test]
+    fn settings_preserve_editor_display_preferences() {
+        let settings: Settings = serde_json::from_str(
+            r#"{
+                "theme":{"mode":"system"},
+                "editorWidthResizeEnabled":false,
+                "editorToolbarVisible":true,
+                "titleBarModifiedDateVisible":false,
+                "titleBarFilenameVisible":true
+            }"#,
+        )
+        .expect("settings should deserialize");
+
+        assert_eq!(settings.editor_width_resize_enabled, Some(false));
+        assert_eq!(settings.editor_toolbar_visible, Some(true));
+        assert_eq!(settings.title_bar_modified_date_visible, Some(false));
+        assert_eq!(settings.title_bar_filename_visible, Some(true));
+
+        let serialized = serde_json::to_value(settings).expect("settings should serialize");
+        assert_eq!(serialized["editorWidthResizeEnabled"], false);
+        assert_eq!(serialized["editorToolbarVisible"], true);
+        assert_eq!(serialized["titleBarModifiedDateVisible"], false);
+        assert_eq!(serialized["titleBarFilenameVisible"], true);
+    }
+
+    #[test]
+    fn git_setting_persistence_updates_memory_only_after_disk_save() {
+        let directory = StandaloneTestDirectory::new("git-setting");
+        let notes_folder = directory.path.to_string_lossy().into_owned();
+        let mut settings = Settings {
+            git_enabled: Some(false),
+            ..Settings::default()
+        };
+
+        persist_git_enabled(&notes_folder, &mut settings, Some(true)).expect("persist git setting");
+
+        assert_eq!(settings.git_enabled, Some(true));
+        let stored = super::load_settings(&notes_folder);
+        assert_eq!(stored.git_enabled, Some(true));
+    }
+
+    #[test]
+    fn git_setting_persistence_keeps_memory_when_disk_save_fails() {
+        let directory = StandaloneTestDirectory::new("git-setting-failure");
+        let blocked_path = directory.path.join("not-a-directory");
+        fs::write(&blocked_path, "blocking file").expect("write blocking file");
+        let notes_folder = blocked_path.to_string_lossy().into_owned();
+        let mut settings = Settings {
+            git_enabled: Some(false),
+            ..Settings::default()
+        };
+
+        persist_git_enabled(&notes_folder, &mut settings, Some(true))
+            .expect_err("disk save should fail");
+
+        assert_eq!(settings.git_enabled, Some(false));
+    }
+
+    #[test]
+    fn preferences_menu_uses_the_native_shortcut() {
+        let spec = native_preferences_menu_spec();
+        assert_eq!(spec.id, "preferences");
+        assert_eq!(spec.label, "Preferences…");
+        assert_eq!(spec.accelerator, "CmdOrCtrl+,");
+    }
+
+    #[test]
+    fn preferences_menu_targets_platform_default_submenus() {
+        assert_eq!(
+            preferences_submenu_target("macos", "Scratch"),
+            ("Scratch".to_string(), 1),
+        );
+        assert_eq!(
+            preferences_submenu_target("windows", "Scratch"),
+            ("File".to_string(), 0),
+        );
+        assert_eq!(
+            preferences_submenu_target("linux", "Scratch"),
+            ("Help".to_string(), 0),
+        );
+    }
+
+    #[test]
+    fn window_template_lookup_returns_an_error_instead_of_panicking() {
+        assert_eq!(first_window_template(&["main"]).unwrap(), &"main");
+        assert_eq!(
+            first_window_template::<&str>(&[]).unwrap_err(),
+            "No window template is configured",
+        );
+    }
+
+    #[test]
+    fn standalone_preview_hides_main_only_for_configured_users() {
+        assert!(should_hide_main_window_for_standalone_preview(true, true));
+        assert!(!should_hide_main_window_for_standalone_preview(true, false));
+        assert!(!should_hide_main_window_for_standalone_preview(false, true));
+    }
+
+    #[test]
+    fn standalone_save_preserves_an_external_edit_as_a_conflict() {
+        let directory = StandaloneTestDirectory::new("conflict");
+        let path = directory.path.join("External.md");
+        fs::write(&path, "# External\n\nOriginal").expect("write initial note");
+        let loaded = read_file_content_from_path(&path).expect("read initial note");
+        fs::write(&path, "# External\n\nChanged outside Scratch").expect("write external edit");
+
+        let result = save_file_content_to_path(
+            &path,
+            "# External\n\nStale local draft".to_string(),
+            loaded.revision,
+        )
+        .expect("return typed conflict");
+
+        assert!(matches!(
+            result,
+            FileSaveResult::Conflict { current: Some(_) }
+        ));
+        assert_eq!(
+            fs::read_to_string(&path).expect("read preserved file"),
+            "# External\n\nChanged outside Scratch"
+        );
+    }
+
+    #[test]
+    fn standalone_recreation_is_create_only() {
+        let directory = StandaloneTestDirectory::new("recreate");
+        let path = directory.path.join("Deleted.md");
+        let first = recreate_file_content_to_path(&path, "local draft".to_string())
+            .expect("create missing note");
+        let second = recreate_file_content_to_path(&path, "later draft".to_string())
+            .expect("return typed conflict");
+
+        assert!(matches!(first, FileSaveResult::Saved { .. }));
+        assert!(matches!(second, FileSaveResult::Conflict { .. }));
+        assert_eq!(fs::read_to_string(path).unwrap(), "local draft");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn standalone_symlink_cannot_relabel_a_non_markdown_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = StandaloneTestDirectory::new("non-markdown-symlink");
+        let target = directory.path.join("secret.txt");
+        let alias = directory.path.join("secret.md");
+        fs::write(&target, "not markdown").expect("write target");
+        symlink(&target, &alias).expect("create symlink");
+
+        assert_eq!(
+            validate_preview_path(&alias.to_string_lossy()).unwrap_err(),
+            "Resolved file must be Markdown",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn standalone_symlink_to_markdown_resolves_to_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = StandaloneTestDirectory::new("markdown-symlink");
+        let target = directory.path.join("Plan.md");
+        let alias = directory.path.join("Alias.md");
+        fs::write(&target, "# Plan").expect("write target");
+        symlink(&target, &alias).expect("create symlink");
+
+        assert_eq!(
+            validate_preview_path(&alias.to_string_lossy()).unwrap(),
+            target.canonicalize().unwrap(),
+        );
+    }
 }
