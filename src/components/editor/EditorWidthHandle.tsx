@@ -21,9 +21,33 @@ const SNAP_THRESHOLD = 20;
 
 interface EditorWidthHandlesProps {
   containerRef: RefObject<HTMLDivElement | null>;
+  enabled: boolean;
 }
 
-export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
+export function getRenderedEditorWidth(
+  container: HTMLDivElement,
+): number | null {
+  const proseMirror = container.querySelector<HTMLElement>(".ProseMirror");
+  if (!proseMirror) return null;
+
+  const renderedWidth = proseMirror.getBoundingClientRect().width;
+  if (!Number.isFinite(renderedWidth) || renderedWidth <= 0) return null;
+
+  return Math.min(renderedWidth, container.clientWidth);
+}
+
+export function EditorWidthHandles({
+  containerRef,
+  enabled,
+}: EditorWidthHandlesProps) {
+  if (!enabled) return null;
+
+  return <ActiveEditorWidthHandles containerRef={containerRef} />;
+}
+
+function ActiveEditorWidthHandles({
+  containerRef,
+}: Pick<EditorWidthHandlesProps, "containerRef">) {
   const {
     editorWidth,
     customEditorWidthPx,
@@ -48,17 +72,10 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
   const updateHandleOffset = useCallback(() => {
     if (!containerRef.current) return;
     const containerWidth = containerRef.current.clientWidth;
-    const proseMirror =
-      containerRef.current.querySelector<HTMLElement>(".ProseMirror");
-    if (proseMirror) {
-      const maxWidth = getComputedStyle(proseMirror).maxWidth;
-      if (maxWidth && maxWidth !== "none") {
-        const editorPx =
-          maxWidth === "100%" ? containerWidth : parseFloat(maxWidth);
-        const clampedEditor = Math.min(editorPx, containerWidth);
-        setHandleOffset((containerWidth - clampedEditor) / 2);
-        return;
-      }
+    const renderedWidth = getRenderedEditorWidth(containerRef.current);
+    if (renderedWidth !== null) {
+      setHandleOffset((containerWidth - renderedWidth) / 2);
+      return;
     }
     setHandleOffset(0);
   }, [containerRef]);
@@ -75,13 +92,8 @@ export function EditorWidthHandles({ containerRef }: EditorWidthHandlesProps) {
 
   const getCurrentEditorWidth = useCallback((): number => {
     if (!containerRef.current) return 768;
-    const proseMirror = containerRef.current.querySelector(".ProseMirror");
-    if (proseMirror) {
-      const maxWidth = getComputedStyle(proseMirror).maxWidth;
-      if (maxWidth && maxWidth !== "none" && maxWidth !== "100%") {
-        return parseFloat(maxWidth);
-      }
-    }
+    const renderedWidth = getRenderedEditorWidth(containerRef.current);
+    if (renderedWidth !== null) return renderedWidth;
     if (editorWidth === "custom") return customEditorWidthPx;
     if (editorWidth === "full") return containerRef.current.clientWidth;
     const preset = PRESET_PX.find((p) => p.width === editorWidth);

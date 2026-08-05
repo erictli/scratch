@@ -4,11 +4,23 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
+  useMemo,
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getSettings, updateSettings } from "../services/notes";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
+import { resolveEditorWidthResizeEnabled } from "../lib/editorWidthResize";
+import { resolveEditorToolbarVisible } from "../lib/editorToolbar";
+import {
+  DEFAULT_TITLE_BAR_NOTE_INFO_VISIBILITY,
+  resolveTitleBarNoteInfoVisibility,
+  updateTitleBarNoteInfoVisibility,
+  type TitleBarNoteInfoKind,
+  type TitleBarNoteInfoVisibility,
+} from "../lib/titleBarNoteInfo";
+import { createSettingsPatchQueue } from "../lib/settingsUpdateQueue";
 import type {
   ThemeSettings,
   EditorFontSettings,
@@ -18,6 +30,7 @@ import type {
   CustomColors,
   ThemeColorKey,
 } from "../types/note";
+import { toast } from "sonner";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -112,6 +125,14 @@ interface ThemeContextType {
   setInterfaceZoom: (zoomOrUpdater: number | ((prev: number) => number)) => void;
   customEditorWidthPx: number;
   setCustomEditorWidthPx: (px: number) => void;
+  editorWidthResizeEnabled: boolean;
+  setEditorWidthResizeEnabled: (enabled: boolean) => void;
+  editorToolbarVisible: boolean;
+  setEditorToolbarVisible: (visible: boolean) => void;
+  titleBarModifiedDateVisible: boolean;
+  setTitleBarModifiedDateVisible: (visible: boolean) => void;
+  titleBarFilenameVisible: boolean;
+  setTitleBarFilenameVisible: (visible: boolean) => void;
   setEditorMaxWidthLive: (value: string) => void;
   sidebarWidthPx: number | null;
   setSidebarWidthPx: (px: number | null) => void;
@@ -191,10 +212,32 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [customEditorWidthPx, setCustomEditorWidthPxState] = useState<number>(
     DEFAULT_CUSTOM_WIDTH_PX
   );
+  const [editorWidthResizeEnabled, setEditorWidthResizeEnabledState] =
+    useState(true);
+  const [editorToolbarVisible, setEditorToolbarVisibleState] = useState(false);
+  const [titleBarNoteInfoVisibility, setTitleBarNoteInfoVisibility] =
+    useState<TitleBarNoteInfoVisibility>(
+      DEFAULT_TITLE_BAR_NOTE_INFO_VISIBILITY,
+    );
   const [sidebarWidthPx, setSidebarWidthPxState] = useState<number | null>(null);
   const [customColorsLight, setCustomColorsLightState] = useState<CustomColors>({});
   const [customColorsDark, setCustomColorsDarkState] = useState<CustomColors>({});
   const [isInitialized, setIsInitialized] = useState(false);
+  const titleBarNoteInfoVisibilityRef = useRef<TitleBarNoteInfoVisibility>(
+    DEFAULT_TITLE_BAR_NOTE_INFO_VISIBILITY,
+  );
+  const applyTitleBarNoteInfoVisibility = useCallback(
+    (visibility: TitleBarNoteInfoVisibility) => {
+      titleBarNoteInfoVisibilityRef.current = visibility;
+      setTitleBarNoteInfoVisibility(visibility);
+    },
+    [],
+  );
+
+  const updateSettingsPatch = useMemo(
+    () => createSettingsPatchQueue(getSettings, updateSettings),
+    [],
+  );
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -247,6 +290,18 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       ) {
         setCustomEditorWidthPxState(settings.customEditorWidthPx);
       }
+      setEditorWidthResizeEnabledState(
+        resolveEditorWidthResizeEnabled(settings.editorWidthResizeEnabled),
+      );
+      setEditorToolbarVisibleState(
+        resolveEditorToolbarVisible(settings.editorToolbarVisible),
+      );
+      applyTitleBarNoteInfoVisibility(
+        resolveTitleBarNoteInfoVisibility(
+          settings.titleBarModifiedDateVisible,
+          settings.titleBarFilenameVisible,
+        ),
+      );
       if (
         typeof settings.sidebarWidthPx === "number" &&
         settings.sidebarWidthPx >= SIDEBAR_MIN_PX &&
@@ -263,7 +318,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     } catch {
       // If settings can't be loaded, use defaults
     }
-  }, []);
+  }, [applyTitleBarNoteInfoVisibility]);
 
   // Reload settings from backend (exposed to context consumers)
   const reloadSettings = useCallback(async () => {
@@ -399,26 +454,37 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setEditorWidthState("normal");
     setInterfaceZoomState(1.0);
     setCustomEditorWidthPxState(DEFAULT_CUSTOM_WIDTH_PX);
+    setEditorWidthResizeEnabledState(true);
+    setEditorToolbarVisibleState(false);
+    applyTitleBarNoteInfoVisibility(DEFAULT_TITLE_BAR_NOTE_INFO_VISIBILITY);
     setSidebarWidthPxState(null);
     setCustomColorsLightState({});
     setCustomColorsDarkState({});
     try {
-      const settings = await getSettings();
-      await updateSettings({
-        ...settings,
+      await updateSettingsPatch({
         editorFont: defaultEditorFontSettings,
         textDirection: "auto",
         editorWidth: "normal",
         interfaceZoom: 1.0,
         customEditorWidthPx: undefined,
+        editorWidthResizeEnabled: undefined,
+        editorToolbarVisible: undefined,
+        titleBarModifiedDateVisible: undefined,
+        titleBarFilenameVisible: undefined,
         sidebarWidthPx: undefined,
         customColorsLight: undefined,
         customColorsDark: undefined,
       });
     } catch (error) {
-      console.error("Failed to reset editor settings:", error);
+      console.error("Failed to reset appearance settings:", error);
+      toast.error("Appearance settings could not be reset");
+      await loadSettingsFromBackend();
     }
-  }, []);
+  }, [
+    applyTitleBarNoteInfoVisibility,
+    loadSettingsFromBackend,
+    updateSettingsPatch,
+  ]);
 
   // Save and set text direction
   const setTextDirection = useCallback(async (dir: TextDirection) => {
@@ -483,6 +549,61 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       console.error("Failed to save custom editor width:", error);
     }
   }, []);
+
+  const setEditorWidthResizeEnabled = useCallback(
+    async (enabled: boolean) => {
+      setEditorWidthResizeEnabledState(enabled);
+      try {
+        await updateSettingsPatch({ editorWidthResizeEnabled: enabled });
+      } catch (error) {
+        console.error("Failed to save editor width resize setting:", error);
+        toast.error("Appearance setting could not be saved");
+      }
+    },
+    [updateSettingsPatch],
+  );
+
+  const setEditorToolbarVisible = useCallback(
+    async (visible: boolean) => {
+      setEditorToolbarVisibleState(visible);
+      try {
+        await updateSettingsPatch({ editorToolbarVisible: visible });
+      } catch (error) {
+        console.error("Failed to save editor toolbar setting:", error);
+        toast.error("Appearance setting could not be saved");
+      }
+    },
+    [updateSettingsPatch],
+  );
+
+  const updateTitleBarNoteInfo = useCallback(
+    (kind: TitleBarNoteInfoKind, visible: boolean) => {
+      const next = updateTitleBarNoteInfoVisibility(
+        titleBarNoteInfoVisibilityRef.current,
+        kind,
+        visible,
+      );
+      applyTitleBarNoteInfoVisibility(next);
+      void updateSettingsPatch({
+        titleBarModifiedDateVisible: next.modifiedDateVisible,
+        titleBarFilenameVisible: next.filenameVisible,
+      }).catch((error) => {
+        console.error("Failed to save title bar information setting:", error);
+        toast.error("Appearance setting could not be saved");
+      });
+    },
+    [applyTitleBarNoteInfoVisibility, updateSettingsPatch],
+  );
+
+  const setTitleBarModifiedDateVisible = useCallback(
+    (visible: boolean) => updateTitleBarNoteInfo("modifiedDate", visible),
+    [updateTitleBarNoteInfo],
+  );
+
+  const setTitleBarFilenameVisible = useCallback(
+    (visible: boolean) => updateTitleBarNoteInfo("filename", visible),
+    [updateTitleBarNoteInfo],
+  );
 
   /**
    * Persists the clamped sidebar width to settings.
@@ -602,41 +723,88 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     document.documentElement.style.setProperty("--sidebar-width", `${px}px`);
   }, []);
 
-  // Don't render until initialized to prevent flash
+  const contextValue = useMemo<ThemeContextType>(
+    () => ({
+      theme,
+      resolvedTheme,
+      setTheme,
+      cycleTheme,
+      editorFontSettings,
+      setEditorFontSetting,
+      resetEditorFontSettings,
+      reloadSettings,
+      textDirection,
+      setTextDirection,
+      editorWidth,
+      setEditorWidth,
+      interfaceZoom,
+      setInterfaceZoom,
+      customEditorWidthPx,
+      setCustomEditorWidthPx,
+      editorWidthResizeEnabled,
+      setEditorWidthResizeEnabled,
+      editorToolbarVisible,
+      setEditorToolbarVisible,
+      titleBarModifiedDateVisible:
+        titleBarNoteInfoVisibility.modifiedDateVisible,
+      setTitleBarModifiedDateVisible,
+      titleBarFilenameVisible: titleBarNoteInfoVisibility.filenameVisible,
+      setTitleBarFilenameVisible,
+      setEditorMaxWidthLive,
+      sidebarWidthPx,
+      setSidebarWidthPx,
+      setSidebarWidthLive,
+      customColorsLight,
+      customColorsDark,
+      setCustomColor,
+      resetCustomColor,
+      resetAllCustomColors,
+    }),
+    [
+      theme,
+      resolvedTheme,
+      setTheme,
+      cycleTheme,
+      editorFontSettings,
+      setEditorFontSetting,
+      resetEditorFontSettings,
+      reloadSettings,
+      textDirection,
+      setTextDirection,
+      editorWidth,
+      setEditorWidth,
+      interfaceZoom,
+      setInterfaceZoom,
+      customEditorWidthPx,
+      setCustomEditorWidthPx,
+      editorWidthResizeEnabled,
+      setEditorWidthResizeEnabled,
+      editorToolbarVisible,
+      setEditorToolbarVisible,
+      titleBarNoteInfoVisibility.modifiedDateVisible,
+      setTitleBarModifiedDateVisible,
+      titleBarNoteInfoVisibility.filenameVisible,
+      setTitleBarFilenameVisible,
+      setEditorMaxWidthLive,
+      sidebarWidthPx,
+      setSidebarWidthPx,
+      setSidebarWidthLive,
+      customColorsLight,
+      customColorsDark,
+      setCustomColor,
+      resetCustomColor,
+      resetAllCustomColors,
+    ],
+  );
+
+  // Don't render until initialized to prevent flash. Keep this after every
+  // hook so the provider calls hooks in the same order on every render.
   if (!isInitialized) {
     return null;
   }
 
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        resolvedTheme,
-        setTheme,
-        cycleTheme,
-        editorFontSettings,
-        setEditorFontSetting,
-        resetEditorFontSettings,
-        reloadSettings,
-        textDirection,
-        setTextDirection,
-        editorWidth,
-        setEditorWidth,
-        interfaceZoom,
-        setInterfaceZoom,
-        customEditorWidthPx,
-        setCustomEditorWidthPx,
-        setEditorMaxWidthLive,
-        sidebarWidthPx,
-        setSidebarWidthPx,
-        setSidebarWidthLive,
-        customColorsLight,
-        customColorsDark,
-        setCustomColor,
-        resetCustomColor,
-        resetAllCustomColors,
-      }}
-    >
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );

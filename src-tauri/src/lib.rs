@@ -122,6 +122,14 @@ pub struct Settings {
     pub interface_zoom: Option<f32>,
     #[serde(rename = "customEditorWidthPx")]
     pub custom_editor_width_px: Option<u32>,
+    #[serde(rename = "editorWidthResizeEnabled")]
+    pub editor_width_resize_enabled: Option<bool>,
+    #[serde(rename = "editorToolbarVisible")]
+    pub editor_toolbar_visible: Option<bool>,
+    #[serde(rename = "titleBarModifiedDateVisible")]
+    pub title_bar_modified_date_visible: Option<bool>,
+    #[serde(rename = "titleBarFilenameVisible")]
+    pub title_bar_filename_visible: Option<bool>,
     /// Custom sidebar width in px; `None` means the default width is used.
     #[serde(rename = "sidebarWidthPx")]
     pub sidebar_width_px: Option<u32>,
@@ -129,6 +137,8 @@ pub struct Settings {
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
+    #[serde(rename = "sidebarSortOrder")]
+    pub sidebar_sort_order: Option<String>,
     #[serde(rename = "ignoredPatterns")]
     pub ignored_patterns: Option<Vec<String>>,
     #[serde(rename = "customColorsLight")]
@@ -3993,4 +4003,47 @@ fn set_title_bar_theme(
         let _ = (app, is_dark, r, g, b);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn settings_preserve_sidebar_note_sort_order() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"theme":{"mode":"system"},"sidebarSortOrder":"oldest"}"#,
+        )
+        .expect("settings should deserialize");
+
+        assert_eq!(settings.sidebar_sort_order.as_deref(), Some("oldest"));
+
+        let serialized = serde_json::to_value(settings).expect("settings should serialize");
+        assert_eq!(serialized["sidebarSortOrder"], "oldest");
+    }
+
+    #[test]
+    fn settings_preserve_editor_display_preferences() {
+        let settings: Settings = serde_json::from_str(
+            r#"{
+                "theme":{"mode":"system"},
+                "editorWidthResizeEnabled":false,
+                "editorToolbarVisible":true,
+                "titleBarModifiedDateVisible":false,
+                "titleBarFilenameVisible":true
+            }"#,
+        )
+        .expect("settings should deserialize");
+
+        assert_eq!(settings.editor_width_resize_enabled, Some(false));
+        assert_eq!(settings.editor_toolbar_visible, Some(true));
+        assert_eq!(settings.title_bar_modified_date_visible, Some(false));
+        assert_eq!(settings.title_bar_filename_visible, Some(true));
+
+        let serialized = serde_json::to_value(settings).expect("settings should serialize");
+        assert_eq!(serialized["editorWidthResizeEnabled"], false);
+        assert_eq!(serialized["editorToolbarVisible"], true);
+        assert_eq!(serialized["titleBarModifiedDateVisible"], false);
+        assert_eq!(serialized["titleBarFilenameVisible"], true);
+    }
 }
