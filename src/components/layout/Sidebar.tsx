@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
+import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   DndContext,
@@ -11,6 +13,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { useNotes } from "../../context/NotesContext";
+import { useTheme } from "../../context/ThemeContext";
 import { NoteList } from "../notes/NoteList";
 import { Footer } from "./Footer";
 import { IconButton, Input } from "../ui";
@@ -26,9 +29,27 @@ import {
 import { mod, shift, isMac, isWindows } from "../../lib/platform";
 import * as notesService from "../../services/notes";
 import { FolderNameDialog } from "../notes/FolderNameDialog";
+import { NoteSortMenu } from "./SidebarControls";
+import { WorkspaceMenu } from "./WorkspaceMenu";
+import type { NoteSortOrder } from "../../types/note";
+import {
+  SETTINGS_CHANGED_DOM_EVENT,
+  shouldApplySettingsChange,
+  type SettingsChangedEvent,
+} from "../../lib/settingsScope";
 
 interface SidebarProps {
   onOpenSettings?: () => void;
+}
+
+export function getWorkspaceSwitchErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return `Could not switch folder: ${error.message}`;
+  }
+  if (typeof error === "string" && error.trim()) {
+    return `Could not switch folder: ${error}`;
+  }
+  return "Could not switch folder";
 }
 
 export function Sidebar({ onOpenSettings }: SidebarProps) {
@@ -40,15 +61,21 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     searchQuery,
     clearSearch,
     selectedNoteId,
+    notesFolder,
+    switchWorkspace,
     moveNote,
     moveFolder,
   } = useNotes();
+  const { reloadSettings } = useTheme();
   const [searchOpen, setSearchOpen] = useState(false);
   const [inputValue, setInputValue] = useState(searchQuery);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDialogParent, setFolderDialogParent] = useState("");
   const [foldersEnabled, setFoldersEnabled] = useState(true);
+  const [noteSortOrder, setNoteSortOrder] =
+    useState<NoteSortOrder>("newest");
+  const [workspaces, setWorkspaces] = useState<notesService.WorkspaceInfo[]>([]);
   const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [dragCount, setDragCount] = useState(1);
   const [multiSelectedNoteIds, setMultiSelectedNoteIds] = useState<Set<string>>(new Set());
@@ -57,6 +84,81 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const multiSelectedRef = useRef(multiSelectedNoteIds) as RefObject<Set<string>>;
   multiSelectedRef.current = multiSelectedNoteIds;
+
+  const refreshWorkspaces = useCallback(async () => {
+    try {
+      setWorkspaces(await notesService.listWorkspaces());
+    } catch (error) {
+      console.error("Failed to load workspaces:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshWorkspaces();
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen("workspaces-changed", () => {
+      void refreshWorkspaces();
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [refreshWorkspaces]);
+
+  const handleSwitchWorkspace = useCallback(
+    async (path: string) => {
+      try {
+        await switchWorkspace(path);
+      } catch (error) {
+        console.error("Failed to switch workspace:", error);
+        toast.error(getWorkspaceSwitchErrorMessage(error));
+        return;
+      }
+
+      try {
+        await reloadSettings();
+        await refreshWorkspaces();
+      } catch (error) {
+        console.error("Failed to refresh after workspace switch:", error);
+        toast.error("Workspace switched, but the sidebar could not refresh");
+      }
+    },
+    [refreshWorkspaces, reloadSettings, switchWorkspace],
+  );
+
+  const handleAddWorkspace = useCallback(async () => {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Add Folder",
+      });
+      if (typeof selected === "string") {
+        await handleSwitchWorkspace(selected);
+      }
+    } catch (error) {
+      console.error("Failed to add workspace:", error);
+      toast.error("Failed to add folder");
+    }
+  }, [handleSwitchWorkspace]);
+
+  const handleRemoveWorkspace = useCallback(
+    async (path: string) => {
+      try {
+        await notesService.removeWorkspaceFromList(path);
+        await refreshWorkspaces();
+        toast.success("Folder removed from list — files remain on disk");
+      } catch (error) {
+        console.error("Failed to remove workspace from list:", error);
+        toast.error("Failed to remove folder from list");
+      }
+    },
+    [refreshWorkspaces],
+  );
 
   // dnd-kit
   const sensors = useSensors(
@@ -165,15 +267,54 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     [moveNote, moveFolder],
   );
 
-  // Load folders setting
-  useEffect(() => {
-    notesService.getSettings().then((s) => {
+  const loadWorkspaceSettings = useCallback(() => {
+    return notesService.getSettings().then((s) => {
       setFoldersEnabled(s.foldersEnabled === true);
+      setNoteSortOrder(
+        s.sidebarSortOrder === "oldest" ? "oldest" : "newest",
+      );
     }).catch((error) => {
       console.error("Failed to load settings:", error);
       setFoldersEnabled(false);
     });
   }, []);
+
+  // Workspace settings update live in every window bound to that workspace.
+  useEffect(() => {
+    void loadWorkspaceSettings();
+    const handleSettingsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<SettingsChangedEvent>).detail;
+      if (detail && shouldApplySettingsChange(detail, notesFolder)) {
+        void loadWorkspaceSettings();
+      }
+    };
+    window.addEventListener(SETTINGS_CHANGED_DOM_EVENT, handleSettingsChanged);
+    return () =>
+      window.removeEventListener(
+        SETTINGS_CHANGED_DOM_EVENT,
+        handleSettingsChanged,
+      );
+  }, [loadWorkspaceSettings, notesFolder]);
+
+  const handleNoteSortOrderChange = useCallback(
+    (nextSortOrder: NoteSortOrder) => {
+      if (nextSortOrder === noteSortOrder) return;
+
+      const previousSortOrder = noteSortOrder;
+      setNoteSortOrder(nextSortOrder);
+
+      void notesService
+        .updateWorkspaceSettings({ sidebarSortOrder: nextSortOrder })
+        .catch((error) => {
+          console.error("Failed to save note sort order:", error);
+          setNoteSortOrder((current) =>
+            current === nextSortOrder ? previousSortOrder : current,
+          );
+          toast.error("Failed to save note sort order");
+        });
+    },
+    [noteSortOrder],
+  );
 
   // Sync input with search query
   useEffect(() => {
@@ -313,6 +454,13 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     <div className="relative w-full h-full bg-bg-secondary border-r border-border flex flex-col select-none">
       {/* Drag region */}
       {!isWindows && <div className="h-11 shrink-0" data-tauri-drag-region></div>}
+      <WorkspaceMenu
+        workspaces={workspaces}
+        currentWorkspacePath={notesFolder}
+        onSwitchWorkspace={(path) => void handleSwitchWorkspace(path)}
+        onAddWorkspace={() => void handleAddWorkspace()}
+        onRemoveWorkspace={(path) => void handleRemoveWorkspace(path)}
+      />
       <div className={`flex items-center justify-between pl-4 pr-3 pb-2 border-b border-border shrink-0${isWindows ? " pt-2" : ""}`}>
         <div className="flex items-center gap-1">
           <div className="font-medium text-base">Notes</div>
@@ -321,6 +469,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           </div>
         </div>
         <div className="flex items-center gap-px">
+          <NoteSortMenu
+            sortOrder={noteSortOrder}
+            onChange={handleNoteSortOrderChange}
+          />
           <IconButton
             onClick={toggleSearch}
             title={`Search Notes (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}F)`}
@@ -413,6 +565,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
 
         {/* Note list */}
         <NoteList
+          sortOrder={noteSortOrder}
           multiSelectedNoteIds={multiSelectedNoteIds}
           setMultiSelectedNoteIds={setMultiSelectedNoteIds}
           lastClickedNoteId={lastClickedNoteId}

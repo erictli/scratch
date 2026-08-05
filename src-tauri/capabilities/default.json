@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for all app windows",
-  "windows": ["main", "preview-*"],
+  "windows": ["main", "preview-*", "workspace-*", "preferences"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
