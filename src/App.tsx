@@ -38,23 +38,16 @@ import type { AiProvider } from "./services/ai";
 import { isMac, isWindows } from "./lib/platform";
 import { closeWindowAfterSave, requestCurrentWindowClose } from "./services/windowLifecycle";
 import { useWindowShortcuts } from "./lib/useWindowShortcuts";
-import { runSafeWindowClose } from "./lib/windowClose";
-
-// Detect preview mode from URL search params
-function getWindowMode(): {
-  isPreview: boolean;
-  isPreferences: boolean;
-  previewFile: string | null;
-} {
-  const params = new URLSearchParams(window.location.search);
-  const mode = params.get("mode");
-  const file = params.get("file");
-  return {
-    isPreview: mode === "preview" && !!file,
-    isPreferences: mode === "preferences",
-    previewFile: file,
-  };
-}
+import {
+  beginSafeWindowClose,
+  resolveCloseListenerRegistration,
+  runSafeWindowClose,
+} from "./lib/windowClose";
+import {
+  consumePendingRecoveryNotices,
+  recordPendingRecoveryNotice,
+} from "./lib/recoveryNotice";
+import { getWindowMode } from "./lib/windowMode";
 
 type ViewState = "notes" | "settings";
 
@@ -90,6 +83,14 @@ function AppContent() {
   );
   const closeInProgressRef = useRef(false);
 
+  useEffect(() => {
+    for (const notice of consumePendingRecoveryNotices()) {
+      toast.warning(
+        `A draft that could not be saved was recovered to ${notice.recoveredTo}`,
+      );
+    }
+  }, []);
+
   const handlePersistenceControllerReady = useCallback(
     (controller: EditorPersistenceController | null) => {
       persistenceControllerRef.current = controller;
@@ -102,35 +103,48 @@ function AppContent() {
     let unlisten: (() => void) | undefined;
     const appWindow = getCurrentWindow();
 
-    void appWindow.onCloseRequested((event) => {
-      if (closeInProgressRef.current) return;
-      event.preventDefault();
-      closeInProgressRef.current = true;
+    void resolveCloseListenerRegistration(
+      appWindow.onCloseRequested((event) => {
+        if (!beginSafeWindowClose(event, closeInProgressRef)) return;
 
-      void runSafeWindowClose({
-        flushDraft: () =>
-          persistenceControllerRef.current?.flush() ?? Promise.resolve(),
-        persistRecovery: async () => {
-          const draft = persistenceControllerRef.current?.getDraft();
-          const note = currentNoteRef.current;
-          if (!draft?.dirty || !draft.noteId || !note) return undefined;
-          return notesService.persistRecoverySnapshot({
-            noteId: draft.noteId,
-            sourcePath: note.path,
-            content: draft.content,
-            reason: "window-close",
-          });
-        },
-        closeWindow: closeWindowAfterSave,
-      }).catch((error) => {
-        closeInProgressRef.current = false;
+        void runSafeWindowClose({
+          flushDraft: () =>
+            persistenceControllerRef.current?.flush() ?? Promise.resolve(),
+          persistRecovery: async () => {
+            const draft = persistenceControllerRef.current?.getDraft();
+            const note = currentNoteRef.current;
+            if (!draft?.dirty || !draft.noteId || !note) {
+              return { status: "not-needed" } as const;
+            }
+            const path = await notesService.persistRecoverySnapshot({
+              noteId: draft.noteId,
+              sourcePath: note.path,
+              content: draft.content,
+              reason: "window-close",
+            });
+            return { status: "recovered", path } as const;
+          },
+          beforeClose: async ({ recoveredTo, saveError }) => {
+            if (recoveredTo && saveError) {
+              recordPendingRecoveryNotice(recoveredTo, saveError);
+            }
+          },
+          closeWindow: closeWindowAfterSave,
+        }).catch((error) => {
+          closeInProgressRef.current = false;
+          if (!disposed) {
+            toast.error(
+              `Window kept open because the draft could not be saved: ${error}`,
+            );
+          }
+        });
+      }),
+      (error) => {
         if (!disposed) {
-          toast.error(
-            `Window kept open because the draft could not be saved: ${error}`,
-          );
+          toast.error(`Safe window-close protection could not start: ${error}`);
         }
-      });
-    }).then((removeListener) => {
+      },
+    ).then((removeListener) => {
       if (disposed) removeListener();
       else unlisten = removeListener;
     });
@@ -703,7 +717,10 @@ function PreferencesApp() {
 }
 
 function App() {
-  const { isPreview, isPreferences, previewFile } = useMemo(getWindowMode, []);
+  const { isPreview, isPreferences, previewFile } = useMemo(
+    () => getWindowMode(window.location.search),
+    [],
+  );
 
   // Cmd/Ctrl+W — close window (works in both preview and folder mode)
   useEffect(() => {
@@ -747,7 +764,7 @@ function App() {
       <ThemeProvider>
         <Toaster />
         <TooltipProvider>
-          <PreviewApp filePath={decodeURIComponent(previewFile)} />
+          <PreviewApp filePath={previewFile} />
         </TooltipProvider>
       </ThemeProvider>
     );

@@ -11,8 +11,17 @@ import * as filesService from "../../services/files";
 import * as notesService from "../../services/notes";
 import * as draftCheckpointService from "../../services/draftCheckpoint";
 import { createSerializedTaskQueue } from "../../lib/serializedWriter";
-import { runSafeWindowClose } from "../../lib/windowClose";
-import { flushDirtyDraftBeforeReload } from "../../lib/standaloneReload";
+import {
+  beginSafeWindowClose,
+  resolveCloseListenerRegistration,
+  runSafeWindowClose,
+} from "../../lib/windowClose";
+import { recordPendingRecoveryNotice } from "../../lib/recoveryNotice";
+import {
+  createLatestRequestGuard,
+  flushDirtyDraftBeforeReload,
+  standaloneRecoveryBaseRevision,
+} from "../../lib/standaloneReload";
 import { recreateDeletedStandaloneDraft } from "../../lib/standaloneRecreation";
 import {
   runConflictResolution,
@@ -43,6 +52,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     null,
   );
   const closeInProgressRef = useRef(false);
+  const fileLoadGuardRef = useRef(createLatestRequestGuard());
 
   const registerPersistenceController = useCallback(
     (controller: EditorPersistenceController) => {
@@ -61,34 +71,45 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     let unlisten: (() => void) | undefined;
     const appWindow = getCurrentWindow();
 
-    appWindow.onCloseRequested((event) => {
-      if (closeInProgressRef.current) return;
-      event.preventDefault();
-      closeInProgressRef.current = true;
+    void resolveCloseListenerRegistration(
+      appWindow.onCloseRequested((event) => {
+        if (!beginSafeWindowClose(event, closeInProgressRef)) return;
 
-      void runSafeWindowClose({
-        flushDraft: () =>
-          persistenceControllerRef.current?.flush() ?? Promise.resolve(),
-        persistRecovery: async () => {
-          const draft = persistenceControllerRef.current?.getDraft();
-          if (!draft?.dirty) return undefined;
-          return notesService.persistRecoverySnapshot({
-            noteId: filePath,
-            sourcePath: filePath,
-            content: draft.content,
-            reason: "standalone-window-close",
-          });
-        },
-        closeWindow: closeWindowAfterSave,
-      }).catch((error) => {
-        closeInProgressRef.current = false;
+        void runSafeWindowClose({
+          flushDraft: () =>
+            persistenceControllerRef.current?.flush() ?? Promise.resolve(),
+          persistRecovery: async () => {
+            const draft = persistenceControllerRef.current?.getDraft();
+            if (!draft?.dirty) return { status: "not-needed" } as const;
+            const path = await notesService.persistRecoverySnapshot({
+              noteId: filePath,
+              sourcePath: filePath,
+              content: draft.content,
+              reason: "standalone-window-close",
+            });
+            return { status: "recovered", path } as const;
+          },
+          beforeClose: async ({ recoveredTo, saveError }) => {
+            if (recoveredTo && saveError) {
+              recordPendingRecoveryNotice(recoveredTo, saveError);
+            }
+          },
+          closeWindow: closeWindowAfterSave,
+        }).catch((error) => {
+          closeInProgressRef.current = false;
+          if (!disposed) {
+            toast.error(
+              `Window kept open because the draft could not be saved: ${error}`,
+            );
+          }
+        });
+      }),
+      (error) => {
         if (!disposed) {
-          toast.error(
-            `Window kept open because the draft could not be saved: ${error}`,
-          );
+          toast.error(`Safe window-close protection could not start: ${error}`);
         }
-      });
-    }).then((removeListener) => {
+      },
+    ).then((removeListener) => {
       if (disposed) removeListener();
       else unlisten = removeListener;
     });
@@ -102,47 +123,55 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   // Load file on mount
   useEffect(() => {
     let cancelled = false;
+    const isLatest = fileLoadGuardRef.current.begin();
+    const isStale = () => cancelled || !isLatest();
     filesService
       .readFileDirect(filePath)
       .then(async (result) => {
-        if (cancelled) return;
+        if (isStale()) return;
         const checkpoint = await draftCheckpointService
           .getDraftCheckpoint(filePath)
           .catch(() => null);
-        if (cancelled) return;
+        if (isStale()) return;
         const recovered =
           checkpoint && checkpoint.markdown !== result.content
             ? checkpoint.markdown
             : result.content;
-        if (cancelled) return;
+        if (isStale()) return;
         setContent(recovered);
-        if (cancelled) return;
+        if (isStale()) return;
         setTitle(result.title);
-        if (cancelled) return;
+        if (isStale()) return;
         setModified(result.modified);
-        revisionRef.current = result.revision;
-        if (cancelled) return;
-        setRevision(result.revision);
+        const recoveryRevision = standaloneRecoveryBaseRevision(
+          result.revision,
+          result.content,
+          checkpoint,
+        );
+        revisionRef.current = recoveryRevision;
+        if (isStale()) return;
+        setRevision(recoveryRevision);
         if (checkpoint && checkpoint.markdown === result.content) {
           await draftCheckpointService
             .clearDraftCheckpoint(checkpoint.key)
             .catch(() => undefined);
         } else if (checkpoint) {
-          if (cancelled) return;
+          if (isStale()) return;
           setHasExternalChanges(true);
-          if (cancelled) return;
+          if (isStale()) return;
           setHasSaveConflict(true);
-          if (cancelled) return;
+          if (isStale()) return;
           toast.warning("Recovered an unsaved draft from an interrupted session");
         }
       })
       .catch((error) => {
-        if (cancelled) return;
+        if (isStale()) return;
         console.error("Failed to load file:", error);
         toast.error(`Failed to load file: ${error}`);
       });
     return () => {
       cancelled = true;
+      fileLoadGuardRef.current.invalidate();
     };
   }, [filePath]);
 
@@ -199,9 +228,12 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   );
 
   const reload = useCallback(async () => {
+    const isLatest = fileLoadGuardRef.current.begin();
     try {
       await flushDirtyDraftBeforeReload(persistenceControllerRef.current);
+      if (!isLatest()) return;
       const result = await filesService.readFileDirect(filePath);
+      if (!isLatest()) return;
       setContent(result.content);
       setTitle(result.title);
       setModified(result.modified);
@@ -211,6 +243,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
       setHasSaveConflict(false);
       setReloadVersion((v) => v + 1);
     } catch (error) {
+      if (!isLatest()) return;
       console.error("Failed to reload file:", error);
       toast.error(`Failed to reload: ${error}`);
     }

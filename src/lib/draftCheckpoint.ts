@@ -1,3 +1,5 @@
+import type { Note } from "../types/note";
+
 export interface DraftCheckpointKey {
   windowLabel: string;
   noteId: string;
@@ -37,6 +39,30 @@ export interface DraftCheckpointScheduler {
 export interface DraftCheckpointSchedulerOptions {
   delayMs?: number;
   onError?: (error: unknown) => void;
+}
+
+export interface OpenDraftCheckpointSnapshot {
+  noteId: string | null;
+  content: string;
+  dirty: boolean;
+}
+
+export function createDraftCheckpointSnapshot(
+  windowLabel: string,
+  draft: OpenDraftCheckpointSnapshot,
+  note: Pick<Note, "path" | "revision"> | null,
+  updatedAt: string,
+): DraftCheckpoint | null {
+  if (!draft.dirty || !draft.noteId || !note) return null;
+  return {
+    key: { windowLabel, noteId: draft.noteId },
+    markdown: draft.content,
+    metadata: {
+      sourcePath: note.path,
+      baseRevision: note.revision || null,
+      updatedAt,
+    },
+  };
 }
 
 const DEFAULT_DELAY_MS = 1_000;
@@ -173,4 +199,3 @@ export function reconcileDraftCheckpoint(
     shouldClear: false,
   };
 }
-import type { Note } from "../types/note";

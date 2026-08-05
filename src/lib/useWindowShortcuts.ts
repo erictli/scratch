@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useTheme } from "../context/ThemeContext";
 import { resolveWindowShortcut } from "./windowShortcuts";
@@ -11,6 +11,8 @@ export function useWindowShortcuts({
   onOpenPreferences,
 }: UseWindowShortcutsOptions): void {
   const { interfaceZoom, setInterfaceZoom } = useTheme();
+  const interfaceZoomRef = useRef(interfaceZoom);
+  interfaceZoomRef.current = interfaceZoom;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -28,6 +30,7 @@ export function useWindowShortcuts({
       }
 
       if (action === "zoom-reset") {
+        interfaceZoomRef.current = 1;
         setInterfaceZoom(1);
         toast("Zoom 100%", { id: "zoom", duration: 1500 });
         return;
@@ -35,9 +38,10 @@ export function useWindowShortcuts({
 
       const delta = action === "zoom-in" ? 0.05 : -0.05;
       const next = Math.round(
-        Math.min(Math.max(interfaceZoom + delta, 0.7), 1.5) * 20,
+        Math.min(Math.max(interfaceZoomRef.current + delta, 0.7), 1.5) * 20,
       ) / 20;
-      setInterfaceZoom(next);
+      interfaceZoomRef.current = next;
+      setInterfaceZoom((current) => current + delta);
       toast(`Zoom ${Math.round(next * 100)}%`, {
         id: "zoom",
         duration: 1500,
@@ -46,5 +50,5 @@ export function useWindowShortcuts({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [interfaceZoom, onOpenPreferences, setInterfaceZoom]);
+  }, [onOpenPreferences, setInterfaceZoom]);
 }

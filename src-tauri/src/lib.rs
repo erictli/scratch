@@ -17,9 +17,10 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
+mod draft_checkpoint;
 mod git;
 mod persistence;
-mod draft_checkpoint;
+mod sha256;
 
 static RECOVERY_SNAPSHOT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -803,10 +804,7 @@ fn load_settings(notes_folder: &str) -> Settings {
             }
         },
         Err(error) => {
-            eprintln!(
-                "settings read failed for {}: {error}",
-                path.display()
-            );
+            eprintln!("settings read failed for {}: {error}", path.display());
             Settings::default()
         }
     }
@@ -1808,15 +1806,31 @@ fn update_settings(
     Ok(())
 }
 
+fn persist_git_enabled(
+    notes_folder: &str,
+    settings: &mut Settings,
+    enabled: Option<bool>,
+) -> Result<(), String> {
+    let mut updated = settings.clone();
+    updated.git_enabled = enabled;
+    save_settings(notes_folder, &updated).map_err(|error| error.to_string())?;
+    *settings = updated;
+    Ok(())
+}
+
 #[tauri::command]
 fn update_git_enabled(
     enabled: Option<bool>,
     expected_folder: String,
+    app: AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
-        let folder = app_config.notes_folder.clone().ok_or("Notes folder not set")?;
+        let folder = app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?;
 
         if folder != expected_folder {
             return Err("Notes folder changed".to_string());
@@ -1826,10 +1840,18 @@ fn update_git_enabled(
     };
 
     let mut settings = state.settings.write().expect("settings write lock");
-    let mut updated = settings.clone();
-    updated.git_enabled = enabled;
-    save_settings(&folder, &updated).map_err(|e| e.to_string())?;
-    *settings = updated;
+    persist_git_enabled(&folder, &mut settings, enabled)?;
+    drop(settings);
+
+    if let Err(error) = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "notesFolder": folder,
+            "gitEnabled": enabled,
+        }),
+    ) {
+        eprintln!("Failed to broadcast settings change: {error}");
+    }
 
     Ok(())
 }
@@ -1869,8 +1891,12 @@ pub struct FileContent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum FileSaveResult {
-    Saved { file: FileContent },
-    Conflict { current: Option<NoteConflictSnapshot> },
+    Saved {
+        file: FileContent,
+    },
+    Conflict {
+        current: Option<NoteConflictSnapshot>,
+    },
 }
 
 fn note_conflict_snapshot(
@@ -1908,15 +1934,7 @@ fn save_file_content_to_path(
     content: String,
     expected_revision: String,
 ) -> Result<FileSaveResult, String> {
-    let current = persistence::read_snapshot(path).map_err(|error| error.to_string())?;
-    let expected = match current {
-        Some(snapshot) if snapshot.revision.as_str() == expected_revision => snapshot.revision,
-        current => {
-            return Ok(FileSaveResult::Conflict {
-                current: note_conflict_snapshot(current),
-            });
-        }
-    };
+    let expected = persistence::ContentRevision::from_hex(&expected_revision)?;
 
     match persistence::save_if_revision(path, &content, Some(&expected))
         .map_err(|error| error.to_string())?
@@ -1930,13 +1948,8 @@ fn save_file_content_to_path(
     }
 }
 
-fn recreate_file_content_to_path(
-    path: &Path,
-    content: String,
-) -> Result<FileSaveResult, String> {
-    match persistence::save_if_revision(path, &content, None)
-        .map_err(|error| error.to_string())?
-    {
+fn recreate_file_content_to_path(path: &Path, content: String) -> Result<FileSaveResult, String> {
+    match persistence::save_if_revision(path, &content, None).map_err(|error| error.to_string())? {
         persistence::SaveResult::Saved { .. } => Ok(FileSaveResult::Saved {
             file: read_file_content_from_path(path)?,
         }),
@@ -1961,6 +1974,9 @@ fn validate_preview_path(path: &str) -> Result<PathBuf, String> {
     let canonical = file_path
         .canonicalize()
         .map_err(|e| format!("Cannot resolve file path: {}", e))?;
+    if !is_markdown_extension(&canonical) {
+        return Err("Resolved file must be Markdown".to_string());
+    }
 
     Ok(canonical)
 }
@@ -1981,7 +1997,10 @@ fn validate_preview_create_path(path: &str) -> Result<PathBuf, String> {
     }) {
         return Err("Path traversal is not allowed".to_string());
     }
-    match file_path.extension().and_then(|extension| extension.to_str()) {
+    match file_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
         Some(extension)
             if extension.eq_ignore_ascii_case("md")
                 || extension.eq_ignore_ascii_case("markdown") => {}
@@ -2107,16 +2126,13 @@ async fn persist_recovery_snapshot(
     content: String,
     reason: String,
 ) -> Result<String, String> {
-    let recovery_root = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let recovery_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
-        write_recovery_snapshot(
-            &recovery_root,
-            &note_id,
-            &source_path,
-            &content,
-            &reason,
-        )
-        .map(|path| path.to_string_lossy().into_owned())
+        write_recovery_snapshot(&recovery_root, &note_id, &source_path, &content, &reason)
+            .map(|path| path.to_string_lossy().into_owned())
     })
     .await
     .map_err(|error| format!("Recovery snapshot task failed: {error}"))?
@@ -2130,7 +2146,10 @@ async fn write_draft_checkpoint(
     markdown: String,
     metadata: draft_checkpoint::DraftCheckpointMetadata,
 ) -> Result<(), String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let checkpoint = draft_checkpoint::DraftCheckpoint {
         key: draft_checkpoint::DraftCheckpointKey {
             window_label: window.label().to_string(),
@@ -2140,8 +2159,7 @@ async fn write_draft_checkpoint(
         metadata,
     };
     tauri::async_runtime::spawn_blocking(move || {
-        draft_checkpoint::write_checkpoint(app_data, &checkpoint)
-            .map_err(|error| error.to_string())
+        draft_checkpoint::write_checkpoint(app_data, &checkpoint).map_err(|error| error.to_string())
     })
     .await
     .map_err(|error| format!("Draft checkpoint task failed: {error}"))?
@@ -2153,7 +2171,10 @@ async fn get_draft_checkpoint(
     window: WebviewWindow,
     note_id: String,
 ) -> Result<Option<draft_checkpoint::DraftCheckpoint>, String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let key = draft_checkpoint::DraftCheckpointKey {
         window_label: window.label().to_string(),
         note_id,
@@ -2171,7 +2192,10 @@ async fn clear_draft_checkpoint(
     window: WebviewWindow,
     note_id: String,
 ) -> Result<(), String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let key = draft_checkpoint::DraftCheckpointKey {
         window_label: window.label().to_string(),
         note_id,
@@ -2188,7 +2212,10 @@ async fn list_draft_checkpoints(
     app: AppHandle,
     window: WebviewWindow,
 ) -> Result<Vec<draft_checkpoint::DraftCheckpoint>, String> {
-    let app_data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let window_label = window.label().to_string();
     tauri::async_runtime::spawn_blocking(move || {
         draft_checkpoint::list_checkpoints(app_data)
@@ -3867,9 +3894,16 @@ fn native_preferences_menu_spec() -> NativePreferencesMenuSpec {
     }
 }
 
-fn build_application_menu(
-    app_handle: &AppHandle,
-) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+fn preferences_submenu_target(os: &str, application_name: &str) -> (String, usize) {
+    match os {
+        "macos" => (application_name.to_string(), 1),
+        "windows" => ("File".to_string(), 0),
+        "linux" | "dragonfly" | "freebsd" | "netbsd" | "openbsd" => ("Help".to_string(), 0),
+        _ => ("File".to_string(), 0),
+    }
+}
+
+fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 
     let menu = Menu::default(app_handle)?;
@@ -3881,19 +3915,17 @@ fn build_application_menu(
         true,
         Some(spec.accelerator),
     )?;
-    let application_menu_name = app_handle
-        .config()
-        .product_name
-        .clone()
-        .unwrap_or_else(|| app_handle.package_info().name.clone());
+    let (target_submenu, insertion_index) =
+        preferences_submenu_target(std::env::consts::OS, &app_handle.package_info().name);
 
     for item in menu.items()? {
         let Some(submenu) = item.as_submenu() else {
             continue;
         };
-        if submenu.text()? == application_menu_name {
+        if submenu.text()? == target_submenu {
             let separator = PredefinedMenuItem::separator(app_handle)?;
-            submenu.insert_items(&[&preferences, &separator], 1)?;
+            submenu.insert_items(&[&preferences, &separator], insertion_index)?;
+            break;
         }
     }
 
@@ -3946,6 +3978,12 @@ fn runtime_window_config_from_template(
     runtime
 }
 
+fn first_window_template<T>(windows: &[T]) -> Result<&T, String> {
+    windows
+        .first()
+        .ok_or_else(|| "No window template is configured".to_string())
+}
+
 fn create_preferences_window(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("preferences") {
         let _ = window.show();
@@ -3953,8 +3991,9 @@ fn create_preferences_window(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
+    let template = first_window_template(&app.config().app.windows)?;
     let runtime_config = runtime_window_config_from_template(
-        &app.config().app.windows[0],
+        template,
         "preferences",
         WebviewUrl::App("index.html?mode=preferences".into()),
     );
@@ -4011,11 +4050,9 @@ fn create_preview_window(app: &AppHandle, file_path: &str) -> Result<(), String>
     let encoded_path = urlencoding::encode(file_path);
     let url = format!("index.html?mode=preview&file={}", encoded_path);
 
-    let runtime_config = runtime_window_config_from_template(
-        &app.config().app.windows[0],
-        &label,
-        WebviewUrl::App(url.into()),
-    );
+    let template = first_window_template(&app.config().app.windows)?;
+    let runtime_config =
+        runtime_window_config_from_template(template, &label, WebviewUrl::App(url.into()));
     let builder = WebviewWindowBuilder::from_config(app, &runtime_config)
         .map_err(|error| format!("Failed to configure preview window: {error}"))?
         .title(format!("{} — Scratch", filename))
@@ -4443,10 +4480,10 @@ fn set_title_bar_theme(
 #[cfg(test)]
 mod tests {
     use super::{
-        native_preferences_menu_spec, read_file_content_from_path,
-        recreate_file_content_to_path, save_file_content_to_path,
-        should_hide_main_window_for_standalone_preview, FileSaveResult,
-        Settings,
+        first_window_template, native_preferences_menu_spec, persist_git_enabled,
+        preferences_submenu_target, read_file_content_from_path, recreate_file_content_to_path,
+        save_file_content_to_path, should_hide_main_window_for_standalone_preview,
+        validate_preview_path, FileSaveResult, Settings,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -4460,8 +4497,7 @@ mod tests {
 
     impl StandaloneTestDirectory {
         fn new(name: &str) -> Self {
-            let sequence =
-                NEXT_STANDALONE_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let sequence = NEXT_STANDALONE_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
                 "scratch-standalone-{name}-{}-{sequence}",
                 std::process::id()
@@ -4516,11 +4552,69 @@ mod tests {
     }
 
     #[test]
+    fn git_setting_persistence_updates_memory_only_after_disk_save() {
+        let directory = StandaloneTestDirectory::new("git-setting");
+        let notes_folder = directory.path.to_string_lossy().into_owned();
+        let mut settings = Settings {
+            git_enabled: Some(false),
+            ..Settings::default()
+        };
+
+        persist_git_enabled(&notes_folder, &mut settings, Some(true)).expect("persist git setting");
+
+        assert_eq!(settings.git_enabled, Some(true));
+        let stored = super::load_settings(&notes_folder);
+        assert_eq!(stored.git_enabled, Some(true));
+    }
+
+    #[test]
+    fn git_setting_persistence_keeps_memory_when_disk_save_fails() {
+        let directory = StandaloneTestDirectory::new("git-setting-failure");
+        let blocked_path = directory.path.join("not-a-directory");
+        fs::write(&blocked_path, "blocking file").expect("write blocking file");
+        let notes_folder = blocked_path.to_string_lossy().into_owned();
+        let mut settings = Settings {
+            git_enabled: Some(false),
+            ..Settings::default()
+        };
+
+        persist_git_enabled(&notes_folder, &mut settings, Some(true))
+            .expect_err("disk save should fail");
+
+        assert_eq!(settings.git_enabled, Some(false));
+    }
+
+    #[test]
     fn preferences_menu_uses_the_native_shortcut() {
         let spec = native_preferences_menu_spec();
         assert_eq!(spec.id, "preferences");
         assert_eq!(spec.label, "Preferences…");
         assert_eq!(spec.accelerator, "CmdOrCtrl+,");
+    }
+
+    #[test]
+    fn preferences_menu_targets_platform_default_submenus() {
+        assert_eq!(
+            preferences_submenu_target("macos", "Scratch"),
+            ("Scratch".to_string(), 1),
+        );
+        assert_eq!(
+            preferences_submenu_target("windows", "Scratch"),
+            ("File".to_string(), 0),
+        );
+        assert_eq!(
+            preferences_submenu_target("linux", "Scratch"),
+            ("Help".to_string(), 0),
+        );
+    }
+
+    #[test]
+    fn window_template_lookup_returns_an_error_instead_of_panicking() {
+        assert_eq!(first_window_template(&["main"]).unwrap(), &"main");
+        assert_eq!(
+            first_window_template::<&str>(&[]).unwrap_err(),
+            "No window template is configured",
+        );
     }
 
     #[test]
@@ -4536,8 +4630,7 @@ mod tests {
         let path = directory.path.join("External.md");
         fs::write(&path, "# External\n\nOriginal").expect("write initial note");
         let loaded = read_file_content_from_path(&path).expect("read initial note");
-        fs::write(&path, "# External\n\nChanged outside Scratch")
-            .expect("write external edit");
+        fs::write(&path, "# External\n\nChanged outside Scratch").expect("write external edit");
 
         let result = save_file_content_to_path(
             &path,
@@ -4546,7 +4639,10 @@ mod tests {
         )
         .expect("return typed conflict");
 
-        assert!(matches!(result, FileSaveResult::Conflict { current: Some(_) }));
+        assert!(matches!(
+            result,
+            FileSaveResult::Conflict { current: Some(_) }
+        ));
         assert_eq!(
             fs::read_to_string(&path).expect("read preserved file"),
             "# External\n\nChanged outside Scratch"
@@ -4565,5 +4661,39 @@ mod tests {
         assert!(matches!(first, FileSaveResult::Saved { .. }));
         assert!(matches!(second, FileSaveResult::Conflict { .. }));
         assert_eq!(fs::read_to_string(path).unwrap(), "local draft");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn standalone_symlink_cannot_relabel_a_non_markdown_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = StandaloneTestDirectory::new("non-markdown-symlink");
+        let target = directory.path.join("secret.txt");
+        let alias = directory.path.join("secret.md");
+        fs::write(&target, "not markdown").expect("write target");
+        symlink(&target, &alias).expect("create symlink");
+
+        assert_eq!(
+            validate_preview_path(&alias.to_string_lossy()).unwrap_err(),
+            "Resolved file must be Markdown",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn standalone_symlink_to_markdown_resolves_to_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = StandaloneTestDirectory::new("markdown-symlink");
+        let target = directory.path.join("Plan.md");
+        let alias = directory.path.join("Alias.md");
+        fs::write(&target, "# Plan").expect("write target");
+        symlink(&target, &alias).expect("create symlink");
+
+        assert_eq!(
+            validate_preview_path(&alias.to_string_lossy()).unwrap(),
+            target.canonicalize().unwrap(),
+        );
     }
 }

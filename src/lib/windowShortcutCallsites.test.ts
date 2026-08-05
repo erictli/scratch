@@ -15,7 +15,9 @@ describe("global shortcut call sites", () => {
 
   it("recognizes a dedicated preferences window mode", () => {
     const source = readSource("src/App.tsx");
-    expect(source).toContain('mode === "preferences"');
+    expect(source).toContain('import { getWindowMode } from "./lib/windowMode"');
+    expect(source).toContain("getWindowMode(window.location.search)");
+    expect(source).toContain("if (isPreferences)");
     expect(source).toContain("<PreferencesApp");
   });
 

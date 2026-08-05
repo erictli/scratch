@@ -246,6 +246,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         // Clean up immediately on error to avoid leaving stale entries
         recentlySavedRef.current.delete(savingNoteId);
         if (updatedId) recentlySavedRef.current.delete(updatedId);
+        // Callers such as the safe-close workflow must know that persistence
+        // failed so they can create a recovery snapshot instead of clearing
+        // the dirty state and closing the window.
+        throw err;
       }
     },
     [currentNote, scheduleRefresh]

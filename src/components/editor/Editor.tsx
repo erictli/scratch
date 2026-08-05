@@ -74,10 +74,15 @@ import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { getTitleBarNoteInfoText } from "../../lib/titleBarNoteInfo";
 import type { ConflictResolutionStrategy } from "../../lib/conflictResolution";
+import {
+  choosePendingDraftRepresentation,
+  flushPendingDraftRepresentation,
+} from "../../lib/draftRepresentation";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
 import * as draftCheckpointService from "../../services/draftCheckpoint";
 import {
+  createDraftCheckpointSnapshot,
   createDraftCheckpointScheduler,
   nextCheckpointCaptureDelay,
   type DraftCheckpointScheduler,
@@ -117,6 +122,8 @@ import {
   MarkdownOffIcon,
   FolderPlusIcon,
 } from "../icons";
+
+const AUTO_SAVE_DEBOUNCE_MS = 300;
 
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -616,6 +623,8 @@ export function Editor({
   const isSidebarActive = sidebarVisible && !focusMode;
   // Source mode state
   const [sourceMode, setSourceMode] = useState(false);
+  const sourceModeRef = useRef(sourceMode);
+  sourceModeRef.current = sourceMode;
   const [sourceContent, setSourceContent] = useState("");
   const sourceTimeoutRef = useRef<number | null>(null);
   const sourceContentRef = useRef("");
@@ -670,6 +679,8 @@ export function Editor({
   notesRef.current = notes;
   const notesCtxRef = useRef(notesCtx);
   notesCtxRef.current = notesCtx;
+  const currentNoteRef = useRef(currentNote);
+  currentNoteRef.current = currentNote;
 
   // Keep ref in sync with current note ID
   currentNoteIdRef.current = currentNote?.id ?? null;
@@ -876,7 +887,7 @@ export function Editor({
           toast.error("Failed to save note");
         }
       }
-    }, 500);
+    }, AUTO_SAVE_DEBOUNCE_MS);
   }, [checkpointScheduler, saveImmediately, getMarkdown, currentNote?.id]);
 
   const flushSourceSave = useCallback(async () => {
@@ -900,46 +911,95 @@ export function Editor({
   }, [checkpointScheduler, saveImmediately]);
 
   const flushAllPendingSaves = useCallback(async () => {
-    if (sourceNeedsSaveRef.current) {
-      await flushSourceSave();
-      return;
-    }
-    await flushPendingSave();
+    await flushPendingDraftRepresentation(
+      sourceModeRef.current,
+      sourceNeedsSaveRef.current,
+      needsSaveRef.current,
+      {
+        discardSource: () => {
+          if (sourceTimeoutRef.current) {
+            clearTimeout(sourceTimeoutRef.current);
+            sourceTimeoutRef.current = null;
+          }
+          sourceNeedsSaveRef.current = false;
+          sourceSaveGenerationRef.current += 1;
+        },
+        discardFormatted: () => {
+          if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+          }
+          needsSaveRef.current = false;
+          saveGenerationRef.current += 1;
+        },
+        flushSource: flushSourceSave,
+        flushFormatted: flushPendingSave,
+      },
+    );
   }, [flushPendingSave, flushSourceSave]);
 
   const getOpenDraftSnapshot = useCallback(() => {
     const noteId = loadedNoteIdRef.current ?? currentNoteIdRef.current;
-    if (sourceMode) {
+    const representation = choosePendingDraftRepresentation(
+      sourceModeRef.current,
+      sourceNeedsSaveRef.current,
+      needsSaveRef.current,
+    );
+    const useSource =
+      representation === "source" ||
+      (representation === null && sourceModeRef.current);
+    if (useSource) {
       return {
         noteId,
         content: sourceContentRef.current,
-        dirty: sourceNeedsSaveRef.current,
+        dirty: representation !== null,
       };
     }
     return {
       noteId,
       content: editorRef.current ? getMarkdown(editorRef.current) : "",
-      dirty: needsSaveRef.current,
+      dirty: representation !== null,
     };
-  }, [getMarkdown, sourceMode]);
+  }, [getMarkdown]);
+  const flushAllPendingSavesRef = useRef(flushAllPendingSaves);
+  flushAllPendingSavesRef.current = flushAllPendingSaves;
 
   const persistCurrentCrashCheckpoint = useCallback(async () => {
     const draft = getOpenDraftSnapshot();
-    if (!draft.dirty || !draft.noteId || !currentNote) return;
-    checkpointScheduler.markDirty({
-      key: {
-        windowLabel: getCurrentWindow().label,
-        noteId: draft.noteId,
-      },
-      markdown: draft.content,
-      metadata: {
-        sourcePath: currentNote.path,
-        baseRevision: currentNote.revision ?? null,
-        updatedAt: new Date().toISOString(),
-      },
-    });
+    const checkpoint = createDraftCheckpointSnapshot(
+      getCurrentWindow().label,
+      draft,
+      currentNoteRef.current,
+      new Date().toISOString(),
+    );
+    if (!checkpoint) return;
+    checkpointScheduler.markDirty(checkpoint);
     await checkpointScheduler.flush();
-  }, [checkpointScheduler, currentNote, getOpenDraftSnapshot]);
+  }, [checkpointScheduler, getOpenDraftSnapshot]);
+  const persistCurrentCrashCheckpointRef = useRef(persistCurrentCrashCheckpoint);
+  persistCurrentCrashCheckpointRef.current = persistCurrentCrashCheckpoint;
+
+  useLayoutEffect(() => {
+    return () => {
+      const hasPendingSave =
+        needsSaveRef.current || sourceNeedsSaveRef.current;
+      if (hasPendingSave) {
+        void flushAllPendingSavesRef.current().catch(() => {
+          // Best-effort: ignore async failures during unmount
+        });
+      }
+      void persistCurrentCrashCheckpointRef.current().catch(() => {
+        // Best-effort: ignore async failures during unmount
+      });
+      if (checkpointCaptureTimerRef.current) {
+        clearTimeout(checkpointCaptureTimerRef.current);
+        checkpointCaptureTimerRef.current = null;
+        checkpointCaptureStartedAtRef.current = null;
+      }
+      checkpointSchedulerRef.current?.dispose();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   queueCheckpointCaptureRef.current = () => {
     const now = Date.now();
@@ -1675,9 +1735,15 @@ export function Editor({
       }
     }
 
-    // Flush any pending save before switching to a different note
-    if (!isSameNote && needsSaveRef.current) {
-      flushPendingSave();
+    // Flush the active representation before switching to a different note.
+    if (
+      !isSameNote &&
+      (needsSaveRef.current || sourceNeedsSaveRef.current)
+    ) {
+      void flushAllPendingSavesRef.current().catch((error) => {
+        console.error("Failed to save before switching notes:", error);
+        toast.error("Failed to save before switching notes");
+      });
     }
     // Reset source mode when genuinely switching notes (renames return early above)
     if (!isSameNote) {
@@ -2359,7 +2425,7 @@ export function Editor({
             setIsSaving(false);
           }
         }
-      }, 300);
+      }, AUTO_SAVE_DEBOUNCE_MS);
     },
     [checkpointScheduler, currentNote, saveNote],
   );

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createDraftCheckpointSnapshot,
   createDraftCheckpointScheduler,
   nextCheckpointCaptureDelay,
   reconcileDraftCheckpoint,
@@ -38,6 +39,38 @@ function deferred(): {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("createDraftCheckpointSnapshot", () => {
+  it("captures a dirty standalone note without requiring NotesContext", () => {
+    expect(
+      createDraftCheckpointSnapshot(
+        "preview-plan",
+        { noteId: "/external/Plan.md", content: "# Unsaved", dirty: true },
+        { path: "/external/Plan.md", revision: "disk-revision" },
+        "2026-08-04T15:00:00.000Z",
+      ),
+    ).toEqual({
+      key: { windowLabel: "preview-plan", noteId: "/external/Plan.md" },
+      markdown: "# Unsaved",
+      metadata: {
+        sourcePath: "/external/Plan.md",
+        baseRevision: "disk-revision",
+        updatedAt: "2026-08-04T15:00:00.000Z",
+      },
+    });
+  });
+
+  it("does not create a checkpoint for a clean draft", () => {
+    expect(
+      createDraftCheckpointSnapshot(
+        "preview-plan",
+        { noteId: "/external/Plan.md", content: "# Saved", dirty: false },
+        { path: "/external/Plan.md", revision: "disk-revision" },
+        "2026-08-04T15:00:00.000Z",
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("nextCheckpointCaptureDelay", () => {

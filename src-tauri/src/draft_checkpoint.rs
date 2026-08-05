@@ -4,8 +4,10 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime};
 
 pub const CHECKPOINT_DIRECTORY_NAME: &str = "draft-checkpoints";
+const CHECKPOINT_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 static NEXT_TEMPORARY_FILE: AtomicU64 = AtomicU64::new(0);
 
@@ -93,7 +95,16 @@ pub fn read_checkpoint(
     app_data_directory: impl AsRef<Path>,
     key: &DraftCheckpointKey,
 ) -> Result<Option<DraftCheckpoint>, DraftCheckpointError> {
-    let checkpoint_directory = checkpoint_directory(app_data_directory.as_ref());
+    read_checkpoint_at(app_data_directory.as_ref(), key, SystemTime::now())
+}
+
+fn read_checkpoint_at(
+    app_data_directory: &Path,
+    key: &DraftCheckpointKey,
+    now: SystemTime,
+) -> Result<Option<DraftCheckpoint>, DraftCheckpointError> {
+    prune_expired_checkpoints_at(app_data_directory, now);
+    let checkpoint_directory = checkpoint_directory(app_data_directory);
     let path = checkpoint_path(&checkpoint_directory, key);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -109,7 +120,9 @@ pub fn read_checkpoint(
 pub fn list_checkpoints(
     app_data_directory: impl AsRef<Path>,
 ) -> Result<Vec<DraftCheckpoint>, DraftCheckpointError> {
-    let checkpoint_directory = checkpoint_directory(app_data_directory.as_ref());
+    let app_data_directory = app_data_directory.as_ref();
+    prune_expired_checkpoints_at(app_data_directory, SystemTime::now());
+    let checkpoint_directory = checkpoint_directory(app_data_directory);
     let entries = match fs::read_dir(&checkpoint_directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -150,6 +163,45 @@ pub fn list_checkpoints(
     Ok(checkpoints)
 }
 
+fn prune_expired_checkpoints_at(app_data_directory: &Path, now: SystemTime) {
+    if let Some(cutoff) = now.checked_sub(CHECKPOINT_RETENTION) {
+        let _ = prune_checkpoints_older_than(app_data_directory, cutoff);
+    }
+}
+
+pub fn prune_checkpoints_older_than(
+    app_data_directory: impl AsRef<Path>,
+    cutoff: SystemTime,
+) -> Result<usize, DraftCheckpointError> {
+    let checkpoint_directory = checkpoint_directory(app_data_directory.as_ref());
+    let entries = match fs::read_dir(&checkpoint_directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error.into()),
+    };
+    let mut removed = 0;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let is_expired = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .map(|modified| modified < cutoff)
+            .unwrap_or(false);
+        if is_expired && fs::remove_file(path).is_ok() {
+            removed += 1;
+        }
+    }
+
+    if removed > 0 {
+        sync_parent_directory(&checkpoint_directory)?;
+    }
+    Ok(removed)
+}
+
 /// Idempotently removes only the selected checkpoint.
 pub fn clear_checkpoint(
     app_data_directory: impl AsRef<Path>,
@@ -181,7 +233,7 @@ fn checkpoint_file_name(key: &DraftCheckpointKey) -> String {
     identity.extend_from_slice(key.window_label.as_bytes());
     identity.extend_from_slice(&(key.note_id.len() as u64).to_be_bytes());
     identity.extend_from_slice(key.note_id.as_bytes());
-    format!("{}.json", hex_sha256(&identity))
+    format!("{}.json", crate::sha256::hex_digest(&identity))
 }
 
 fn ensure_identity_matches(
@@ -323,100 +375,121 @@ fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn hex_sha256(input: &[u8]) -> String {
-    let digest = sha256(input);
-    let mut hex = String::with_capacity(64);
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    for byte in digest {
-        hex.push(DIGITS[(byte >> 4) as usize] as char);
-        hex.push(DIGITS[(byte & 0x0f) as usize] as char);
-    }
-    hex
-}
+#[cfg(test)]
+mod tests {
+    use super::{
+        checkpoint_directory, checkpoint_path, list_checkpoints, prune_checkpoints_older_than,
+        read_checkpoint, read_checkpoint_at, write_checkpoint, DraftCheckpoint, DraftCheckpointKey,
+        DraftCheckpointMetadata, CHECKPOINT_RETENTION,
+    };
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-fn sha256(input: &[u8]) -> [u8; 32] {
-    const INITIAL: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-        0x5be0cd19,
-    ];
-    const ROUND_CONSTANTS: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
-        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
-        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
-        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
-        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
-        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-        0xc67178f2,
-    ];
-    let mut state = INITIAL;
-    let mut chunks = input.chunks_exact(64);
-    for chunk in &mut chunks {
-        sha256_compress(&mut state, chunk, &ROUND_CONSTANTS);
-    }
-    let remainder = chunks.remainder();
-    let mut tail = [0_u8; 128];
-    tail[..remainder.len()].copy_from_slice(remainder);
-    tail[remainder.len()] = 0x80;
-    let tail_length = if remainder.len() < 56 { 64 } else { 128 };
-    tail[tail_length - 8..tail_length]
-        .copy_from_slice(&(input.len() as u64).wrapping_mul(8).to_be_bytes());
-    for chunk in tail[..tail_length].chunks_exact(64) {
-        sha256_compress(&mut state, chunk, &ROUND_CONSTANTS);
-    }
-    let mut digest = [0_u8; 32];
-    for (output, word) in digest.chunks_exact_mut(4).zip(state) {
-        output.copy_from_slice(&word.to_be_bytes());
-    }
-    digest
-}
+    struct TestDirectory(PathBuf);
 
-fn sha256_compress(state: &mut [u32; 8], chunk: &[u8], constants: &[u32; 64]) {
-    let mut schedule = [0_u32; 64];
-    for (index, word) in chunk.chunks_exact(4).enumerate() {
-        schedule[index] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+    impl TestDirectory {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after Unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "scratch-checkpoint-retention-{}-{nonce}",
+                std::process::id(),
+            ));
+            fs::create_dir_all(&path).expect("create checkpoint test directory");
+            Self(path)
+        }
     }
-    for index in 16..64 {
-        let s0 = schedule[index - 15].rotate_right(7)
-            ^ schedule[index - 15].rotate_right(18)
-            ^ (schedule[index - 15] >> 3);
-        let s1 = schedule[index - 2].rotate_right(17)
-            ^ schedule[index - 2].rotate_right(19)
-            ^ (schedule[index - 2] >> 10);
-        schedule[index] = schedule[index - 16]
-            .wrapping_add(s0)
-            .wrapping_add(schedule[index - 7])
-            .wrapping_add(s1);
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
-    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
-    for index in 0..64 {
-        let big_s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-        let choice = (e & f) ^ ((!e) & g);
-        let temp1 = h
-            .wrapping_add(big_s1)
-            .wrapping_add(choice)
-            .wrapping_add(constants[index])
-            .wrapping_add(schedule[index]);
-        let big_s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-        let majority = (a & b) ^ (a & c) ^ (b & c);
-        let temp2 = big_s0.wrapping_add(majority);
-        h = g;
-        g = f;
-        f = e;
-        e = d.wrapping_add(temp1);
-        d = c;
-        c = b;
-        b = a;
-        a = temp1.wrapping_add(temp2);
+
+    fn checkpoint() -> DraftCheckpoint {
+        DraftCheckpoint {
+            key: DraftCheckpointKey {
+                window_label: "preview-note".to_string(),
+                note_id: "/note.md".to_string(),
+            },
+            markdown: "# Draft".to_string(),
+            metadata: DraftCheckpointMetadata {
+                source_path: "/note.md".to_string(),
+                base_revision: Some("revision".to_string()),
+                updated_at: "2026-08-04T12:00:00.000Z".to_string(),
+            },
+        }
     }
-    state[0] = state[0].wrapping_add(a);
-    state[1] = state[1].wrapping_add(b);
-    state[2] = state[2].wrapping_add(c);
-    state[3] = state[3].wrapping_add(d);
-    state[4] = state[4].wrapping_add(e);
-    state[5] = state[5].wrapping_add(f);
-    state[6] = state[6].wrapping_add(g);
-    state[7] = state[7].wrapping_add(h);
+
+    #[test]
+    fn retention_prunes_expired_checkpoints_and_keeps_recent_ones() {
+        let directory = TestDirectory::new();
+        let checkpoint = checkpoint();
+        write_checkpoint(&directory.0, &checkpoint).expect("write checkpoint");
+
+        let old_cutoff = UNIX_EPOCH + Duration::from_secs(1);
+        assert_eq!(
+            prune_checkpoints_older_than(&directory.0, old_cutoff).unwrap(),
+            0,
+        );
+        assert!(read_checkpoint(&directory.0, &checkpoint.key)
+            .unwrap()
+            .is_some());
+
+        let future_cutoff = SystemTime::now() + Duration::from_secs(1);
+        assert_eq!(
+            prune_checkpoints_older_than(&directory.0, future_cutoff).unwrap(),
+            1,
+        );
+        assert!(read_checkpoint(&directory.0, &checkpoint.key)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn reading_a_checkpoint_runs_the_retention_sweep() {
+        let directory = TestDirectory::new();
+        let checkpoint = checkpoint();
+        write_checkpoint(&directory.0, &checkpoint).expect("write checkpoint");
+
+        let after_retention = SystemTime::now() + CHECKPOINT_RETENTION + Duration::from_secs(1);
+
+        assert!(
+            read_checkpoint_at(&directory.0, &checkpoint.key, after_retention)
+                .unwrap()
+                .is_none()
+        );
+        assert!(list_checkpoints(&directory.0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn listing_skips_identity_mismatches_after_valid_deserialization() {
+        let directory = TestDirectory::new();
+        let original = checkpoint();
+        write_checkpoint(&directory.0, &original).expect("write checkpoint");
+        let path = checkpoint_path(&checkpoint_directory(&directory.0), &original.key);
+        let mut mismatched = original;
+        mismatched.key.note_id = "/different.md".to_string();
+        fs::write(&path, serde_json::to_vec(&mismatched).unwrap())
+            .expect("write mismatched checkpoint");
+
+        assert!(list_checkpoints(&directory.0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn corrupt_checkpoint_does_not_hide_a_valid_checkpoint() {
+        let directory = TestDirectory::new();
+        let valid = checkpoint();
+        write_checkpoint(&directory.0, &valid).expect("write valid checkpoint");
+        fs::write(
+            checkpoint_directory(&directory.0).join("corrupt.json"),
+            b"not-json",
+        )
+        .expect("write corrupt checkpoint");
+
+        assert_eq!(list_checkpoints(&directory.0).unwrap(), vec![valid]);
+    }
 }

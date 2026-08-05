@@ -1,4 +1,5 @@
-import { invoke, getCurrentWindow } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * Completes a close that the frontend already intercepted, flushed, and approved.
