@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import { Editor } from "@tiptap/core";
 import { TableKit } from "@tiptap/extension-table";
+import { TableMap } from "@tiptap/pm/tables";
 import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it } from "vitest";
 import { ScratchTableRow } from "./tableExtensions";
@@ -147,6 +148,67 @@ describe("normalizeNestedTablesInJson table integrity", () => {
     },
   ])("$name", ({ source }) => {
     expectValidTableIntegrity(source);
+  });
+
+  it("does not pad a row into a column occupied by a rowspan", () => {
+    const spanningCell = {
+      ...cell("Spans two rows"),
+      attrs: { colspan: 1, rowspan: 2, colwidth: null },
+    };
+    const source = documentWith(
+      table(
+        row(spanningCell, cell("Top right")),
+        row(cell("Bottom right")),
+      ),
+    );
+
+    const normalized = normalizeNestedTablesInJson(source);
+    const normalizedTable = normalized.content?.[0];
+
+    expect(normalizedTable?.content?.[0]?.content).toHaveLength(2);
+    expect(normalizedTable?.content?.[1]?.content).toHaveLength(1);
+    expect(sourceText(normalizedTable?.content?.[1] ?? {})).toBe(
+      "Bottom right",
+    );
+
+    const editor = new Editor({
+      extensions: [StarterKit, TableKit],
+      content: normalized,
+    });
+    try {
+      expect(TableMap.get(editor.state.doc.firstChild!).width).toBe(2);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("wraps wikilinks with adjacent inline content in a paragraph", () => {
+    const source = documentWith(
+      table(
+        row({
+          type: "tableCell",
+          content: [
+            { type: "text", text: "See " },
+            { type: "wikilink", attrs: { noteTitle: "Plan" } },
+            { type: "text", text: " now" },
+          ],
+        }),
+      ),
+    );
+
+    const normalizedCell = normalizeNestedTablesInJson(source).content?.[0]
+      ?.content?.[0]?.content?.[0];
+
+    expect(normalizedCell?.content).toEqual([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "See " },
+          { type: "wikilink", attrs: { noteTitle: "Plan" } },
+          { type: "text", text: " now" },
+        ],
+      },
+    ]);
   });
 
   it("normalizes a 100 x 20 table without rebuilding invalid descendants", () => {

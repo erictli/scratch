@@ -1,5 +1,6 @@
-import { Editor, type JSONContent } from "@tiptap/core";
+import { Editor, Extension, type JSONContent } from "@tiptap/core";
 import { TableKit } from "@tiptap/extension-table";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it } from "vitest";
 import { replaceEditorContentWithoutHistory } from "./editorHistory";
@@ -28,6 +29,46 @@ describe("editor note history", () => {
 
       expect(editor.commands.undo()).toBe(false);
       expect(editor.getText()).toBe(loadedContent);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("resets undo history without resetting unrelated plugin state", () => {
+    const stateKey = new PluginKey<number>("preservedAcrossNoteLoad");
+    const PreservedState = Extension.create({
+      name: "preservedState",
+      addProseMirrorPlugins() {
+        return [
+          new Plugin<number>({
+            key: stateKey,
+            state: {
+              init: () => 0,
+              apply: (transaction, value) =>
+                transaction.getMeta("increment-preserved-state")
+                  ? value + 1
+                  : value,
+            },
+          }),
+        ];
+      },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit, PreservedState],
+      content: "<p>Before</p>",
+    });
+
+    try {
+      editor.view.dispatch(
+        editor.state.tr.setMeta("increment-preserved-state", true),
+      );
+      expect(stateKey.getState(editor.state)).toBe(1);
+
+      replaceEditorContentWithoutHistory(editor, "<p>Loaded</p>");
+
+      expect(stateKey.getState(editor.state)).toBe(1);
+      expect(editor.commands.undo()).toBe(false);
+      expect(editor.getText()).toBe("Loaded");
     } finally {
       editor.destroy();
     }

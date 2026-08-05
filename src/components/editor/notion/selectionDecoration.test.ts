@@ -59,7 +59,7 @@ function syncNativeDOMHead(editor: Editor, head: number) {
 }
 
 const appStyles = readFileSync(
-  resolve(process.cwd(), "src/App.css"),
+  resolve(import.meta.dirname, "../../../App.css"),
   "utf8",
 );
 
@@ -213,10 +213,9 @@ describe("ScratchTextSelection", () => {
 
       const rightEvent = dispatchNativeSelectionKey(editor, "ArrowRight");
       expect(rightEvent.defaultPrevented).toBe(false);
-      // happy-dom has no keyboard-selection default. The browser owns the
-      // extension once Scratch leaves this event unhandled.
+      syncNativeDOMHead(editor, 19);
       expect(editor.state.selection.anchor).toBe(9);
-      expect(editor.state.selection.head).toBe(18);
+      expect(editor.state.selection.head).toBe(19);
     } finally {
       editor.destroy();
       mount.remove();
@@ -244,10 +243,9 @@ describe("ScratchTextSelection", () => {
 
       const leftEvent = dispatchNativeSelectionKey(editor, "ArrowLeft");
       expect(leftEvent.defaultPrevented).toBe(false);
-      // happy-dom has no keyboard-selection default. The browser owns the
-      // extension once Scratch leaves this event unhandled.
+      syncNativeDOMHead(editor, 1);
       expect(editor.state.selection.anchor).toBe(9);
-      expect(editor.state.selection.head).toBe(2);
+      expect(editor.state.selection.head).toBe(1);
     } finally {
       editor.destroy();
       mount.remove();

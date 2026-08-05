@@ -181,6 +181,14 @@ function selectTableAxis(
   if (!table || table.type.name !== "table" || table.childCount === 0) {
     return false;
   }
+  const columnCount = table.firstChild?.childCount ?? 0;
+  if (
+    !Number.isInteger(index) ||
+    index < 0 ||
+    (axis === "row" ? index >= table.childCount : index >= columnCount)
+  ) {
+    return false;
+  }
 
   const anchorPos =
     axis === "row"
@@ -1354,6 +1362,14 @@ export function TableControls({ editor }: { editor: Editor }) {
   const hasPinnedHeaderColumn = Boolean(
     tableNode && hasPinnedTableHeaderColumn(tableNode),
   );
+  const columnResizeIndex =
+    proximityTarget?.kind === "columnResize"
+      ? proximityTarget.index
+      : null;
+  const columnResizeRect =
+    columnResizeIndex === null
+      ? null
+      : layout.columnRects[columnResizeIndex] ?? null;
 
   return createPortal(
     <div className="notion-table-controls" aria-label="Table controls">
@@ -1798,26 +1814,24 @@ export function TableControls({ editor }: { editor: Editor }) {
           ) : null,
         )}
 
-      {proximityTarget?.kind === "columnResize" && (
+      {columnResizeIndex !== null && columnResizeRect && (
         <button
           type="button"
           className="notion-table-column-resize"
           style={{
             left:
-              viewportValueToInterface(
-                layout.columnRects[proximityTarget.index].right,
-              ) - 8,
+              viewportValueToInterface(columnResizeRect.right) - 8,
             top: viewportValueToInterface(layout.tableRect.top),
             height: viewportValueToInterface(layout.tableRect.height),
           }}
-          aria-label={`Resize column ${proximityTarget.index + 1}`}
+          aria-label={`Resize column ${columnResizeIndex + 1}`}
           title="Resize column"
           onMouseDown={(mouseEvent) => {
             mouseEvent.preventDefault();
             mouseEvent.stopPropagation();
           }}
           onPointerDown={(pointerEvent) =>
-            resizeColumn(pointerEvent, proximityTarget.index)
+            resizeColumn(pointerEvent, columnResizeIndex)
           }
         />
       )}

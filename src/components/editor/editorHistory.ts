@@ -1,11 +1,14 @@
 import type { Content, Editor } from "@tiptap/core";
+import { history } from "@tiptap/pm/history";
 import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
 import { normalizeNestedTablesInJson } from "./notion/tableIntegrity";
+
+const HISTORY_PLUGIN_KEY = history().spec.key;
 
 function normalizeLoadedContent(editor: Editor, content: Content): Content {
   if (typeof content === "string") {
-    const container = document.createElement("div");
+    const inertDocument = document.implementation.createHTMLDocument("");
+    const container = inertDocument.createElement("div");
     container.innerHTML = content;
     const parsed = ProseMirrorDOMParser.fromSchema(editor.schema).parse(container);
     return normalizeNestedTablesInJson(parsed.toJSON());
@@ -34,12 +37,13 @@ export function replaceEditorContentWithoutHistory(
   editor.commands.setContent(normalizeLoadedContent(editor, content));
 
   const loadedState = editor.state;
+  const pluginsWithoutHistory = loadedState.plugins.filter(
+    (plugin) => plugin.spec.key !== HISTORY_PLUGIN_KEY,
+  );
+  const stateWithoutHistory = loadedState.reconfigure({
+    plugins: pluginsWithoutHistory,
+  });
   editor.view.updateState(
-    EditorState.create({
-      schema: loadedState.schema,
-      doc: loadedState.doc,
-      selection: loadedState.selection,
-      plugins: loadedState.plugins,
-    }),
+    stateWithoutHistory.reconfigure({ plugins: loadedState.plugins }),
   );
 }

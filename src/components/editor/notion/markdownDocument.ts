@@ -8,11 +8,12 @@ import { normalizeTableBackgroundColor } from "./tableMetadata";
 const TABLE_METADATA_PATTERN =
   /^\s*<!--\s*scratch-table:(\{.*\})\s*-->\s*$/;
 const TABLE_DELIMITER_PATTERN =
-  /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+  /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/;
 const MIN_COLUMN_WIDTH = 25;
 const MAX_COLUMN_WIDTH = 4000;
 const MAX_TABLE_DIMENSION_COUNT = 256;
 const MAX_ENCODED_CELL_MARKDOWN_LENGTH = 16 * 1024 * 1024;
+const MAX_TOTAL_ENCODED_CELL_MARKDOWN_LENGTH = 4 * 1024 * 1024;
 
 interface MarkdownManagerLike {
   parse(markdown: string): JSONContent;
@@ -28,6 +29,16 @@ export interface TableGeometry {
   backgroundColors?: Array<Array<string | null>>;
   cellMarkdownBase64?: Array<Array<string | null>>;
   cellMarkdownSourceBase64?: Array<Array<string | null>>;
+}
+
+interface ParsedTableGeometry extends TableGeometry {
+  decodedCellMarkdown?: Array<Array<string | null>>;
+  decodedCellMarkdownSource?: Array<Array<string | null>>;
+}
+
+interface ParsedEncodedCellMatrix {
+  decoded: Array<Array<string | null>>;
+  encodedLength: number;
 }
 
 function encodeBase64Utf8(value: string): string {
@@ -70,29 +81,59 @@ function isSafeDimension(
 
 function parseEncodedCellMatrix(
   value: unknown,
-): Array<Array<string | null>> | null {
-  if (
-    !Array.isArray(value) ||
-    value.length > MAX_TABLE_DIMENSION_COUNT ||
-    !value.every(
-      (row) =>
-        Array.isArray(row) &&
-        row.length <= MAX_TABLE_DIMENSION_COUNT &&
-        row.every(
-          (entry) =>
-            entry === null ||
-            (typeof entry === "string" && decodeBase64Utf8(entry) !== null),
-        ),
-    )
-  ) {
+  remainingEncodedLength: number,
+): ParsedEncodedCellMatrix | null {
+  if (!Array.isArray(value) || value.length > MAX_TABLE_DIMENSION_COUNT) {
     return null;
   }
-  return value.map((row: unknown[]) =>
-    row.map((entry: unknown) => (typeof entry === "string" ? entry : null)),
-  );
+
+  const decoded: Array<Array<string | null>> = [];
+  let encodedLength = 0;
+
+  for (const row of value) {
+    if (!Array.isArray(row) || row.length > MAX_TABLE_DIMENSION_COUNT) {
+      return null;
+    }
+    const decodedRow: Array<string | null> = [];
+    for (const entry of row) {
+      if (entry === null) {
+        decodedRow.push(null);
+        continue;
+      }
+      if (typeof entry !== "string") return null;
+      encodedLength += entry.length;
+      if (encodedLength > remainingEncodedLength) return null;
+      const decodedEntry = decodeBase64Utf8(entry);
+      if (decodedEntry === null) return null;
+      decodedRow.push(decodedEntry);
+    }
+    decoded.push(decodedRow);
+  }
+
+  return { decoded, encodedLength };
 }
 
-function parseTableGeometry(value: string): TableGeometry | null {
+function assertSafeEncodedCellMetadata(
+  ...matrices: Array<Array<Array<string | null>>>
+): void {
+  let encodedLength = 0;
+  for (const matrix of matrices) {
+    for (const row of matrix) {
+      for (const entry of row) {
+        if (entry === null) continue;
+        if (entry.length > MAX_ENCODED_CELL_MARKDOWN_LENGTH) {
+          throw new Error("Table cell metadata exceeds the per-cell safety limit");
+        }
+        encodedLength += entry.length;
+        if (encodedLength > MAX_TOTAL_ENCODED_CELL_MARKDOWN_LENGTH) {
+          throw new Error("Table cell metadata exceeds the 4 MiB safety limit");
+        }
+      }
+    }
+  }
+}
+
+function parseTableGeometry(value: string): ParsedTableGeometry | null {
   try {
     const parsed = JSON.parse(value) as Partial<TableGeometry>;
     if (!Array.isArray(parsed.columns) || !Array.isArray(parsed.rows)) {
@@ -119,7 +160,7 @@ function parseTableGeometry(value: string): TableGeometry | null {
       return null;
     }
 
-    const geometry: TableGeometry = {
+    const geometry: ParsedTableGeometry = {
       columns: parsed.columns,
       rows: parsed.rows,
     };
@@ -142,15 +183,20 @@ function parseTableGeometry(value: string): TableGeometry | null {
         row.map((color) => normalizeTableBackgroundColor(color)),
       );
     }
-    const cellMarkdownBase64 = parseEncodedCellMatrix(
+    const cellMarkdown = parseEncodedCellMatrix(
       parsed.cellMarkdownBase64,
+      MAX_TOTAL_ENCODED_CELL_MARKDOWN_LENGTH,
     );
-    const cellMarkdownSourceBase64 = parseEncodedCellMatrix(
-      parsed.cellMarkdownSourceBase64,
-    );
-    if (cellMarkdownBase64) geometry.cellMarkdownBase64 = cellMarkdownBase64;
-    if (cellMarkdownSourceBase64) {
-      geometry.cellMarkdownSourceBase64 = cellMarkdownSourceBase64;
+    const cellMarkdownSource = cellMarkdown
+      ? parseEncodedCellMatrix(
+          parsed.cellMarkdownSourceBase64,
+          MAX_TOTAL_ENCODED_CELL_MARKDOWN_LENGTH -
+            cellMarkdown.encodedLength,
+        )
+      : null;
+    if (cellMarkdown && cellMarkdownSource) {
+      geometry.decodedCellMarkdown = cellMarkdown.decoded;
+      geometry.decodedCellMarkdownSource = cellMarkdownSource.decoded;
     }
 
     return geometry;
@@ -169,10 +215,11 @@ function isFenceClose(
   line: string,
   fence: { character: string; length: number },
 ): boolean {
-  const pattern = new RegExp(
-    `^\\s*${fence.character === "`" ? "`" : "~"}{${fence.length},}\\s*$`,
+  const trimmed = line.trim();
+  return (
+    trimmed.length >= fence.length &&
+    Array.from(trimmed).every((character) => character === fence.character)
   );
-  return pattern.test(line);
 }
 
 function isIndentedCodeLine(line: string): boolean {
@@ -189,6 +236,7 @@ function isTableStart(lines: string[], index: number): boolean {
     !isIndentedCodeLine(line) &&
     !isIndentedCodeLine(delimiter) &&
     line.includes("|") &&
+    delimiter.includes("|") &&
     TABLE_DELIMITER_PATTERN.test(delimiter)
   );
 }
@@ -307,6 +355,12 @@ function collectTableGeometries(
       const hasPreservedCellBlocks = cellMarkdownBase64.some((row) =>
         row.some((value) => value !== null),
       );
+      if (hasPreservedCellBlocks) {
+        assertSafeEncodedCellMetadata(
+          cellMarkdownBase64,
+          cellMarkdownSourceBase64,
+        );
+      }
       const fitToWidth = node.attrs?.fitToWidth === true;
       const hasMetadata =
         hasGeometry ||
@@ -402,13 +456,13 @@ function injectTableMetadata(
 
 function extractTableMetadata(markdown: string): {
   markdown: string;
-  geometries: Array<TableGeometry | null>;
+  geometries: Array<ParsedTableGeometry | null>;
 } {
   const lines = markdown.split("\n");
   const output: string[] = [];
-  const geometries: Array<TableGeometry | null> = [];
+  const geometries: Array<ParsedTableGeometry | null> = [];
   let activeFence: { character: string; length: number } | null = null;
-  let pendingGeometry: TableGeometry | null = null;
+  let pendingGeometry: ParsedTableGeometry | null = null;
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -458,19 +512,14 @@ function containsTableStructure(node: JSONContent): boolean {
 
 function parsePreservedCellBlocks(
   manager: MarkdownManagerLike,
-  encodedMarkdown: string | null | undefined,
-  encodedVisibleSource: string | null | undefined,
+  markdown: string | null | undefined,
+  visibleSource: string | null | undefined,
   visibleContent: JSONContent[] | undefined,
 ): JSONContent[] | null {
-  if (!encodedMarkdown || !encodedVisibleSource) return null;
-  if (
-    encodeBase64Utf8(JSON.stringify(visibleContent ?? [])) !==
-    encodedVisibleSource
-  ) {
+  if (!markdown || !visibleSource) return null;
+  if (JSON.stringify(visibleContent ?? []) !== visibleSource) {
     return null;
   }
-  const markdown = decodeBase64Utf8(encodedMarkdown);
-  if (markdown === null) return null;
   const content = manager.parse(markdown).content ?? [];
   if (content.length === 0 || content.some(containsTableStructure)) return null;
   return content;
@@ -479,7 +528,7 @@ function parsePreservedCellBlocks(
 function applyTableGeometry(
   manager: MarkdownManagerLike,
   table: JSONContent,
-  geometry: TableGeometry | null,
+  geometry: ParsedTableGeometry | null,
 ): JSONContent {
   if (!geometry) return table;
 
@@ -519,8 +568,10 @@ function applyTableGeometry(
         }
         const preservedContent = parsePreservedCellBlocks(
           manager,
-          geometry.cellMarkdownBase64?.[rowIndex]?.[currentColumnIndex],
-          geometry.cellMarkdownSourceBase64?.[rowIndex]?.[currentColumnIndex],
+          geometry.decodedCellMarkdown?.[rowIndex]?.[currentColumnIndex],
+          geometry.decodedCellMarkdownSource?.[rowIndex]?.[
+            currentColumnIndex
+          ],
           cell.content,
         );
 
@@ -555,7 +606,7 @@ function applyTableGeometry(
 function applyTableGeometries(
   manager: MarkdownManagerLike,
   document: JSONContent,
-  geometries: Array<TableGeometry | null>,
+  geometries: Array<ParsedTableGeometry | null>,
 ): JSONContent {
   let tableIndex = 0;
 
@@ -578,6 +629,7 @@ export function serializeMarkdownDocument(
   document: JSONContent,
 ): string {
   const markdown = manager.serialize(prepareTablesForMarkdown(document));
+  if (collectTables(document).length === 0) return markdown;
   const visibleDocument = manager.parse(markdown);
   return injectTableMetadata(
     markdown,

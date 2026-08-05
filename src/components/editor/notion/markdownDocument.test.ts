@@ -2,7 +2,7 @@ import { Editor, type JSONContent } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { TableKit } from "@tiptap/extension-table";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   parseMarkdownDocument,
   serializeMarkdownDocument,
@@ -463,6 +463,110 @@ describe("Scratch Markdown document adapter", () => {
     editor.destroy();
   });
 
+  it("ignores preserved-cell matrices whose aggregate payload exceeds the safety limit", () => {
+    const editor = createTableEditor();
+    const source: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "table",
+          content: [
+            {
+              type: "tableRow",
+              content: [cell("Label", "tableHeader"), cell("Value", "tableHeader")],
+            },
+            {
+              type: "tableRow",
+              content: [
+                cell("Structured cell"),
+                {
+                  type: "tableCell",
+                  content: [
+                    {
+                      type: "bulletList",
+                      content: [
+                        { type: "listItem", content: [paragraph("One")] },
+                        { type: "listItem", content: [paragraph("Two")] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const markdown = serializeMarkdownDocument(
+      editor.storage.markdown.manager,
+      source,
+    );
+    const metadataMatch = markdown.match(/<!-- scratch-table:(\{.*\}) -->/);
+    if (!metadataMatch) throw new Error("Expected structured-cell metadata");
+    const geometry = JSON.parse(metadataMatch[1]) as {
+      cellMarkdownBase64: Array<Array<string | null>>;
+      cellMarkdownSourceBase64: Array<Array<string | null>>;
+    };
+    const oversizedEntry = btoa("x".repeat(12_300));
+    geometry.cellMarkdownBase64.push(Array(256).fill(oversizedEntry));
+    geometry.cellMarkdownSourceBase64.push(Array(256).fill(btoa("[]")));
+    const oversizedMarkdown = markdown.replace(
+      metadataMatch[0],
+      `<!-- scratch-table:${JSON.stringify(geometry)} -->`,
+    );
+
+    const parsed = parseMarkdownDocument(
+      editor.storage.markdown.manager,
+      oversizedMarkdown,
+    );
+    const structuredCell = findTables(parsed)[0].content?.[1]?.content?.[1];
+
+    expect(structuredCell?.content?.[0]?.type).toBe("paragraph");
+
+    editor.destroy();
+  });
+
+  it("refuses to serialize preserved-cell metadata that cannot be reopened safely", () => {
+    const source: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "table",
+          content: [
+            {
+              type: "tableRow",
+              content: [
+                {
+                  type: "tableHeader",
+                  content: [
+                    {
+                      type: "bulletList",
+                      content: [
+                        { type: "listItem", content: [paragraph("Large")] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const manager = {
+      serialize: vi.fn((document: JSONContent) =>
+        findTables(document).length > 0
+          ? ["| Heading |", "| --- |"].join("\n")
+          : "x".repeat(3_200_000),
+      ),
+      parse: vi.fn(() => source),
+    };
+
+    expect(() => serializeMarkdownDocument(manager, source)).toThrow(
+      "Table cell metadata exceeds the 4 MiB safety limit",
+    );
+  });
+
   it("keeps an external visible-cell edit instead of restoring a stale structured sidecar", () => {
     const editor = createTableEditor();
     const source: JSONContent = {
@@ -538,6 +642,30 @@ describe("Scratch Markdown document adapter", () => {
     ).toEqual([150, 230]);
     expect(parsedTable.content?.[1]?.content?.[1]?.content?.[0]?.content?.[0]?.text)
       .toBe("Two");
+
+    editor.destroy();
+  });
+
+  it("applies metadata to a one-column Markdown table", () => {
+    const editor = createTableEditor();
+    const markdown = [
+      '<!-- scratch-table:{"columns":[210],"rows":[48,52]} -->',
+      "| Heading |",
+      "| --- |",
+      "| Value |",
+    ].join("\n");
+
+    const parsed = parseMarkdownDocument(editor.storage.markdown.manager, markdown);
+    const parsedTable = findTables(parsed)[0];
+
+    expect(parsedTable).toBeDefined();
+    expect(parsedTable.content?.map((row) => row.attrs?.rowHeight)).toEqual([
+      48,
+      52,
+    ]);
+    expect(parsedTable.content?.[0]?.content?.[0]?.attrs?.colwidth).toEqual([
+      210,
+    ]);
 
     editor.destroy();
   });
@@ -783,5 +911,20 @@ describe("Scratch Markdown document adapter", () => {
     expect(markdown).not.toContain("scratch-table:");
     expect(markdown).toContain("| Plain A");
     editor.destroy();
+  });
+
+  it("does not parse a serialized document again when it contains no tables", () => {
+    const manager = {
+      serialize: vi.fn(() => "Plain paragraph"),
+      parse: vi.fn(() => ({ type: "doc", content: [] })),
+    };
+
+    const markdown = serializeMarkdownDocument(manager, {
+      type: "doc",
+      content: [paragraph("Plain paragraph")],
+    });
+
+    expect(markdown).toBe("Plain paragraph");
+    expect(manager.parse).not.toHaveBeenCalled();
   });
 });
