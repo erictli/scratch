@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getInterfaceZoom,
   viewportValueToInterface,
@@ -19,8 +19,12 @@ describe("interface geometry under CSS zoom", () => {
 
   it("falls back to one for a missing or invalid zoom", () => {
     expect(getInterfaceZoom()).toBe(1);
-    document.documentElement.style.zoom = "invalid";
+    const getComputedStyleMock = vi
+      .spyOn(globalThis, "getComputedStyle")
+      .mockReturnValue({ zoom: "invalid" } as CSSStyleDeclaration);
     expect(getInterfaceZoom()).toBe(1);
     expect(viewportValueToInterface(120)).toBe(120);
+    expect(getComputedStyleMock).toHaveBeenCalledWith(document.documentElement);
+    getComputedStyleMock.mockRestore();
   });
 });

@@ -17,8 +17,10 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 mod draft_checkpoint;
+mod editor_image_open;
 mod git;
 mod persistence;
+mod sha256;
 mod watcher_debounce;
 
 use watcher_debounce::{WatcherDebounce, WATCHER_DEBOUNCE_WINDOW};
@@ -225,6 +227,9 @@ fn fallback_main_session(
         .get("main")
         .cloned()
         .unwrap_or_else(|| WindowSession::for_workspace(workspace.clone()));
+    if fallback.workspace != workspace {
+        fallback.selected_note_id = None;
+    }
     fallback.workspace = workspace;
     Some(fallback)
 }
@@ -257,26 +262,18 @@ fn forget_workspace(config: &mut AppConfig, path: &str) -> bool {
 
 static WORKSPACE_WINDOW_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static RECOVERY_SNAPSHOT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+pub(crate) const MAX_RECOVERY_NAME_ATTEMPTS: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct NativeNewWindowMenuSpec {
+struct NativeMenuItemSpec {
     parent_menu: &'static str,
     id: &'static str,
     label: &'static str,
     accelerator: &'static str,
 }
 
-fn native_new_window_menu_spec() -> NativeNewWindowMenuSpec {
-    NativeNewWindowMenuSpec {
-        parent_menu: "File",
-        id: "new-window",
-        label: "New Window",
-        accelerator: "CmdOrCtrl+Shift+N",
-    }
-}
-
-fn native_open_folder_menu_spec() -> NativeNewWindowMenuSpec {
-    NativeNewWindowMenuSpec {
+fn native_open_folder_menu_spec() -> NativeMenuItemSpec {
+    NativeMenuItemSpec {
         parent_menu: "File",
         id: "open-folder",
         label: "Open Folder…",
@@ -284,8 +281,8 @@ fn native_open_folder_menu_spec() -> NativeNewWindowMenuSpec {
     }
 }
 
-fn native_preferences_menu_spec() -> NativeNewWindowMenuSpec {
-    NativeNewWindowMenuSpec {
+fn native_preferences_menu_spec() -> NativeMenuItemSpec {
+    NativeMenuItemSpec {
         parent_menu: "Application",
         id: "preferences",
         label: "Preferences…",
@@ -312,42 +309,12 @@ fn focused_window_target<'a>(
     main.or(first)
 }
 
-fn new_window_event_target<'a>(
-    windows: impl IntoIterator<Item = (&'a str, bool)>,
-) -> Option<&'a str> {
-    let mut main = None;
-    let mut first_full_editor = None;
-
-    for (label, is_focused) in windows {
-        if label.starts_with("preview-") || label == "preferences" {
-            continue;
-        }
-        if is_focused {
-            return Some(label);
-        }
-        if label == "main" {
-            main = Some(label);
-        }
-        first_full_editor.get_or_insert(label);
-    }
-
-    main.or(first_full_editor)
-}
-
 fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
     let menu = Menu::default(app_handle)?;
-    let spec = native_new_window_menu_spec();
     let open_folder_spec = native_open_folder_menu_spec();
     let preferences_spec = native_preferences_menu_spec();
-    let new_window = MenuItem::with_id(
-        app_handle,
-        spec.id,
-        spec.label,
-        true,
-        Some(spec.accelerator),
-    )?;
     let open_folder = MenuItem::with_id(
         app_handle,
         open_folder_spec.id,
@@ -375,10 +342,10 @@ fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::
             continue;
         };
         let text = submenu.text()?;
-        if text == spec.parent_menu {
+        if text == open_folder_spec.parent_menu {
             has_file_menu = true;
             let separator = PredefinedMenuItem::separator(app_handle)?;
-            submenu.prepend_items(&[&open_folder, &new_window, &separator])?;
+            submenu.prepend_items(&[&open_folder, &separator])?;
         } else if text == application_menu_name {
             let separator = PredefinedMenuItem::separator(app_handle)?;
             submenu.insert_items(&[&preferences, &separator], 1)?;
@@ -389,37 +356,16 @@ fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::
         return Ok(menu);
     }
 
-    // Tauri omits a default File menu on a few Unix desktop targets.
-    // Keep the explicit new-window entry available there without replacing
-    // any of the other platform-native default menus.
+    // Tauri omits a default File menu on a few Unix desktop targets. Keep the
+    // explicit open-folder entry without replacing other native default menus.
     let file_menu = Submenu::with_items(
         app_handle,
-        spec.parent_menu,
+        open_folder_spec.parent_menu,
         true,
-        &[&open_folder, &new_window],
+        &[&open_folder],
     )?;
     menu.prepend(&file_menu)?;
     Ok(menu)
-}
-
-fn emit_native_new_window_request(app: &AppHandle) {
-    let window_states = app
-        .webview_windows()
-        .into_iter()
-        .map(|(label, window)| {
-            let is_focused = window.is_focused().unwrap_or(false);
-            (label, is_focused)
-        })
-        .collect::<Vec<_>>();
-    let target = new_window_event_target(
-        window_states
-            .iter()
-            .map(|(label, is_focused)| (label.as_str(), *is_focused)),
-    );
-
-    if let Some(label) = target {
-        let _ = app.emit_to(label, "open-folder-in-new-window", ());
-    }
 }
 
 fn emit_native_open_folder_request(app: &AppHandle) {
@@ -1258,9 +1204,10 @@ impl AppState {
             return Ok(WorkspaceRuntime::Main(self));
         }
 
-        self.workspace_session(window_label)
-            .map(WorkspaceRuntime::Session)
-            .ok_or_else(|| format!("Workspace session not found for window: {}", window_label))
+        Err(format!(
+            "Workspace session not found for window: {}",
+            window_label
+        ))
     }
 
     fn register_workspace_session(
@@ -2522,33 +2469,38 @@ fn save_note_to_path(
     }
 }
 
-fn write_recovery_snapshot(
-    recovery_root: &Path,
-    note_id: &str,
-    source_path: &str,
-    content: &str,
-    reason: &str,
-) -> Result<PathBuf, String> {
+pub(crate) struct RecoverySnapshotRequest<'a> {
+    pub recovery_root: &'a Path,
+    pub note_id: &'a str,
+    pub source_path: &'a str,
+    pub content: &'a str,
+    pub reason: &'a str,
+    pub timestamp: u128,
+    pub process_id: u32,
+}
+
+fn write_recovery_snapshot_with<NextSequence, Save>(
+    request: RecoverySnapshotRequest<'_>,
+    mut next_sequence: NextSequence,
+    mut save: Save,
+) -> Result<PathBuf, String>
+where
+    NextSequence: FnMut() -> u64,
+    Save: FnMut(&Path, &str) -> Result<persistence::SaveResult, String>,
+{
+    let RecoverySnapshotRequest {
+        recovery_root,
+        note_id,
+        source_path,
+        content,
+        reason,
+        timestamp,
+        process_id,
+    } = request;
     let recovery_directory = recovery_root.join("recovery");
     std::fs::create_dir_all(&recovery_directory).map_err(|error| error.to_string())?;
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    let sequence = RECOVERY_SNAPSHOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let safe_note_id = sanitize_filename(&note_id.replace('/', "-"));
     let safe_reason = sanitize_filename(reason);
-    let stem = format!("{timestamp}-{sequence}-{safe_reason}-{safe_note_id}");
-    let recovery_path = recovery_directory.join(format!("{stem}.md"));
-
-    match persistence::save_if_revision(&recovery_path, content, None)
-        .map_err(|error| error.to_string())?
-    {
-        persistence::SaveResult::Saved { .. } => {}
-        persistence::SaveResult::Conflict { .. } => {
-            return Err("Recovery snapshot path unexpectedly already exists".to_string());
-        }
-    }
 
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -2565,12 +2517,56 @@ fn write_recovery_snapshot(
         reason,
         created_at_ms: timestamp,
     };
-    if let Ok(metadata_content) = serde_json::to_string_pretty(&metadata) {
-        let metadata_path = recovery_directory.join(format!("{stem}.json"));
-        let _ = persistence::save_if_revision(&metadata_path, &metadata_content, None);
+
+    for _ in 0..MAX_RECOVERY_NAME_ATTEMPTS {
+        let sequence = next_sequence();
+        let stem = format!("{timestamp}-{process_id}-{sequence}-{safe_reason}-{safe_note_id}");
+        let recovery_path = recovery_directory.join(format!("{stem}.md"));
+
+        match save(&recovery_path, content)? {
+            persistence::SaveResult::Conflict { .. } => continue,
+            persistence::SaveResult::Saved { .. } => {
+                if let Ok(metadata_content) = serde_json::to_string_pretty(&metadata) {
+                    let metadata_path = recovery_directory.join(format!("{stem}.json"));
+                    let _ = save(&metadata_path, &metadata_content);
+                }
+                return Ok(recovery_path);
+            }
+        }
     }
 
-    Ok(recovery_path)
+    Err(format!(
+        "Recovery snapshot filename collision limit reached after {MAX_RECOVERY_NAME_ATTEMPTS} attempts"
+    ))
+}
+
+fn write_recovery_snapshot(
+    recovery_root: &Path,
+    note_id: &str,
+    source_path: &str,
+    content: &str,
+    reason: &str,
+) -> Result<PathBuf, String> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+
+    write_recovery_snapshot_with(
+        RecoverySnapshotRequest {
+            recovery_root,
+            note_id,
+            source_path,
+            content,
+            reason,
+            timestamp,
+            process_id: std::process::id(),
+        },
+        || RECOVERY_SNAPSHOT_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        |path, value| {
+            persistence::save_if_revision(path, value, None).map_err(|error| error.to_string())
+        },
+    )
 }
 
 #[tauri::command]
@@ -2936,8 +2932,47 @@ async fn delete_note(
     Ok(())
 }
 
+pub(crate) const MAX_CREATE_NOTE_ATTEMPTS: usize = 1_000;
+
+pub(crate) fn create_note_create_only(
+    folder_path: &Path,
+    sanitized_template: &str,
+    has_counter: bool,
+) -> Result<Note, String> {
+    for attempt in 0..MAX_CREATE_NOTE_ATTEMPTS {
+        let final_id = if has_counter {
+            sanitized_template.replace("{counter}", &(attempt + 1).to_string())
+        } else if attempt == 0 {
+            sanitized_template.to_string()
+        } else {
+            format!("{sanitized_template}-{attempt}")
+        };
+        let display_title = extract_title_from_id(&final_id);
+        let content = format!("# {display_title}\n\n");
+        let file_path = abs_path_from_id(folder_path, &final_id)?;
+
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+
+        match persistence::save_if_revision(&file_path, &content, None)
+            .map_err(|error| error.to_string())?
+        {
+            persistence::SaveResult::Saved { .. } => {
+                return read_note_from_path(final_id, &file_path);
+            }
+            persistence::SaveResult::Conflict { .. } => continue,
+        }
+    }
+
+    Err(format!(
+        "Could not create a unique note after {MAX_CREATE_NOTE_ATTEMPTS} attempts",
+    ))
+}
+
 #[tauri::command]
 async fn create_note(
+    app: AppHandle,
     target_folder: Option<String>,
     window: WebviewWindow,
     state: State<'_, AppState>,
@@ -2973,68 +3008,50 @@ async fn create_note(
         sanitized
     };
 
-    // Handle {counter} tag
+    // Handle {counter} tag. The final path is chosen atomically below.
     let has_counter = template.contains("{counter}");
-    let base_id = if has_counter {
-        sanitized.replace("{counter}", "1")
-    } else {
-        sanitized.clone()
-    };
-
-    let mut final_id = base_id.clone();
-    let mut counter = if has_counter { 2 } else { 1 };
-
-    // Ensure filename uniqueness
-    while abs_path_from_id(&folder_path, &final_id)
-        .map(|p| p.exists())
-        .unwrap_or(false)
-    {
-        if has_counter {
-            final_id = sanitized.replace("{counter}", &counter.to_string());
-        } else {
-            final_id = format!("{}-{}", base_id, counter);
-        }
-        counter += 1;
-    }
-
-    // Extract display title from filename
-    let display_title = extract_title_from_id(&final_id);
-
-    let content = format!("# {}\n\n", display_title);
-    let file_path = abs_path_from_id(&folder_path, &final_id)?;
-
-    // Create parent directories (for templates like {year}/{month}/{day})
-    if let Some(parent) = file_path.parent() {
-        fs::create_dir_all(parent)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-
-    fs::write(&file_path, &content)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let modified = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let create_folder = folder_path.clone();
+    let create_template = sanitized.clone();
+    let note = tauri::async_runtime::spawn_blocking(move || {
+        create_note_create_only(&create_folder, &create_template, has_counter)
+    })
+    .await
+    .map_err(|error| format!("Note create task failed: {error}"))??;
 
     // Update search index
     {
         let index = workspace.search_index().lock().expect("search index mutex");
         if let Some(ref search_index) = *index {
-            let _ = search_index.index_note(&final_id, &display_title, &content, modified);
+            let _ = search_index.index_note(&note.id, &note.title, &note.content, note.modified);
         }
     }
 
-    Ok(Note {
-        id: final_id,
-        title: display_title,
-        revision: persistence::content_revision(&content).to_string(),
-        content,
-        path: file_path.to_string_lossy().into_owned(),
-        modified,
-    })
+    let metadata = NoteMetadata {
+        id: note.id.clone(),
+        title: note.title.clone(),
+        preview: generate_preview(&note.content),
+        modified: note.modified,
+    };
+    {
+        let mut cache = workspace.notes_cache().write().expect("cache write lock");
+        cache.insert(metadata.id.clone(), metadata);
+    }
+
+    emit_workspace_file_change(
+        &app,
+        &state,
+        Path::new(&note.path),
+        semantic_file_change_event(
+            folder,
+            "created",
+            None,
+            Some(&note),
+            Some(window.label().to_string()),
+        ),
+        Some(window.label()),
+    );
+
+    Ok(note)
 }
 
 /// Validate a relative folder path against traversal attacks
@@ -3513,16 +3530,20 @@ async fn move_folder(
 
 #[tauri::command]
 fn get_settings(window: WebviewWindow, state: State<AppState>) -> Settings {
-    let workspace_settings = state
-        .workspace_for_window(window.label())
-        .map(|workspace| {
-            workspace
-                .settings()
-                .read()
-                .expect("settings read lock")
-                .clone()
-        })
-        .unwrap_or_default();
+    let workspace_settings = match state.workspace_for_window(window.label()) {
+        Ok(workspace) => workspace
+            .settings()
+            .read()
+            .expect("settings read lock")
+            .clone(),
+        Err(error) => {
+            eprintln!(
+                "Failed to route settings request for window '{}': {error}",
+                window.label()
+            );
+            WorkspaceSettings::default()
+        }
+    };
     let global_settings = state
         .app_config
         .read()
@@ -3664,11 +3685,11 @@ fn update_git_enabled(
 
     {
         let mut settings = workspace.settings().write().expect("settings write lock");
-        settings.git_enabled = enabled;
+        let mut updated = settings.clone();
+        updated.git_enabled = enabled;
+        save_settings(&folder, &updated).map_err(|error| error.to_string())?;
+        *settings = updated;
     }
-
-    let settings = workspace.settings().read().expect("settings read lock");
-    save_settings(&folder, &settings).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -3880,6 +3901,10 @@ async fn recreate_file_direct(path: String, content: String) -> Result<FileSaveR
     .map_err(|error| format!("Direct file recreation task failed: {error}"))?
 }
 
+fn import_selection_target(window_label: &str) -> &str {
+    window_label
+}
+
 #[tauri::command]
 async fn import_file_to_folder(
     app: AppHandle,
@@ -3975,12 +4000,14 @@ async fn import_file_to_folder(
         cache.insert(metadata.id.clone(), metadata.clone());
     }
 
-    // Tell the main window to select the imported note and focus it
-    let _ = app.emit_to("main", "select-note", &metadata.id);
-    if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.show();
-        let _ = main_window.set_focus();
-    }
+    // Keep selection and focus in the workspace window that initiated import.
+    let _ = app.emit_to(
+        import_selection_target(window.label()),
+        "select-note",
+        &metadata.id,
+    );
+    let _ = window.show();
+    let _ = window.set_focus();
 
     Ok(metadata)
 }
@@ -4454,27 +4481,35 @@ async fn copy_image_to_assets(
     // Sanitize the filename
     let sanitized_name = sanitize_filename(original_name);
 
-    // Create assets folder path
-    let assets_dir = PathBuf::from(&folder).join("assets");
+    // Keep imported files inside the canonical workspace even if an attacker
+    // replaces the assets directory with a symlink.
+    let canonical_workspace = fs::canonicalize(&folder)
+        .await
+        .map_err(|_| "Workspace folder is unavailable".to_string())?;
+    let assets_dir = canonical_workspace.join("assets");
     fs::create_dir_all(&assets_dir)
         .await
         .map_err(|e| e.to_string())?;
 
-    // Generate unique filename
-    let mut target_name = format!("{}.{}", sanitized_name, extension);
-    let mut counter = 1;
-    let mut target_path = assets_dir.join(&target_name);
-
-    while target_path.exists() {
-        target_name = format!("{}-{}.{}", sanitized_name, counter, extension);
-        target_path = assets_dir.join(&target_name);
-        counter += 1;
-    }
-
-    // Copy the file
-    fs::copy(&source, &target_path)
-        .await
-        .map_err(|_| "Failed to copy image".to_string())?;
+    let copy_source = source.clone();
+    let copy_name = sanitized_name.clone();
+    let copy_extension = ext_lower.clone();
+    let copy_workspace = canonical_workspace.clone();
+    let target_path = tauri::async_runtime::spawn_blocking(move || {
+        let canonical_assets = editor_image_open::canonical_workspace_assets(&copy_workspace)?;
+        editor_image_open::copy_image_to_assets_create_only(
+            &copy_source,
+            &canonical_assets,
+            &copy_name,
+            &copy_extension,
+        )
+    })
+    .await
+    .map_err(|error| format!("Image copy task failed: {error}"))??;
+    let target_name = target_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "Copied image filename is invalid".to_string())?;
 
     // Return both relative path and filename for frontend to construct the URL
     Ok(format!("assets/{}", target_name))
@@ -4565,6 +4600,23 @@ async fn open_in_file_manager(path: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[tauri::command]
+fn open_editor_image(
+    window: WebviewWindow,
+    source: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if !editor_image_open::editor_window_can_open_local_images(window.label()) {
+        return Err("Local images can only be opened from an editor window".to_string());
+    }
+
+    let workspace = state.workspace_for_window(window.label())?;
+    let workspace_path = PathBuf::from(workspace.notes_folder()?);
+    let image_path = editor_image_open::validate_editor_image_source(&source, &workspace_path)?;
+
+    open::that(&image_path).map_err(|error| format!("Failed to open image: {error}"))
 }
 
 #[tauri::command]
@@ -5962,9 +6014,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(build_application_menu)
         .on_menu_event(|app, event| {
-            if event.id() == native_new_window_menu_spec().id {
-                emit_native_new_window_request(app);
-            } else if event.id() == native_open_folder_menu_spec().id {
+            if event.id() == native_open_folder_menu_spec().id {
                 emit_native_open_folder_request(app);
             } else if event.id() == native_preferences_menu_spec().id {
                 if let Err(error) = create_preferences_window(app) {
@@ -6208,6 +6258,7 @@ pub fn run() {
             save_clipboard_image,
             open_folder_dialog,
             open_in_file_manager,
+            open_editor_image,
             open_url_safe,
             git_is_available,
             git_get_status,
@@ -6652,6 +6703,21 @@ mod window_session_tests {
     }
 
     #[test]
+    fn main_fallback_drops_selection_from_a_different_workspace() {
+        let mut config = AppConfig::default();
+        let mut previous = WindowSession::for_workspace("/notes/previous".to_string());
+        previous.selected_note_id = Some("Previous note".to_string());
+        config.records.insert("main".to_string(), previous);
+
+        let fallback =
+            fallback_main_session(&config, Some("/notes/current"), false, false, |_| true)
+                .expect("valid current workspace");
+
+        assert_eq!(fallback.workspace, "/notes/current");
+        assert_eq!(fallback.selected_note_id, None);
+    }
+
+    #[test]
     fn individual_close_removes_record_but_quit_preserves_open_records() {
         let mut config = AppConfig::default();
         upsert_window_session_workspace(&mut config, "main", "/notes/main".to_string());
@@ -6801,21 +6867,10 @@ mod window_chrome_tests {
 }
 
 #[cfg(test)]
-mod native_new_window_menu_tests {
+mod native_menu_tests {
     use super::{
-        focused_window_target, native_new_window_menu_spec, native_open_folder_menu_spec,
-        native_preferences_menu_spec, new_window_event_target,
+        focused_window_target, native_open_folder_menu_spec, native_preferences_menu_spec,
     };
-
-    #[test]
-    fn file_menu_exposes_new_window_with_the_requested_shortcut() {
-        let spec = native_new_window_menu_spec();
-
-        assert_eq!(spec.parent_menu, "File");
-        assert_eq!(spec.id, "new-window");
-        assert_eq!(spec.label, "New Window");
-        assert_eq!(spec.accelerator, "CmdOrCtrl+Shift+N");
-    }
 
     #[test]
     fn native_menus_expose_open_folder_and_preferences() {
@@ -6829,25 +6884,6 @@ mod native_new_window_menu_tests {
         assert_eq!(preferences.id, "preferences");
         assert_eq!(preferences.label, "Preferences…");
         assert_eq!(preferences.accelerator, "CmdOrCtrl+,");
-    }
-
-    #[test]
-    fn native_new_window_action_targets_one_full_editor_window() {
-        let windows = [
-            ("main", false),
-            ("workspace-client", true),
-            ("preview-note", false),
-        ];
-        assert_eq!(
-            new_window_event_target(windows.iter().copied()),
-            Some("workspace-client")
-        );
-
-        let preview_focused = [("main", false), ("preview-note", true)];
-        assert_eq!(
-            new_window_event_target(preview_focused.iter().copied()),
-            Some("main")
-        );
     }
 
     #[test]
@@ -6869,7 +6905,7 @@ mod workspace_registry_tests {
 
     use super::{
         build_workspace_infos, ensure_shared_resource, forget_workspace, get_or_initialize_shared,
-        note_change_targets, remember_workspace, save_note_in_workspace,
+        import_selection_target, note_change_targets, remember_workspace, save_note_in_workspace,
         semantic_file_change_event, uses_default_workspace_fallback, workspace_is_remembered,
         workspace_window_label, AppConfig, AppState, WindowSession, WorkspaceBindings,
         WorkspaceRuntime, WorkspaceSession,
@@ -6996,6 +7032,15 @@ mod workspace_registry_tests {
     }
 
     #[test]
+    fn imported_note_selection_targets_only_the_invoking_workspace_window() {
+        assert_eq!(
+            import_selection_target("workspace-client-a"),
+            "workspace-client-a",
+        );
+        assert_ne!(import_selection_target("workspace-client-a"), "main");
+    }
+
+    #[test]
     fn semantic_rename_event_carries_both_ids_and_new_revision() {
         let note = super::Note {
             id: "Archive/Plan".to_string(),
@@ -7019,6 +7064,32 @@ mod workspace_registry_tests {
         assert_eq!(event.current_id.as_deref(), Some("Archive/Plan"));
         assert_eq!(event.revision.as_deref(), Some("revision-2"));
         assert_eq!(event.path, "/notes/Archive/Plan.md");
+    }
+
+    #[test]
+    fn semantic_created_event_carries_the_new_id_and_revision() {
+        let note = super::Note {
+            id: "Untitled".to_string(),
+            title: "Untitled".to_string(),
+            content: "# Untitled\n\n".to_string(),
+            path: "/notes/Untitled.md".to_string(),
+            modified: 1,
+            revision: "created-revision".to_string(),
+        };
+
+        let event = semantic_file_change_event(
+            "/notes".to_string(),
+            "created",
+            None,
+            Some(&note),
+            Some("main".to_string()),
+        );
+
+        assert_eq!(event.kind, "created");
+        assert_eq!(event.changed_ids, vec!["Untitled"]);
+        assert_eq!(event.previous_id, None);
+        assert_eq!(event.current_id.as_deref(), Some("Untitled"));
+        assert_eq!(event.revision.as_deref(), Some("created-revision"));
     }
 
     #[test]

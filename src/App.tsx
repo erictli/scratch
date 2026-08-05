@@ -37,7 +37,10 @@ import { isMac, isWindows } from "./lib/platform";
 import { shouldSyncMainFolderLocation } from "./lib/workspace";
 import { runSafeWindowClose } from "./lib/windowClose";
 import { useWindowSessionPersistence } from "./lib/useWindowSessionPersistence";
-import { closeWindowAfterSave } from "./services/windowLifecycle";
+import {
+  closeWindowAfterSave,
+  requestWindowClose,
+} from "./services/windowLifecycle";
 import { useWindowShortcuts } from "./lib/useWindowShortcuts";
 
 // Detect preview mode from URL search params
@@ -121,12 +124,13 @@ function AppContent() {
         },
       })
         .then((result) => {
-          if (result.recoveredTo) {
+          if (result.recoveredTo && !disposed) {
             toast.warning(`Draft recovered to ${result.recoveredTo}`);
           }
         })
         .catch((error) => {
           closeInProgressRef.current = false;
+          console.error("Failed to close window safely:", error);
           if (!disposed) {
             toast.error(
               `Window kept open because the draft could not be saved: ${error}`,
@@ -191,11 +195,27 @@ function AppContent() {
     setView((previous) => (previous === "settings" ? "notes" : "settings"));
   }, [flushCurrentDraft, view]);
 
+  const openSettings = useCallback(async () => {
+    if (view === "settings") return;
+
+    try {
+      await flushCurrentDraft();
+    } catch (error) {
+      console.error("Failed to flush draft before opening settings:", error);
+      toast.error(
+        "Settings were not opened because the draft could not be saved.",
+      );
+      return;
+    }
+
+    setView("settings");
+  }, [flushCurrentDraft, view]);
+
   const closeSettings = useCallback(() => {
     setView("notes");
   }, []);
 
-  useWindowShortcuts({ onOpenPreferences: toggleSettings });
+  useWindowShortcuts({ onOpenPreferences: openSettings });
 
   // Go back to command palette from AI modal
   const handleBackToPalette = useCallback(() => {
@@ -698,7 +718,7 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
         e.preventDefault();
-        getCurrentWindow().close().catch(console.error);
+        requestWindowClose().catch(console.error);
       }
     };
     window.addEventListener("keydown", handleKeyDown);

@@ -2,6 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { closeWindowAfterSave } from "./windowLifecycle";
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: vi.fn(() => ({ close: vi.fn() })),
+}));
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));

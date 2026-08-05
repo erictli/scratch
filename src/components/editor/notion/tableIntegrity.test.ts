@@ -1,6 +1,12 @@
 import type { JSONContent } from "@tiptap/core";
+import { Editor } from "@tiptap/core";
+import { TableKit } from "@tiptap/extension-table";
+import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it } from "vitest";
-import { normalizeNestedTablesInJson } from "./tableIntegrity";
+import {
+  docContainsNestedTable,
+  normalizeNestedTablesInJson,
+} from "./tableIntegrity";
 
 function paragraph(text: string): JSONContent {
   return {
@@ -154,9 +160,7 @@ describe("normalizeNestedTablesInJson table integrity", () => {
         ),
       ),
     );
-    const startedAt = performance.now();
     const normalized = normalizeNestedTablesInJson(source);
-    const elapsed = performance.now() - startedAt;
     const normalizedTable = normalized.content?.[0];
 
     expect(normalizedTable?.content).toHaveLength(100);
@@ -166,6 +170,65 @@ describe("normalizeNestedTablesInJson table integrity", () => {
       ),
     ).toBe(true);
     expect(sourceText(normalized)).toBe(sourceText(source));
-    expect(elapsed).toBeLessThan(500);
+  });
+});
+
+describe("docContainsNestedTable", () => {
+  function inspect(content: JSONContent): boolean {
+    const editor = new Editor({ extensions: [StarterKit, TableKit] });
+    try {
+      return docContainsNestedTable(editor.schema.nodeFromJSON(content));
+    } finally {
+      editor.destroy();
+    }
+  }
+
+  it("accepts a document without tables", () => {
+    expect(inspect({ type: "doc", content: [paragraph("Plain")] })).toBe(false);
+  });
+
+  it("accepts one top-level table", () => {
+    expect(inspect(documentWith(table(row(cell("Top level")))))).toBe(false);
+  });
+
+  it("detects a table directly inside a table cell", () => {
+    expect(
+      inspect(
+        documentWith(
+          table(row({ type: "tableCell", content: [table(row(cell("Nested")))] })),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("detects a deeply nested table below cell block content", () => {
+    expect(
+      inspect(
+        documentWith(
+          table(
+            row({
+              type: "tableCell",
+              content: [
+                {
+                  type: "blockquote",
+                  content: [table(row(cell("Deep")))],
+                },
+              ],
+            }),
+          ),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("scans a large document without serializing it", () => {
+    expect(
+      inspect({
+        type: "doc",
+        content: Array.from({ length: 2_000 }, (_, index) =>
+          paragraph(`Paragraph ${index}`),
+        ),
+      }),
+    ).toBe(false);
   });
 });

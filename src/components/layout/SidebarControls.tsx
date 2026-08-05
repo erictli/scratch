@@ -41,7 +41,6 @@ export function NoteSortMenu({
           className="z-50 min-w-44 rounded-md border border-border bg-bg py-1 shadow-lg"
           sideOffset={5}
           align="end"
-          onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <DropdownMenu.Label className="px-3 py-1 text-xs font-medium text-text-muted">
             Sort notes

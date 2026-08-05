@@ -12,8 +12,14 @@ import * as notesService from "../../services/notes";
 import * as draftCheckpointService from "../../services/draftCheckpoint";
 import { createSerializedTaskQueue } from "../../lib/serializedWriter";
 import { runSafeWindowClose } from "../../lib/windowClose";
-import { flushDirtyDraftBeforeReload } from "../../lib/standaloneReload";
-import { recreateDeletedStandaloneDraft } from "../../lib/standaloneRecreation";
+import {
+  flushDirtyDraftBeforeReload,
+  loadStandalonePreviewState,
+} from "../../lib/standaloneReload";
+import {
+  StandaloneRecreationConflictError,
+  recreateDeletedStandaloneDraft,
+} from "../../lib/standaloneRecreation";
 import {
   runConflictResolution,
   type ConflictResolutionStrategy,
@@ -21,6 +27,7 @@ import {
 import {
   closeWindowAfterSave,
   openPreferencesWindow,
+  requestWindowClose,
 } from "../../services/windowLifecycle";
 import { useWindowShortcuts } from "../../lib/useWindowShortcuts";
 
@@ -33,6 +40,9 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
   const [title, setTitle] = useState("");
   const [modified, setModified] = useState(0);
   const [revision, setRevision] = useState("");
+  const recreationConflictRef = useRef<
+    { content: string; revision: string } | null
+  >(null);
   const [hasExternalChanges, setHasExternalChanges] = useState(false);
   const [hasSaveConflict, setHasSaveConflict] = useState(false);
   const [reloadVersion, setReloadVersion] = useState(0);
@@ -80,14 +90,21 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
           });
         },
         closeWindow: closeWindowAfterSave,
-      }).catch((error) => {
-        closeInProgressRef.current = false;
-        if (!disposed) {
-          toast.error(
-            `Window kept open because the draft could not be saved: ${error}`,
-          );
-        }
-      });
+      })
+        .then((result) => {
+          if (result.recoveredTo && !disposed) {
+            toast.warning(`Draft recovered to ${result.recoveredTo}`);
+          }
+        })
+        .catch((error) => {
+          closeInProgressRef.current = false;
+          console.error("Failed to close standalone window safely:", error);
+          if (!disposed) {
+            toast.error(
+              `Window kept open because the draft could not be saved: ${error}`,
+            );
+          }
+        });
     }).then((removeListener) => {
       if (disposed) removeListener();
       else unlisten = removeListener;
@@ -101,12 +118,18 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
 
   // Load file on mount
   useEffect(() => {
-    filesService
-      .readFileDirect(filePath)
-      .then(async (result) => {
-        const checkpoint = await draftCheckpointService
-          .getDraftCheckpoint(filePath)
-          .catch(() => null);
+    let cancelled = false;
+
+    const loadFile = async () => {
+      try {
+        const loaded = await loadStandalonePreviewState(
+          filePath,
+          filesService.readFileDirect,
+          draftCheckpointService.getDraftCheckpoint,
+          () => cancelled,
+        );
+        if (!loaded) return;
+        const { file: result, checkpoint } = loaded;
         const recovered =
           checkpoint && checkpoint.markdown !== result.content
             ? checkpoint.markdown
@@ -118,18 +141,24 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
         setRevision(result.revision);
         if (checkpoint && checkpoint.markdown === result.content) {
           await draftCheckpointService
-            .clearDraftCheckpoint(checkpoint.key)
+            .clearDraftCheckpoint(checkpoint.key.noteId)
             .catch(() => undefined);
         } else if (checkpoint) {
           setHasExternalChanges(true);
           setHasSaveConflict(true);
           toast.warning("Recovered an unsaved draft from an interrupted session");
         }
-      })
-      .catch((error) => {
+      } catch (error) {
+        if (cancelled) return;
         console.error("Failed to load file:", error);
         toast.error(`Failed to load file: ${error}`);
-      });
+      }
+    };
+
+    void loadFile();
+    return () => {
+      cancelled = true;
+    };
   }, [filePath]);
 
   // Listen for window focus to detect external changes
@@ -211,7 +240,16 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
       try {
         remote = await filesService.readFileDirect(filePath);
       } catch {
-        remote = null;
+        const concurrent = recreationConflictRef.current;
+        remote = concurrent
+          ? {
+              path: filePath,
+              content: concurrent.content,
+              title,
+              modified,
+              revision: concurrent.revision,
+            }
+          : null;
       }
 
       const applyFile = (file: filesService.FileContent) => {
@@ -222,6 +260,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
         setRevision(file.revision);
         setHasExternalChanges(false);
         setHasSaveConflict(false);
+        recreationConflictRef.current = null;
         setReloadVersion((version) => version + 1);
       };
 
@@ -248,12 +287,21 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
             applyFile(result.file);
           },
           recreateDeleted: async (localDraft) => {
-            const recreated = await recreateDeletedStandaloneDraft(
-              filePath,
-              localDraft.content,
-              filesService.recreateFileDirect,
-            );
-            applyFile(recreated);
+            try {
+              const recreated = await recreateDeletedStandaloneDraft(
+                filePath,
+                localDraft.content,
+                filesService.recreateFileDirect,
+              );
+              applyFile(recreated);
+            } catch (error) {
+              if (error instanceof StandaloneRecreationConflictError) {
+                recreationConflictRef.current = error.current;
+                setHasExternalChanges(true);
+                setHasSaveConflict(true);
+              }
+              throw error;
+            }
           },
           acceptRemote: async (current) => {
             if (!current) {
@@ -265,12 +313,9 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
           },
         },
       );
-      await draftCheckpointService.clearDraftCheckpoint({
-        windowLabel: "",
-        noteId: filePath,
-      });
+      await draftCheckpointService.clearDraftCheckpoint(filePath);
     },
-    [filePath],
+    [filePath, modified, title],
   );
 
   // Listen for preview-file-change events
@@ -356,7 +401,7 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
     try {
       await filesService.importFileToFolder(filePath);
       // Backend emits select-note + focuses main window; close this preview
-      await getCurrentWindow().close();
+      await requestWindowClose();
     } catch (error) {
       console.error("Failed to save to folder:", error);
       toast.error(`Failed to save to folder: ${error}`);

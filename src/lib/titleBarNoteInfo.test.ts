@@ -59,6 +59,16 @@ describe("updateTitleBarNoteInfoVisibility", () => {
       ),
     ).toEqual({ modifiedDateVisible: false, filenameVisible: false });
   });
+
+  it("does not restore the modification date when filename is hidden", () => {
+    expect(
+      updateTitleBarNoteInfoVisibility(
+        { modifiedDateVisible: false, filenameVisible: true },
+        "filename",
+        false,
+      ),
+    ).toEqual({ modifiedDateVisible: false, filenameVisible: false });
+  });
 });
 
 describe("getFilenameFromPath", () => {

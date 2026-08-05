@@ -63,6 +63,22 @@ describe("runSafeWindowClose", () => {
     expect(closeWindow).not.toHaveBeenCalled();
   });
 
+  it("keeps the window open when recovery returns no durable path", async () => {
+    const closeWindow = vi.fn(async () => undefined);
+
+    await expect(
+      runSafeWindowClose({
+        flushDraft: async () => {
+          throw new Error("storage offline");
+        },
+        persistRecovery: async () => undefined,
+        closeWindow,
+      }),
+    ).rejects.toThrow("storage offline");
+
+    expect(closeWindow).not.toHaveBeenCalled();
+  });
+
   it("does not treat a native close failure as a save failure", async () => {
     const persistRecovery = vi.fn(async () => "/recovery/Plan.md");
     const closeWindow = vi.fn(async () => {

@@ -24,6 +24,13 @@ function createTableEditor() {
   });
 }
 
+function encodeUtf8Base64(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 function paragraph(text: string): JSONContent {
   return { type: "paragraph", content: [{ type: "text", text }] };
 }
@@ -577,11 +584,20 @@ describe("Scratch Markdown document adapter", () => {
     const nestedTableMarkdown = btoa(
       ["| Nested | Table |", "| --- | --- |", "| One | Two |"].join("\n"),
     );
+    const visibleSource = btoa(
+      JSON.stringify([
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "Safe A" }],
+        },
+      ]),
+    );
     const markdown = [
       `<!-- scratch-table:${JSON.stringify({
         columns: [],
         rows: [],
         cellMarkdownBase64: [[nestedTableMarkdown, null], [null, null]],
+        cellMarkdownSourceBase64: [[visibleSource, null], [null, null]],
       })} -->`,
       "| Safe A | Safe B |",
       "| --- | --- |",
@@ -596,6 +612,53 @@ describe("Scratch Markdown document adapter", () => {
       tables[0].content?.[0]?.content?.[0]?.content?.[0]?.content?.[0]?.text,
     ).toBe("Safe A");
 
+    editor.destroy();
+  });
+
+  it("ignores malformed Base64 preserved-cell metadata", () => {
+    const editor = createTableEditor();
+    const markdown = [
+      `<!-- scratch-table:${JSON.stringify({
+        columns: [],
+        rows: [],
+        cellMarkdownBase64: [["%%%not-base64%%%", null], [null, null]],
+        cellMarkdownSourceBase64: [["also-invalid", null], [null, null]],
+      })} -->`,
+      "| Safe A | Safe B |",
+      "| --- | --- |",
+      "| Keep me | Keep me too |",
+    ].join("\n");
+
+    const parsed = parseMarkdownDocument(editor.storage.markdown.manager, markdown);
+    expect(
+      findTables(parsed)[0].content?.[0]?.content?.[0]?.content?.[0]?.content?.[0]?.text,
+    ).toBe("Safe A");
+    editor.destroy();
+  });
+
+  it("decodes valid Unicode preserved-cell metadata", () => {
+    const editor = createTableEditor();
+    const visibleContent = [paragraph("Safe A")];
+    const markdown = [
+      `<!-- scratch-table:${JSON.stringify({
+        columns: [],
+        rows: [],
+        cellMarkdownBase64: [[encodeUtf8Base64("**Été**"), null], [null, null]],
+        cellMarkdownSourceBase64: [[
+          encodeUtf8Base64(JSON.stringify(visibleContent)),
+          null,
+        ], [null, null]],
+      })} -->`,
+      "| Safe A | Safe B |",
+      "| --- | --- |",
+      "| Keep me | Keep me too |",
+    ].join("\n");
+
+    const parsed = parseMarkdownDocument(editor.storage.markdown.manager, markdown);
+    const firstText = findTables(parsed)[0].content?.[0]?.content?.[0]
+      ?.content?.[0]?.content?.[0];
+    expect(firstText?.text).toBe("Été");
+    expect(firstText?.marks).toEqual([{ type: "bold" }]);
     editor.destroy();
   });
 

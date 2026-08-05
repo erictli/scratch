@@ -3,8 +3,10 @@ import { Editor } from "@tiptap/core";
 import Image from "@tiptap/extension-image";
 import StarterKit from "@tiptap/starter-kit";
 import {
+  createImageDragScaleFactorController,
   filterSupportedImagePaths,
   importDroppedImagePaths,
+  isPointInsideRect,
   physicalToLogicalPoint,
   resolveBlockDropTarget,
   resolveEditorBlockDropTarget,
@@ -40,6 +42,91 @@ describe("image drag and drop adapter", () => {
     });
   });
 
+  it("caches one scale-factor lookup for each native image drag", async () => {
+    const scaleFactorRef = { current: 1 };
+    const loadScaleFactor = vi
+      .fn<() => Promise<number>>()
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1.5);
+    const controller = createImageDragScaleFactorController(
+      scaleFactorRef,
+      loadScaleFactor,
+    );
+
+    await expect(controller.enter()).resolves.toBe(2);
+    expect(controller.current()).toBe(2);
+    expect(controller.current()).toBe(2);
+    expect(loadScaleFactor).toHaveBeenCalledTimes(1);
+
+    controller.reset();
+    expect(controller.current()).toBe(1);
+
+    await expect(controller.enter()).resolves.toBe(1.5);
+    expect(loadScaleFactor).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares an in-flight scale-factor lookup across overlapping drag events", async () => {
+    let resolveScaleFactor: ((value: number) => void) | undefined;
+    const loadScaleFactor = vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          resolveScaleFactor = resolve;
+        }),
+    );
+    const controller = createImageDragScaleFactorController(
+      { current: 1 },
+      loadScaleFactor,
+    );
+
+    const entered = controller.enter();
+    const moved = controller.enter();
+
+    expect(loadScaleFactor).toHaveBeenCalledTimes(1);
+    resolveScaleFactor?.(2);
+    await expect(entered).resolves.toBe(2);
+    await expect(moved).resolves.toBe(2);
+  });
+
+  it("does not restore a stale scale factor after the drag is reset", async () => {
+    let resolveScaleFactor: ((value: number) => void) | undefined;
+    const scaleFactorRef = { current: 1 };
+    const controller = createImageDragScaleFactorController(
+      scaleFactorRef,
+      () =>
+        new Promise<number>((resolve) => {
+          resolveScaleFactor = resolve;
+        }),
+    );
+
+    const pending = controller.enter();
+    controller.reset();
+    resolveScaleFactor?.(2);
+
+    await expect(pending).resolves.toBeNull();
+    expect(controller.current()).toBe(1);
+  });
+
+  it("falls back to scale factor 1 when native scale resolution is invalid", async () => {
+    for (const invalidScaleFactor of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const scaleFactorRef = { current: 2 };
+      const controller = createImageDragScaleFactorController(
+        scaleFactorRef,
+        async () => invalidScaleFactor,
+      );
+
+      await expect(controller.enter()).resolves.toBe(1);
+      expect(controller.current()).toBe(1);
+    }
+
+    const rejectedScaleFactorRef = { current: 2 };
+    const rejectedController = createImageDragScaleFactorController(
+      rejectedScaleFactorRef,
+      async () => Promise.reject(new Error("native scale unavailable")),
+    );
+    await expect(rejectedController.enter()).resolves.toBe(1);
+    expect(rejectedController.current()).toBe(1);
+  });
+
   it("inserts only when the native drop point is inside the editor", () => {
     const editorRect = { left: 200, top: 100, right: 900, bottom: 700 };
     const posAtCoords = vi.fn(() => ({ pos: 27 }));
@@ -62,6 +149,29 @@ describe("image drag and drop adapter", () => {
         8,
       ),
     ).toBeNull();
+  });
+
+  it("treats every rectangle edge as inside and one pixel beyond as outside", () => {
+    const rect = { left: 10, top: 20, right: 110, bottom: 220 };
+
+    for (const point of [
+      { x: 50, y: 80 },
+      { x: 10, y: 80 },
+      { x: 110, y: 80 },
+      { x: 50, y: 20 },
+      { x: 50, y: 220 },
+    ]) {
+      expect(isPointInsideRect(point, rect)).toBe(true);
+    }
+
+    for (const point of [
+      { x: 9, y: 80 },
+      { x: 111, y: 80 },
+      { x: 50, y: 19 },
+      { x: 50, y: 221 },
+    ]) {
+      expect(isPointInsideRect(point, rect)).toBe(false);
+    }
   });
 
   it("uses the current selection when posAtCoords cannot resolve an editor gap", () => {

@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   DraftCheckpoint,
-  DraftCheckpointKey,
 } from "../lib/draftCheckpoint";
 
 export async function writeDraftCheckpoint(
@@ -21,9 +20,9 @@ export async function getDraftCheckpoint(
 }
 
 export async function clearDraftCheckpoint(
-  key: DraftCheckpointKey,
+  noteId: string,
 ): Promise<void> {
-  return invoke("clear_draft_checkpoint", { noteId: key.noteId });
+  return invoke("clear_draft_checkpoint", { noteId });
 }
 
 export async function listDraftCheckpoints(): Promise<DraftCheckpoint[]> {

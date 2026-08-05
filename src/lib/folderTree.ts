@@ -24,10 +24,32 @@ function compareNotesByModified(
 
 export function sortNotesByModified<
   T extends Pick<NoteMetadata, "id" | "modified">,
->(notes: readonly T[], sortOrder: NoteSortOrder): T[] {
-  return [...notes].sort((first, second) =>
-    compareNotesByModified(first, second, sortOrder),
-  );
+>(
+  notes: readonly T[],
+  sortOrder: NoteSortOrder,
+  pinnedIds: ReadonlySet<string> = new Set(),
+): T[] {
+  return [...notes].sort((first, second) => {
+    const firstPinned = pinnedIds.has(first.id);
+    const secondPinned = pinnedIds.has(second.id);
+    if (firstPinned !== secondPinned) return firstPinned ? -1 : 1;
+    return compareNotesByModified(first, second, sortOrder);
+  });
+}
+
+export function orderNoteListItems<
+  T extends Pick<NoteMetadata, "id" | "modified">,
+>(
+  notes: readonly T[],
+  sortOrder: NoteSortOrder,
+  pinnedIds: ReadonlySet<string>,
+  isSearching: boolean,
+): T[] {
+  // Search service returns relevance-ranked results. Date and pin sorting is
+  // only a browsing preference and must not overwrite that ranking.
+  return isSearching
+    ? [...notes]
+    : sortNotesByModified(notes, sortOrder, pinnedIds);
 }
 
 export function buildFolderTree(

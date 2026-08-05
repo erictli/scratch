@@ -7,9 +7,6 @@ import {
   saveFolderSectionCollapsed,
 } from "./SidebarFolderSection";
 
-(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
-  .IS_REACT_ACT_ENVIRONMENT = true;
-
 afterEach(() => {
   document.body.replaceChildren();
 });
@@ -53,6 +50,9 @@ describe("SidebarFolderSection", () => {
       'button[aria-label="Collapse Folders"]',
     );
     expect(collapseButton?.getAttribute("aria-expanded")).toBe("true");
+    const contentId = collapseButton?.getAttribute("aria-controls");
+    expect(contentId).toBeTruthy();
+    expect(container.querySelector(`#${contentId}`)).not.toBeNull();
     expect(container.textContent).toContain("Folders");
     expect(container.querySelector('[data-testid="folder-group"]')).not.toBeNull();
 
@@ -74,7 +74,10 @@ describe("SidebarFolderSection", () => {
       'button[aria-label="Expand Folders"]',
     );
     expect(expandButton?.getAttribute("aria-expanded")).toBe("false");
-    expect(container.querySelector('[data-testid="folder-group"]')).toBeNull();
+    expect(expandButton?.getAttribute("aria-controls")).toBe(contentId);
+    const collapsedContent = container.querySelector<HTMLElement>(`#${contentId}`);
+    expect(collapsedContent).not.toBeNull();
+    expect(collapsedContent?.hidden).toBe(true);
 
     act(() => expandButton?.click());
     expect(onCollapsedChange).toHaveBeenLastCalledWith(false);

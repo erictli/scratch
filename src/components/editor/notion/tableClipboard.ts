@@ -26,7 +26,7 @@ export function shouldRejectTablePaste({
   );
 }
 
-function parseTsv(text: string): string[][] | null {
+export function parseTsv(text: string): string[][] | null {
   if (!text.includes("\t")) return null;
 
   const rows: string[][] = [];
@@ -46,7 +46,7 @@ function parseTsv(text: string): string[][] | null {
 
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
-    if (character === '"') {
+    if (character === '"' && (quoted || cell === "")) {
       if (quoted && text[index + 1] === '"') {
         cell += '"';
         index += 1;

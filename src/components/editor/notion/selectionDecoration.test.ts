@@ -3,7 +3,7 @@ import type { EditorView } from "@tiptap/pm/view";
 import { AllSelection, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   ScratchColor,
@@ -17,6 +17,14 @@ interface EditorViewWithDomObserver extends EditorView {
     flush: () => void;
   };
 }
+
+const moduleUrl = import.meta.url.startsWith("file:")
+  ? import.meta.url
+  : pathToFileURL(import.meta.filename).href;
+const appStyles = readFileSync(
+  fileURLToPath(new URL("../../../App.css", moduleUrl)),
+  "utf8",
+);
 
 function dispatchNativeSelectionKey(
   editor: Editor,
@@ -57,11 +65,6 @@ function syncNativeDOMHead(editor: Editor, head: number) {
   editor.view.dom.ownerDocument.dispatchEvent(new Event("selectionchange"));
   (editor.view as EditorViewWithDomObserver).domObserver.flush();
 }
-
-const appStyles = readFileSync(
-  resolve(process.cwd(), "src/App.css"),
-  "utf8",
-);
 
 describe("ScratchTextSelection", () => {
   it("decorates only a non-empty text selection", () => {

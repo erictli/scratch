@@ -1,6 +1,15 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../lib/platform", () => ({
+  alt: "⌥",
+  isMac: true,
+  isWindows: false,
+  mod: "⌘",
+  shift: "⇧",
+  shortcut: (...parts: string[]) => parts.join(""),
+}));
 import { TooltipProvider } from "../ui";
 import { SettingsPage } from "./SettingsPage";
 

@@ -20,6 +20,8 @@ const STRUCTURAL_INNER_PROXIMITY = 10;
 const RESIZE_PROXIMITY = 4;
 const ADD_CONTROL_MIN_OFFSET = 5;
 const ADD_CONTROL_MAX_OFFSET = 24;
+const TABLE_CONTROL_OUTER_OFFSET = 48;
+const TABLE_CONTROL_INNER_OFFSET = 18;
 
 function between(value: number, minimum: number, maximum: number): boolean {
   return value >= minimum && value <= maximum;
@@ -72,8 +74,16 @@ export function resolveTableProximityTarget(
   if (columnIndex >= 0) return { kind: "column", index: columnIndex };
 
   if (
-    between(point.left, tableRect.left - 48, tableRect.left - 18) &&
-    between(point.top, tableRect.top - 48, tableRect.top - 18)
+    between(
+      point.left,
+      tableRect.left - TABLE_CONTROL_OUTER_OFFSET,
+      tableRect.left - TABLE_CONTROL_INNER_OFFSET,
+    ) &&
+    between(
+      point.top,
+      tableRect.top - TABLE_CONTROL_OUTER_OFFSET,
+      tableRect.top - TABLE_CONTROL_INNER_OFFSET,
+    )
   ) {
     return { kind: "table" };
   }

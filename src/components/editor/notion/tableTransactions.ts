@@ -4,6 +4,7 @@ import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import { normalizeTableRowHeight } from "./tableExtensions";
 import {
+  MIN_TABLE_COLUMN_WIDTH,
   normalizeTableBackgroundColor,
   normalizeTableColumnWidth,
 } from "./tableMetadata";
@@ -600,7 +601,8 @@ export function insertTableRow(
   if (
     !Number.isInteger(rowIndex) ||
     rowIndex < 0 ||
-    rowIndex > table.childCount
+    rowIndex > table.childCount ||
+    (hasPinnedTableHeaderRow(table) && rowIndex === 0)
   ) {
     return false;
   }
@@ -804,7 +806,10 @@ export function fitTableColumnsToWidth(
   }
 
   const columnCount = table.child(0).childCount;
-  const columnWidth = Math.max(80, Math.floor(availableWidth / columnCount));
+  const columnWidth = Math.max(
+    MIN_TABLE_COLUMN_WIDTH,
+    Math.floor(availableWidth / columnCount),
+  );
   const activeCell = activeTableCell(editor, tablePos);
   const rows = rowsOf(table).map((row) =>
     recreateRow(

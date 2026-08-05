@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveTableEdgeDragDelta } from "./tableEdgeDrag";
+import {
+  MAX_TABLE_EDGE_ADDITION_STEPS,
+  resolveTableEdgeDragDelta,
+} from "./tableEdgeDrag";
 
 describe("table edge drag", () => {
   it("resolves row growth from logical vertical movement in 40px steps", () => {
@@ -60,5 +63,24 @@ describe("table edge drag", () => {
         itemCount: 1,
       }),
     ).toBe(0);
+  });
+
+  it("bounds growth from an extreme pointer distance", () => {
+    expect(
+      resolveTableEdgeDragDelta({
+        axis: "row",
+        start: { left: 0, top: 0 },
+        current: { left: 0, top: Number.MAX_SAFE_INTEGER },
+        itemCount: 2,
+      }),
+    ).toBe(MAX_TABLE_EDGE_ADDITION_STEPS);
+    expect(
+      resolveTableEdgeDragDelta({
+        axis: "column",
+        start: { left: 0, top: 0 },
+        current: { left: Number.POSITIVE_INFINITY, top: 0 },
+        itemCount: 2,
+      }),
+    ).toBe(MAX_TABLE_EDGE_ADDITION_STEPS);
   });
 });

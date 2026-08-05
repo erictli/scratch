@@ -38,7 +38,7 @@ describe("draft checkpoint service", () => {
 
   it("reads and clears only the caller's checkpoint for one note", async () => {
     await getDraftCheckpoint("Plan");
-    await clearDraftCheckpoint({ windowLabel: "spoofed", noteId: "Plan" });
+    await clearDraftCheckpoint("Plan");
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "get_draft_checkpoint", {
       noteId: "Plan",

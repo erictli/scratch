@@ -6,9 +6,6 @@ import {
   NoteSortMenu,
 } from "./SidebarControls";
 
-(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
-  .IS_REACT_ACT_ENVIRONMENT = true;
-
 afterEach(() => {
   document.body.replaceChildren();
 });
@@ -59,6 +56,26 @@ describe("NoteSortMenu", () => {
 
     expect(onChange).toHaveBeenCalledOnce();
     expect(onChange).toHaveBeenCalledWith("oldest");
+
+    act(() => root.unmount());
+  });
+
+  it("does not prevent Radix focus restoration on the sort trigger", () => {
+    const onChange = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <NoteSortMenu sortOrder="newest" onChange={onChange} />
+        </TooltipProvider>,
+      );
+    });
+
+    const source = container.innerHTML;
+    expect(source).not.toContain("onCloseAutoFocus");
 
     act(() => root.unmount());
   });

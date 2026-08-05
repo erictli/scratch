@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { recreateDeletedStandaloneDraft } from "./standaloneRecreation";
+import {
+  StandaloneRecreationConflictError,
+  recreateDeletedStandaloneDraft,
+} from "./standaloneRecreation";
 
 describe("recreateDeletedStandaloneDraft", () => {
   it("returns the saved file snapshot after create-only recreation", async () => {
@@ -36,12 +39,16 @@ describe("recreateDeletedStandaloneDraft", () => {
       },
     }));
 
-    await expect(
-      recreateDeletedStandaloneDraft(
-        "/tmp/Deleted.md",
-        "# Deleted\n\nLocal draft",
-        recreate,
-      ),
-    ).rejects.toThrow("source path was recreated elsewhere");
+    const failure = await recreateDeletedStandaloneDraft(
+      "/tmp/Deleted.md",
+      "# Deleted\n\nLocal draft",
+      recreate,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(StandaloneRecreationConflictError);
+    expect((failure as StandaloneRecreationConflictError).current).toEqual({
+      content: "# Deleted\n\nRecreated elsewhere",
+      revision: "concurrent-revision",
+    });
   });
 });

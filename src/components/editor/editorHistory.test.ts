@@ -1,7 +1,7 @@
 import { Editor, type JSONContent } from "@tiptap/core";
 import { TableKit } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { replaceEditorContentWithoutHistory } from "./editorHistory";
 
 describe("editor note history", () => {
@@ -111,6 +111,38 @@ describe("editor note history", () => {
       expect(editor.state.doc.textContent).toContain("Parent cell");
       expect(editor.state.doc.textContent).toContain("Nested cell");
     } finally {
+      editor.destroy();
+    }
+  });
+
+  it("parses loaded HTML in an inert document without running attributes", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>Before</p>",
+    });
+    const createInertDocument = vi.spyOn(
+      document.implementation,
+      "createHTMLDocument",
+    );
+    let eventHandlerRan = false;
+    (globalThis as typeof globalThis & { markLoaded?: () => void }).markLoaded =
+      () => {
+        eventHandlerRan = true;
+      };
+
+    try {
+      replaceEditorContentWithoutHistory(
+        editor,
+        '<p>Safe</p><img src="https://invalid.example/image.png" onerror="markLoaded()">',
+      );
+
+      expect(createInertDocument).toHaveBeenCalledWith("");
+      expect(eventHandlerRan).toBe(false);
+      expect(editor.getText()).toBe("Safe");
+    } finally {
+      delete (globalThis as typeof globalThis & { markLoaded?: () => void })
+        .markLoaded;
+      createInertDocument.mockRestore();
       editor.destroy();
     }
   });

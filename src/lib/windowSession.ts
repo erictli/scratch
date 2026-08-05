@@ -45,6 +45,28 @@ function safeWindowSessionDefaults(): RestoredWindowSession {
   return { ...DEFAULT_RESTORED_WINDOW_SESSION };
 }
 
+function normalizeWindowGeometry(value: unknown): WindowGeometry | null {
+  if (!value || typeof value !== "object") return null;
+  const geometry = value as Partial<Record<keyof WindowGeometry, unknown>>;
+  const fields = [geometry.x, geometry.y, geometry.width, geometry.height];
+  if (
+    fields.some(
+      (field) => typeof field !== "number" || !Number.isFinite(field),
+    )
+  ) {
+    return null;
+  }
+  if ((geometry.width as number) <= 0 || (geometry.height as number) <= 0) {
+    return null;
+  }
+  return {
+    x: geometry.x as number,
+    y: geometry.y as number,
+    width: geometry.width as number,
+    height: geometry.height as number,
+  };
+}
+
 export async function restoreWindowSession({
   isPreview,
   workspace,
@@ -66,9 +88,16 @@ export async function restoreWindowSession({
 
     return {
       selectedNoteId,
-      sidebarVisible: saved.sidebarVisible,
-      focusMode: saved.focusMode && selectedNoteId !== null,
-      geometry: saved.geometry,
+      sidebarVisible:
+        typeof saved.sidebarVisible === "boolean"
+          ? saved.sidebarVisible
+          : DEFAULT_RESTORED_WINDOW_SESSION.sidebarVisible,
+      focusMode:
+        (typeof saved.focusMode === "boolean"
+          ? saved.focusMode
+          : DEFAULT_RESTORED_WINDOW_SESSION.focusMode) &&
+        selectedNoteId !== null,
+      geometry: normalizeWindowGeometry(saved.geometry),
     };
   } catch {
     return safeWindowSessionDefaults();
@@ -115,6 +144,15 @@ export function createWindowSessionPatchWriter(
     timer = null;
   }
 
+  function scheduleFlush(): void {
+    if (cancelled) return;
+    clearTimer();
+    timer = setTimeout(() => {
+      timer = null;
+      void flush().catch((error: unknown) => options.onError?.(error));
+    }, delayMs);
+  }
+
   async function flush(): Promise<void> {
     clearTimer();
     if (cancelled) return;
@@ -133,6 +171,7 @@ export function createWindowSessionPatchWriter(
       .catch((error: unknown) => {
         if (!cancelled) {
           pending = pending ? { ...patch, ...pending } : patch;
+          scheduleFlush();
         }
         throw error;
       })
@@ -146,11 +185,7 @@ export function createWindowSessionPatchWriter(
   function queue(patch: WindowSessionPatch): void {
     if (cancelled) return;
     pending = pending ? { ...pending, ...patch } : { ...patch };
-    clearTimer();
-    timer = setTimeout(() => {
-      timer = null;
-      void flush().catch((error: unknown) => options.onError?.(error));
-    }, delayMs);
+    scheduleFlush();
   }
 
   function cancel(): void {

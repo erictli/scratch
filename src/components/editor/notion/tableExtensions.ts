@@ -2,7 +2,7 @@ import { TableRow } from "@tiptap/extension-table";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { containsNestedTable } from "./tableIntegrity";
+import { docContainsNestedTable } from "./tableIntegrity";
 
 export const MIN_TABLE_ROW_HEIGHT = 28;
 export const MAX_TABLE_ROW_HEIGHT = 480;
@@ -27,7 +27,7 @@ export const ScratchTableRow = TableRow.extend({
         filterTransaction(transaction) {
           return (
             !transaction.docChanged ||
-            !containsNestedTable(transaction.doc.toJSON())
+            !docContainsNestedTable(transaction.doc)
           );
         },
         props: {

@@ -17,11 +17,23 @@ export interface DropPoint {
   y: number;
 }
 
-interface DropRect {
+export interface DropRect {
   left: number;
   top: number;
   right: number;
   bottom: number;
+}
+
+export function isPointInsideRect(
+  point: DropPoint,
+  rect: DropRect,
+): boolean {
+  return (
+    point.x >= rect.left &&
+    point.x <= rect.right &&
+    point.y >= rect.top &&
+    point.y <= rect.bottom
+  );
 }
 
 export interface ImageDropBlock {
@@ -43,6 +55,54 @@ interface ImageDropAdapters {
   onError?: (sourcePath: string, error: unknown) => void;
 }
 
+interface ScaleFactorRef {
+  current: number;
+}
+
+function normalizeScaleFactor(scaleFactor: number): number {
+  return Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+}
+
+export function createImageDragScaleFactorController(
+  scaleFactorRef: ScaleFactorRef,
+  loadScaleFactor: () => Promise<number>,
+) {
+  let generation = 0;
+  let pendingLookup: Promise<number | null> | null = null;
+
+  return {
+    enter(): Promise<number | null> {
+      if (pendingLookup) return pendingLookup;
+      const lookupGeneration = generation;
+      let loadedScaleFactor: Promise<number>;
+      try {
+        loadedScaleFactor = loadScaleFactor();
+      } catch {
+        loadedScaleFactor = Promise.resolve(1);
+      }
+      pendingLookup = loadedScaleFactor
+        .then(normalizeScaleFactor)
+        .catch(() => 1)
+        .then((scaleFactor) => {
+          if (generation !== lookupGeneration) {
+            return null;
+          }
+          scaleFactorRef.current = scaleFactor;
+          return scaleFactor;
+        });
+      return pendingLookup;
+    },
+    current(): number {
+      return normalizeScaleFactor(scaleFactorRef.current);
+    },
+    reset(): void {
+      generation += 1;
+      pendingLookup = null;
+      scaleFactorRef.current = 1;
+    },
+  };
+}
+
 export function filterSupportedImagePaths(paths: string[]): string[] {
   return paths.filter((path) => {
     const filename = path.split(/[\\/]/).pop() ?? "";
@@ -55,8 +115,7 @@ export function physicalToLogicalPoint(
   position: DropPoint,
   scaleFactor: number,
 ): DropPoint {
-  const safeScaleFactor =
-    Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+  const safeScaleFactor = normalizeScaleFactor(scaleFactor);
   return {
     x: position.x / safeScaleFactor,
     y: position.y / safeScaleFactor,
@@ -72,13 +131,7 @@ export function resolveImageDropPosition(
   fallbackPosition: number,
   minimumPosition = 0,
 ): number | null {
-  const isInsideEditor =
-    point.x >= editorRect.left &&
-    point.x <= editorRect.right &&
-    point.y >= editorRect.top &&
-    point.y <= editorRect.bottom;
-
-  if (!isInsideEditor) return null;
+  if (!isPointInsideRect(point, editorRect)) return null;
   const resolvedPosition =
     posAtCoords({ left: point.x, top: point.y })?.pos ?? fallbackPosition;
   return Math.max(minimumPosition, resolvedPosition);
@@ -91,13 +144,7 @@ export function resolveBlockDropTarget(
   fallbackPosition: number,
   minimumPosition = 0,
 ): ImageDropTarget | null {
-  const isInsideEditor =
-    point.x >= editorRect.left &&
-    point.x <= editorRect.right &&
-    point.y >= editorRect.top &&
-    point.y <= editorRect.bottom;
-
-  if (!isInsideEditor) return null;
+  if (!isPointInsideRect(point, editorRect)) return null;
 
   const candidates: ImageDropTarget[] = [];
   blocks.forEach((block, index) => {

@@ -1468,14 +1468,14 @@ table.not-prose th {
   content: "";
   width: 12px;
   height: 4px;
-  border-block: 1px solid currentColor;
+  border-block: 1px solid currentcolor;
 }
 
 .notion-table-edge-resize.is-column::before {
   width: 4px;
   height: 12px;
   border-block: 0;
-  border-inline: 1px solid currentColor;
+  border-inline: 1px solid currentcolor;
 }
 
 .notion-table-edge-resize:hover,
@@ -1576,7 +1576,7 @@ body.notion-table-column-resizing * {
   height: 1px;
   padding: 0;
   overflow: hidden;
-  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }

@@ -71,17 +71,24 @@ function isSafeDimension(
 function parseEncodedCellMatrix(
   value: unknown,
 ): Array<Array<string | null>> | null {
+  const rowWidth = Array.isArray(value) && Array.isArray(value[0])
+    ? value[0].length
+    : 0;
   if (
     !Array.isArray(value) ||
     value.length > MAX_TABLE_DIMENSION_COUNT ||
     !value.every(
       (row) =>
         Array.isArray(row) &&
+        row.length === rowWidth &&
         row.length <= MAX_TABLE_DIMENSION_COUNT &&
         row.every(
           (entry) =>
             entry === null ||
-            (typeof entry === "string" && decodeBase64Utf8(entry) !== null),
+            (typeof entry === "string" &&
+              entry.length <= MAX_ENCODED_CELL_MARKDOWN_LENGTH &&
+              entry.length % 4 === 0 &&
+              /^[A-Za-z0-9+/]*={0,2}$/.test(entry)),
         ),
     )
   ) {

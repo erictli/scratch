@@ -14,8 +14,17 @@ describe("safe window close call sites", () => {
       const source = readFileSync(sourcePath, "utf8");
 
       expect(source).toContain("closeWindowAfterSave");
-      expect(source).not.toContain("appWindow.close()");
-      expect(source).not.toContain("appWindow.destroy()");
+      expect(source).not.toMatch(
+        /(?:getCurrentWindow\(\)|\b\w*[Ww]indow\w*)\s*\.\s*(?:close|destroy)\s*\(/,
+      );
     },
   );
+
+  it("reports standalone recovery paths before the preview window closes", () => {
+    const source = readFileSync(closeHandlers[1], "utf8");
+
+    expect(source).toContain(".then((result) => {");
+    expect(source).toContain("result.recoveredTo");
+    expect(source).toContain("Draft recovered to ${result.recoveredTo}");
+  });
 });

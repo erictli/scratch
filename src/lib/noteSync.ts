@@ -11,6 +11,14 @@ export interface OpenNoteSyncState {
   conflict: NoteSyncConflict | null;
 }
 
+export function shouldBlockSaveForActiveConflict(
+  savingNoteId: string,
+  selectedNoteId: string | null,
+  conflict: NoteSyncConflict | null,
+): boolean {
+  return conflict !== null && savingNoteId === selectedNoteId;
+}
+
 export function reconcileRemoteNote(
   state: OpenNoteSyncState,
   remote: Note | null,

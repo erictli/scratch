@@ -226,7 +226,7 @@ describe("Scratch table structure", () => {
       expect(editor.view.dom.querySelectorAll(".selectedCell")).toHaveLength(2);
       expect(
         editor.view.dom.querySelectorAll(".scratch-table-cell-focused").length,
-      ).toBeLessThanOrEqual(1);
+      ).toBe(0);
 
       expect(editor.state.doc.eq(originalDocument)).toBe(true);
       expect(undoDepth(editor.state)).toBe(originalUndoDepth);

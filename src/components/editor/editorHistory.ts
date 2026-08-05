@@ -5,7 +5,8 @@ import { normalizeNestedTablesInJson } from "./notion/tableIntegrity";
 
 function normalizeLoadedContent(editor: Editor, content: Content): Content {
   if (typeof content === "string") {
-    const container = document.createElement("div");
+    const inertDocument = document.implementation.createHTMLDocument("");
+    const container = inertDocument.createElement("div");
     container.innerHTML = content;
     const parsed = ProseMirrorDOMParser.fromSchema(editor.schema).parse(container);
     return normalizeNestedTablesInJson(parsed.toJSON());
@@ -34,6 +35,7 @@ export function replaceEditorContentWithoutHistory(
   editor.commands.setContent(normalizeLoadedContent(editor, content));
 
   const loadedState = editor.state;
+  // Recreating state intentionally resets transient plugin state for the newly loaded note.
   editor.view.updateState(
     EditorState.create({
       schema: loadedState.schema,
