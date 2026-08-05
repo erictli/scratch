@@ -135,11 +135,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const refreshTimeoutRef = useRef<number | null>(null);
   // Ref to access selectedNoteId in file watcher without re-registering listener
   const selectedNoteIdRef = useRef<string | null>(null);
-  selectedNoteIdRef.current = selectedNoteId;
   const currentNoteRef = useRef<Note | null>(null);
-  currentNoteRef.current = currentNote;
   const notesFolderRef = useRef<string | null>(null);
-  notesFolderRef.current = notesFolder;
   const noteRevisionByIdRef = useRef<Map<string, string>>(new Map());
   const saveQueueRef = useRef(createSerializedTaskQueue());
   const openNoteDraftRef = useRef<() => OpenNoteDraftSnapshot>(() => ({
@@ -149,7 +146,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }));
   // Ref to access notes in search callback without re-creating it on every notes change
   const notesRef = useRef<NoteMetadata[]>([]);
-  notesRef.current = notes;
+  useEffect(() => {
+    selectedNoteIdRef.current = selectedNoteId;
+    currentNoteRef.current = currentNote;
+    notesFolderRef.current = notesFolder;
+    notesRef.current = notes;
+  }, [selectedNoteId, currentNote, notesFolder, notes]);
   // Monotonic counter to ignore stale async note selection responses.
   const selectRequestIdRef = useRef(0);
   // Monotonic counter to ignore stale async search responses
@@ -443,13 +445,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
             applyResolvedNote(result.note);
           },
           recreateDeleted: async (localDraft) => {
-            const slash = draft.noteId!.lastIndexOf("/");
-            const folder = slash > 0 ? draft.noteId!.slice(0, slash) : undefined;
-            const created = await notesService.createNote(folder);
-            const result = await notesService.saveNote(
-              created.id,
+            const result = await notesService.recreateNote(
+              draft.noteId!,
               localDraft.content,
-              created.revision,
             );
             if (result.status === "conflict") {
               throw new Error("Could not recreate the deleted note safely");

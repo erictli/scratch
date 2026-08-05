@@ -208,17 +208,6 @@ function AppContent() {
     setView("notes");
   }, []);
 
-  const openSettings = useCallback(async () => {
-    if (view === "settings") return;
-    try {
-      await persistenceControllerRef.current?.flush();
-    } catch (error) {
-      toast.error(`Settings not opened: ${error}`);
-      return;
-    }
-    setView("settings");
-  }, [view]);
-
   useWindowShortcuts({ onOpenPreferences: openSettings });
 
   // Go back to command palette from AI modal
@@ -511,28 +500,6 @@ function AppContent() {
     focusMode,
     view,
   ]);
-
-  // Native File > New Window opens a new window for the current workspace.
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void listen("new-window", async () => {
-      if (disposed || !notesFolder) return;
-      try {
-        await notesService.openWorkspaceWindow(notesFolder);
-      } catch (error) {
-        console.error("Failed to open new window:", error);
-        if (!disposed) toast.error("Failed to open new window");
-      }
-    }).then((cleanup) => {
-      if (disposed) cleanup();
-      else unlisten = cleanup;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [notesFolder]);
 
   // Native File > Open Folder… works from any focused window, including a
   // standalone Markdown editor or Preferences.

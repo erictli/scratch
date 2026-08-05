@@ -41,6 +41,7 @@ describe("runSafeWindowClose", () => {
     expect(order).toEqual(["flush", "recovery", "close"]);
     expect(result).toEqual({
       recoveredTo: "/recovery/Plan.md",
+      saveError: expect.any(Error),
     });
   });
 

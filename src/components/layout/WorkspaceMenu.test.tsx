@@ -142,6 +142,7 @@ describe("WorkspaceMenu", () => {
     const removeArchive = container.querySelector<HTMLButtonElement>(
       'button[role="menuitem"][aria-label="Remove archive from List"]',
     );
+    expect(document.activeElement).toBe(removeArchive);
     act(() => removeArchive?.click());
     expect(onRemoveWorkspace).toHaveBeenCalledWith("/notes/archive");
     expect(
@@ -152,6 +153,70 @@ describe("WorkspaceMenu", () => {
     act(() => addFolder?.click());
     expect(onAddWorkspace).toHaveBeenCalledOnce();
     expect(container.querySelector('[role="menu"]')).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("uses menu focus and arrow-key navigation", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <WorkspaceMenu
+          workspaces={workspaces}
+          currentWorkspacePath="/notes/main"
+          onSwitchWorkspace={vi.fn()}
+          onAddWorkspace={vi.fn()}
+          onRemoveWorkspace={vi.fn()}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Switch workspace"]',
+    );
+    act(() => trigger?.click());
+
+    const currentWorkspace = container.querySelector<HTMLButtonElement>(
+      'button[role="menuitemradio"][data-workspace-path="/notes/main"]',
+    );
+    const currentActions = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Actions for main"]',
+    );
+    const addFolder = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add Folder"]',
+    );
+    expect(document.activeElement).toBe(currentWorkspace);
+
+    act(() => {
+      currentWorkspace?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(currentActions);
+
+    act(() => {
+      currentActions?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(addFolder);
+
+    act(() => {
+      addFolder?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(currentWorkspace);
+
+    act(() => {
+      currentWorkspace?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(addFolder);
 
     act(() => root.unmount());
   });

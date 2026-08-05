@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import type { WorkspaceInfo } from "../../services/notes";
 import {
   CheckIcon,
@@ -28,6 +33,7 @@ export function WorkspaceMenu({
   const [actionMenuPath, setActionMenuPath] = useState<string | null>(null);
   const rootRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const actionTriggerRefs = useRef(new Map<string, HTMLButtonElement>());
   const currentWorkspace = workspaces.find((workspace) => workspace.isCurrent);
@@ -36,6 +42,25 @@ export function WorkspaceMenu({
   const currentWorkspaceName = currentWorkspace?.name ??
     currentPathSegments[currentPathSegments.length - 1] ??
     "Select Space";
+
+  useEffect(() => {
+    if (!open) return;
+
+    const currentItem = menuRef.current?.querySelector<HTMLElement>(
+      '[role="menuitemradio"][aria-checked="true"]',
+    );
+    const firstItem = menuRef.current?.querySelector<HTMLElement>(
+      '[role="menuitemradio"], [role="menuitem"]',
+    );
+    (currentItem ?? firstItem)?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!actionMenuPath) return;
+    actionMenuRef.current
+      ?.querySelector<HTMLElement>('[role="menuitem"]')
+      ?.focus();
+  }, [actionMenuPath]);
 
   useEffect(() => {
     if (!open) return;
@@ -77,6 +102,40 @@ export function WorkspaceMenu({
     };
   }, [actionMenuPath, open]);
 
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('[role="menu"]') !== event.currentTarget) return;
+    if (
+      event.key !== "ArrowDown" &&
+      event.key !== "ArrowUp" &&
+      event.key !== "Home" &&
+      event.key !== "End"
+    ) {
+      return;
+    }
+
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        '[role="menuitemradio"], [role="menuitem"]',
+      ),
+    ).filter((item) => item.closest('[role="menu"]') === event.currentTarget);
+    if (items.length === 0) return;
+
+    event.preventDefault();
+    const currentIndex = items.indexOf(target);
+    let nextIndex: number;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    else if (event.key === "ArrowUp") {
+      nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+    } else {
+      nextIndex = currentIndex >= 0 && currentIndex < items.length - 1
+        ? currentIndex + 1
+        : 0;
+    }
+    items[nextIndex]?.focus();
+  };
+
   return (
     <section
       ref={rootRef}
@@ -106,8 +165,10 @@ export function WorkspaceMenu({
 
       {open && (
         <div
+          ref={menuRef}
           role="menu"
           aria-label="Workspaces"
+          onKeyDown={handleMenuKeyDown}
           className="absolute left-2 right-2 top-full z-50 mt-1 rounded-xl border border-border bg-bg p-1.5 shadow-xl"
         >
           {workspaces.length === 0 ? (

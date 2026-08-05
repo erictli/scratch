@@ -147,4 +147,33 @@ describe("createWindowSessionPatchWriter", () => {
 
     writer.cancel();
   });
+
+  it("retries the same pending patch after a transient write failure", async () => {
+    vi.useFakeTimers();
+    const failure = new Error("session store unavailable");
+    const onError = vi.fn();
+    const write = vi
+      .fn<(patch: WindowSessionPatch) => Promise<void>>()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(undefined);
+    const writer = createWindowSessionPatchWriter(write, {
+      delayMs: 200,
+      onError,
+    });
+
+    writer.queue({ selectedNoteId: "projects/plan", focusMode: true });
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(failure);
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write).toHaveBeenNthCalledWith(2, {
+      selectedNoteId: "projects/plan",
+      focusMode: true,
+    });
+
+    writer.cancel();
+  });
 });

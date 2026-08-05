@@ -54,6 +54,13 @@ export async function saveNote(
   return invoke("save_note", { id, content, expectedRevision });
 }
 
+export async function recreateNote(
+  id: string,
+  content: string,
+): Promise<SaveNoteResult> {
+  return saveNote(id, content, null);
+}
+
 export interface RecoverySnapshotInput {
   noteId: string;
   sourcePath: string;

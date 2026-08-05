@@ -265,24 +265,15 @@ static WORKSPACE_WINDOW_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static RECOVERY_SNAPSHOT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct NativeNewWindowMenuSpec {
+struct NativeMenuItemSpec {
     parent_menu: &'static str,
     id: &'static str,
     label: &'static str,
     accelerator: &'static str,
 }
 
-fn native_new_window_menu_spec() -> NativeNewWindowMenuSpec {
-    NativeNewWindowMenuSpec {
-        parent_menu: "File",
-        id: "new-window",
-        label: "New Window",
-        accelerator: "CmdOrCtrl+Shift+N",
-    }
-}
-
-fn native_open_folder_menu_spec() -> NativeNewWindowMenuSpec {
-    NativeNewWindowMenuSpec {
+fn native_open_folder_menu_spec() -> NativeMenuItemSpec {
+    NativeMenuItemSpec {
         parent_menu: "File",
         id: "open-folder",
         label: "Open Folder…",
@@ -290,8 +281,8 @@ fn native_open_folder_menu_spec() -> NativeNewWindowMenuSpec {
     }
 }
 
-fn native_preferences_menu_spec() -> NativeNewWindowMenuSpec {
-    NativeNewWindowMenuSpec {
+fn native_preferences_menu_spec() -> NativeMenuItemSpec {
+    NativeMenuItemSpec {
         parent_menu: "Application",
         id: "preferences",
         label: "Preferences…",
@@ -318,42 +309,12 @@ fn focused_window_target<'a>(
     main.or(first)
 }
 
-fn new_window_event_target<'a>(
-    windows: impl IntoIterator<Item = (&'a str, bool)>,
-) -> Option<&'a str> {
-    let mut main = None;
-    let mut first_full_editor = None;
-
-    for (label, is_focused) in windows {
-        if label.starts_with("preview-") || label == "preferences" {
-            continue;
-        }
-        if is_focused {
-            return Some(label);
-        }
-        if label == "main" {
-            main = Some(label);
-        }
-        first_full_editor.get_or_insert(label);
-    }
-
-    main.or(first_full_editor)
-}
-
 fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
     let menu = Menu::default(app_handle)?;
-    let spec = native_new_window_menu_spec();
     let open_folder_spec = native_open_folder_menu_spec();
     let preferences_spec = native_preferences_menu_spec();
-    let new_window = MenuItem::with_id(
-        app_handle,
-        spec.id,
-        spec.label,
-        true,
-        Some(spec.accelerator),
-    )?;
     let open_folder = MenuItem::with_id(
         app_handle,
         open_folder_spec.id,
@@ -381,10 +342,10 @@ fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::
             continue;
         };
         let text = submenu.text()?;
-        if text == spec.parent_menu {
+        if text == open_folder_spec.parent_menu {
             has_file_menu = true;
             let separator = PredefinedMenuItem::separator(app_handle)?;
-            submenu.prepend_items(&[&open_folder, &new_window, &separator])?;
+            submenu.prepend_items(&[&open_folder, &separator])?;
         } else if text == application_menu_name {
             let separator = PredefinedMenuItem::separator(app_handle)?;
             submenu.insert_items(&[&preferences, &separator], 1)?;
@@ -395,41 +356,19 @@ fn build_application_menu(app_handle: &AppHandle) -> tauri::Result<tauri::menu::
         return Ok(menu);
     }
 
-    // Tauri omits a default File menu on a few Unix desktop targets.
-    // Keep the explicit new-window entry available there without replacing
-    // any of the other platform-native default menus.
+    // Tauri omits a default File menu on a few Unix desktop targets. Keep the
+    // explicit open-folder entry without replacing other native default menus.
     let file_menu = Submenu::with_items(
         app_handle,
-        spec.parent_menu,
+        open_folder_spec.parent_menu,
         true,
-        &[&open_folder, &new_window],
+        &[&open_folder],
     )?;
     menu.prepend(&file_menu)?;
     Ok(menu)
 }
 
-const NATIVE_NEW_WINDOW_EVENT: &str = "new-window";
 const NATIVE_OPEN_FOLDER_EVENT: &str = "open-folder";
-
-fn emit_native_new_window_request(app: &AppHandle) {
-    let window_states = app
-        .webview_windows()
-        .into_iter()
-        .map(|(label, window)| {
-            let is_focused = window.is_focused().unwrap_or(false);
-            (label, is_focused)
-        })
-        .collect::<Vec<_>>();
-    let target = new_window_event_target(
-        window_states
-            .iter()
-            .map(|(label, is_focused)| (label.as_str(), *is_focused)),
-    );
-
-    if let Some(label) = target {
-        let _ = app.emit_to(label, NATIVE_NEW_WINDOW_EVENT, ());
-    }
-}
 
 fn emit_native_open_folder_request(app: &AppHandle) {
     let window_states = app
@@ -2785,43 +2724,49 @@ async fn save_note_in_workspace(
     let title = extract_title(&content);
     let sanitized_leaf = sanitize_filename(&title);
     let creates_new_note = id.is_none();
+    let recreates_deleted_note = id.is_some() && expected_revision.is_none();
 
     // Determine the file ID and path, handling renames
     let (final_id, file_path, old_id) = if let Some(existing_id) = id {
-        // Preserve directory prefix for notes in subfolders
-        let (dir_prefix, desired_id) = if let Some(pos) = existing_id.rfind('/') {
-            let prefix = &existing_id[..pos];
-            (
-                Some(prefix.to_string()),
-                format!("{}/{}", prefix, sanitized_leaf),
-            )
+        if recreates_deleted_note {
+            let file_path = abs_path_from_id(&folder_path, &existing_id)?;
+            (existing_id, file_path, None)
         } else {
-            (None, sanitized_leaf.clone())
-        };
+            // Preserve directory prefix for notes in subfolders
+            let (dir_prefix, desired_id) = if let Some(pos) = existing_id.rfind('/') {
+                let prefix = &existing_id[..pos];
+                (
+                    Some(prefix.to_string()),
+                    format!("{}/{}", prefix, sanitized_leaf),
+                )
+            } else {
+                (None, sanitized_leaf.clone())
+            };
 
-        let old_file_path = abs_path_from_id(&folder_path, &existing_id)?;
+            let old_file_path = abs_path_from_id(&folder_path, &existing_id)?;
 
-        if existing_id != desired_id {
-            let mut new_id = desired_id.clone();
-            let mut counter = 1;
+            if existing_id != desired_id {
+                let mut new_id = desired_id.clone();
+                let mut counter = 1;
 
-            while new_id != existing_id
-                && abs_path_from_id(&folder_path, &new_id)
-                    .map(|p| p.exists())
-                    .unwrap_or(false)
-            {
-                new_id = if let Some(ref prefix) = dir_prefix {
-                    format!("{}/{}-{}", prefix, sanitized_leaf, counter)
-                } else {
-                    format!("{}-{}", sanitized_leaf, counter)
-                };
-                counter += 1;
+                while new_id != existing_id
+                    && abs_path_from_id(&folder_path, &new_id)
+                        .map(|p| p.exists())
+                        .unwrap_or(false)
+                {
+                    new_id = if let Some(ref prefix) = dir_prefix {
+                        format!("{}/{}-{}", prefix, sanitized_leaf, counter)
+                    } else {
+                        format!("{}-{}", sanitized_leaf, counter)
+                    };
+                    counter += 1;
+                }
+
+                let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
+                (new_id, new_file_path, Some((existing_id, old_file_path)))
+            } else {
+                (existing_id, old_file_path, None)
             }
-
-            let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
-            (new_id, new_file_path, Some((existing_id, old_file_path)))
-        } else {
-            (existing_id, old_file_path, None)
         }
     } else {
         // New notes go in root
@@ -2858,7 +2803,7 @@ async fn save_note_in_workspace(
         })
         .await
         .map_err(|error| format!("Note save task failed: {error}"))??
-    } else if creates_new_note {
+    } else if creates_new_note || recreates_deleted_note {
         let create_path = file_path.clone();
         let create_content = content.clone();
         let create_id = final_id.clone();
@@ -6200,9 +6145,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(build_application_menu)
         .on_menu_event(|app, event| {
-            if event.id() == native_new_window_menu_spec().id {
-                emit_native_new_window_request(app);
-            } else if event.id() == native_open_folder_menu_spec().id {
+            if event.id() == native_open_folder_menu_spec().id {
                 emit_native_open_folder_request(app);
             } else if event.id() == native_preferences_menu_spec().id {
                 if let Err(error) = create_preferences_window(app) {
@@ -7091,21 +7034,11 @@ mod window_chrome_tests {
 }
 
 #[cfg(test)]
-mod native_new_window_menu_tests {
+mod native_menu_tests {
     use super::{
-        focused_window_target, is_full_editor_window, native_new_window_menu_spec,
-        native_open_folder_menu_spec, native_preferences_menu_spec, new_window_event_target,
+        focused_window_target, is_full_editor_window, native_open_folder_menu_spec,
+        native_preferences_menu_spec,
     };
-
-    #[test]
-    fn file_menu_exposes_new_window_with_the_requested_shortcut() {
-        let spec = native_new_window_menu_spec();
-
-        assert_eq!(spec.parent_menu, "File");
-        assert_eq!(spec.id, "new-window");
-        assert_eq!(spec.label, "New Window");
-        assert_eq!(spec.accelerator, "CmdOrCtrl+Shift+N");
-    }
 
     #[test]
     fn native_menus_expose_open_folder_and_preferences() {
@@ -7119,25 +7052,6 @@ mod native_new_window_menu_tests {
         assert_eq!(preferences.id, "preferences");
         assert_eq!(preferences.label, "Preferences…");
         assert_eq!(preferences.accelerator, "CmdOrCtrl+,");
-    }
-
-    #[test]
-    fn native_new_window_action_targets_one_full_editor_window() {
-        let windows = [
-            ("main", false),
-            ("workspace-client", true),
-            ("preview-note", false),
-        ];
-        assert_eq!(
-            new_window_event_target(windows.iter().copied()),
-            Some("workspace-client")
-        );
-
-        let preview_focused = [("main", false), ("preview-note", true)];
-        assert_eq!(
-            new_window_event_target(preview_focused.iter().copied()),
-            Some("main")
-        );
     }
 
     #[test]
@@ -7853,6 +7767,64 @@ mod workspace_registry_tests {
         );
 
         std::fs::remove_dir_all(root).expect("remove workspace save test");
+    }
+
+    #[test]
+    fn recreating_a_deleted_note_preserves_its_exact_nested_id() {
+        let root = std::env::temp_dir().join(format!(
+            "scratch-recreate-deleted-note-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("archive")).expect("create nested folder");
+
+        let state = AppState::default();
+        state.register_workspace_session(
+            "workspace-recovery",
+            WorkspaceSession::empty(root.to_string_lossy().into_owned()),
+        );
+
+        let first = tauri::async_runtime::block_on(async {
+            let workspace = state.workspace_for_window("workspace-recovery").unwrap();
+            save_note_in_workspace(
+                Some("archive/Original Name".to_string()),
+                "# Changed title\n\nRecovered draft\n".to_string(),
+                None,
+                &workspace,
+            )
+            .await
+            .expect("recreate missing note")
+        });
+
+        let saved = match first {
+            super::NoteSaveResult::Saved { note } => note,
+            super::NoteSaveResult::Conflict { .. } => panic!("missing note should be recreated"),
+        };
+        assert_eq!(saved.id, "archive/Original Name");
+        assert_eq!(
+            std::fs::read_to_string(root.join("archive/Original Name.md")).unwrap(),
+            "# Changed title\n\nRecovered draft\n"
+        );
+        assert!(!root.join("archive/Changed title.md").exists());
+
+        let second = tauri::async_runtime::block_on(async {
+            let workspace = state.workspace_for_window("workspace-recovery").unwrap();
+            save_note_in_workspace(
+                Some("archive/Original Name".to_string()),
+                "# Hijack\n\nMust not replace\n".to_string(),
+                None,
+                &workspace,
+            )
+            .await
+            .expect("return typed create-only conflict")
+        });
+        assert!(matches!(second, super::NoteSaveResult::Conflict { .. }));
+        assert_eq!(
+            std::fs::read_to_string(root.join("archive/Original Name.md")).unwrap(),
+            "# Changed title\n\nRecovered draft\n"
+        );
+
+        std::fs::remove_dir_all(root).expect("cleanup recreate test");
     }
 
     #[test]

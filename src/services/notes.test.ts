@@ -8,6 +8,7 @@ import {
   listWorkspaces,
   openWorkspaceWindow,
   persistRecoverySnapshot,
+  recreateNote,
   removeWorkspaceFromList,
   saveNote,
   switchWorkspace,
@@ -87,6 +88,31 @@ describe("revision-aware note persistence", () => {
         content: "# Plan\n\nRemote edit",
         revision: "remote-revision",
       },
+    });
+  });
+
+  it("recreates a deleted note at its exact original id with create-only semantics", async () => {
+    invokeMock.mockResolvedValueOnce({
+      status: "saved",
+      note: {
+        id: "archive/Original Name",
+        title: "Changed title",
+        content: "# Changed title\n\nRecovered draft",
+        path: "/notes/archive/Original Name.md",
+        modified: 1,
+        revision: "recreated-revision",
+      },
+    });
+
+    await recreateNote(
+      "archive/Original Name",
+      "# Changed title\n\nRecovered draft",
+    );
+
+    expect(invokeMock).toHaveBeenCalledWith("save_note", {
+      id: "archive/Original Name",
+      content: "# Changed title\n\nRecovered draft",
+      expectedRevision: null,
     });
   });
 });
