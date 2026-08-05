@@ -66,7 +66,9 @@ export function SidebarFolderSection({
           }`}
         />
       </button>
-      {expanded && <div id={contentId}>{children}</div>}
+      <div id={contentId} hidden={!expanded}>
+        {children}
+      </div>
     </section>
   );
 }

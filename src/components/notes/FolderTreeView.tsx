@@ -800,12 +800,13 @@ export function FolderTreeView({
       }
 
       if (visibleItems.length === 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-
       const currentIndex = visibleItems.findIndex(
         (item) => itemKey(item) === focusedItemKey,
       );
+      if (e.key === "Enter" && currentIndex < 0) return;
+
+      e.preventDefault();
+      e.stopPropagation();
 
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         let newIndex: number;
@@ -822,7 +823,6 @@ export function FolderTreeView({
           selectNote(item.id);
         }
       } else if (e.key === "Enter") {
-        if (currentIndex < 0) return;
         const item = visibleItems[currentIndex];
         if (item.type === "folder") {
           handleToggleCollapse(item.path);

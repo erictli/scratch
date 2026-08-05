@@ -22,7 +22,7 @@ import {
   TrashIcon,
 } from "../icons";
 import type { NoteSortOrder, Settings } from "../../types/note";
-import { sortNotesByModified } from "../../lib/folderTree";
+import { orderNoteListItems } from "../../lib/folderTree";
 
 const menuItemClass =
   "px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2 rounded-sm";
@@ -310,9 +310,11 @@ export function NoteList({
     return notes;
   }, [searchQuery, searchResults, notes]);
 
+  const isSearching = searchQuery.trim().length > 0;
+
   const sortedDisplayItems = useMemo(
-    () => sortNotesByModified(displayItems, sortOrder),
-    [displayItems, sortOrder],
+    () => orderNoteListItems(displayItems, sortOrder, pinnedIds, isSearching),
+    [displayItems, sortOrder, pinnedIds, isSearching],
   );
 
   // Listen for focus request from editor (when Escape is pressed)
@@ -339,8 +341,6 @@ export function NoteList({
   }, [openDeleteDialogForNote]);
 
   const foldersEnabled = settings?.foldersEnabled === true;
-  const isSearching = searchQuery.trim().length > 0;
-
   if (isLoading && notes.length === 0) {
     return (
       <div className="p-4 text-center text-text-muted select-none">

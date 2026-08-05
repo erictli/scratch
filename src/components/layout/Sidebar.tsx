@@ -190,13 +190,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       setNoteSortOrder(nextSortOrder);
 
       void notesService
-        .getSettings()
-        .then((settings) =>
-          notesService.updateSettings({
-            ...settings,
-            sidebarSortOrder: nextSortOrder,
-          }),
-        )
+        .updateSidebarSortOrder(nextSortOrder)
         .catch((error) => {
           console.error("Failed to save note sort order:", error);
           setNoteSortOrder((current) =>

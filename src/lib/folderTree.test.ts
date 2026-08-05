@@ -3,6 +3,7 @@ import type { NoteMetadata } from "../types/note";
 import {
   buildFolderTree,
   getVisibleItemsForFolderSection,
+  orderNoteListItems,
   sortNotesByModified,
 } from "./folderTree";
 
@@ -43,6 +44,48 @@ describe("sortNotesByModified", () => {
       "a-first",
       "z-last",
       "newest",
+    ]);
+  });
+
+  it("keeps pinned notes before unpinned notes in the flat list", () => {
+    const result = sortNotesByModified(
+      [note("newest", 30), note("pinned-oldest", 10), note("middle", 20)],
+      "newest",
+      new Set(["pinned-oldest"]),
+    );
+
+    expect(result.map((item) => item.id)).toEqual([
+      "pinned-oldest",
+      "newest",
+      "middle",
+    ]);
+  });
+});
+
+describe("orderNoteListItems", () => {
+  it("preserves backend relevance order while searching", () => {
+    const relevanceOrder = [
+      note("best-match-but-old", 10),
+      note("pinned-newer-match", 30),
+      note("third-match", 20),
+    ];
+
+    const result = orderNoteListItems(
+      relevanceOrder,
+      "newest",
+      new Set(["pinned-newer-match"]),
+      true,
+    );
+
+    expect(result.map((item) => item.id)).toEqual([
+      "best-match-but-old",
+      "pinned-newer-match",
+      "third-match",
+    ]);
+    expect(relevanceOrder.map((item) => item.id)).toEqual([
+      "best-match-but-old",
+      "pinned-newer-match",
+      "third-match",
     ]);
   });
 });
