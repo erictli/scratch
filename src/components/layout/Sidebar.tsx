@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
+import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   DndContext,
@@ -11,6 +13,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { useNotes } from "../../context/NotesContext";
+import { useTheme } from "../../context/ThemeContext";
 import { NoteList } from "../notes/NoteList";
 import { Footer } from "./Footer";
 import { IconButton, Input } from "../ui";
@@ -26,9 +29,26 @@ import {
 import { mod, shift, isMac, isWindows } from "../../lib/platform";
 import * as notesService from "../../services/notes";
 import { FolderNameDialog } from "../notes/FolderNameDialog";
+import { NoteSortMenu } from "./SidebarControls";
+import { WorkspaceMenu } from "./WorkspaceMenu";
+import type { NoteSortOrder } from "../../types/note";
+import { SETTINGS_CHANGED_DOM_EVENT, shouldApplySettingsChange, type SettingsChangedEvent } from "../../lib/settingsScope";
 
 interface SidebarProps {
   onOpenSettings?: () => void;
+}
+
+export function getWorkspaceSwitchErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message.trim()
+      : typeof error === "string"
+        ? error.trim()
+        : "";
+
+  return message
+    ? `Could not switch folder: ${message}`
+    : "Could not switch folder";
 }
 
 export function Sidebar({ onOpenSettings }: SidebarProps) {
@@ -40,15 +60,21 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     searchQuery,
     clearSearch,
     selectedNoteId,
+    notesFolder,
+    switchWorkspace,
     moveNote,
     moveFolder,
   } = useNotes();
+  const { reloadSettings } = useTheme();
   const [searchOpen, setSearchOpen] = useState(false);
   const [inputValue, setInputValue] = useState(searchQuery);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDialogParent, setFolderDialogParent] = useState("");
   const [foldersEnabled, setFoldersEnabled] = useState(true);
+  const [noteSortOrder, setNoteSortOrder] =
+    useState<NoteSortOrder>("newest");
+  const [workspaces, setWorkspaces] = useState<notesService.WorkspaceInfo[]>([]);
   const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [dragCount, setDragCount] = useState(1);
   const [multiSelectedNoteIds, setMultiSelectedNoteIds] = useState<Set<string>>(new Set());
@@ -57,6 +83,74 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const multiSelectedRef = useRef(multiSelectedNoteIds) as RefObject<Set<string>>;
   multiSelectedRef.current = multiSelectedNoteIds;
+
+  const refreshWorkspaces = useCallback(async () => {
+    try {
+      setWorkspaces(await notesService.listWorkspaces());
+    } catch (error) {
+      console.error("Failed to load workspaces:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshWorkspaces();
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen("workspaces-changed", () => {
+      void refreshWorkspaces();
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [refreshWorkspaces]);
+
+  const handleSwitchWorkspace = useCallback(
+    async (path: string) => {
+      try {
+        await switchWorkspace(path);
+        await reloadSettings();
+        await refreshWorkspaces();
+      } catch (error) {
+        console.error("Failed to switch workspace:", error);
+        toast.error(getWorkspaceSwitchErrorMessage(error));
+      }
+    },
+    [refreshWorkspaces, reloadSettings, switchWorkspace],
+  );
+
+  const handleAddWorkspace = useCallback(async () => {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Add Folder",
+      });
+      if (typeof selected === "string") {
+        await handleSwitchWorkspace(selected);
+      }
+    } catch (error) {
+      console.error("Failed to add workspace:", error);
+      toast.error("Failed to add folder");
+    }
+  }, [handleSwitchWorkspace]);
+
+  const handleRemoveWorkspace = useCallback(
+    async (path: string) => {
+      try {
+        await notesService.removeWorkspaceFromList(path);
+        await refreshWorkspaces();
+        toast.success("Folder removed from list — files remain on disk");
+      } catch (error) {
+        console.error("Failed to remove workspace from list:", error);
+        toast.error("Failed to remove folder from list");
+      }
+    },
+    [refreshWorkspaces],
+  );
 
   // dnd-kit
   const sensors = useSensors(
@@ -165,15 +259,54 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     [moveNote, moveFolder],
   );
 
-  // Load folders setting
-  useEffect(() => {
-    notesService.getSettings().then((s) => {
+  const loadWorkspaceSettings = useCallback(() => {
+    return notesService.getSettings().then((s) => {
       setFoldersEnabled(s.foldersEnabled === true);
+      setNoteSortOrder(
+        s.sidebarSortOrder === "oldest" ? "oldest" : "newest",
+      );
     }).catch((error) => {
       console.error("Failed to load settings:", error);
       setFoldersEnabled(false);
     });
   }, []);
+
+  // Workspace settings update live in every window bound to that workspace.
+  useEffect(() => {
+    void loadWorkspaceSettings();
+    const handleSettingsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<SettingsChangedEvent>).detail;
+      if (detail && !shouldApplySettingsChange(detail, notesFolder)) return;
+      void loadWorkspaceSettings();
+    };
+    window.addEventListener(SETTINGS_CHANGED_DOM_EVENT, handleSettingsChanged);
+    return () =>
+      window.removeEventListener(
+        SETTINGS_CHANGED_DOM_EVENT,
+        handleSettingsChanged,
+      );
+  }, [loadWorkspaceSettings, notesFolder]);
+
+  const handleNoteSortOrderChange = useCallback(
+    async (nextSortOrder: NoteSortOrder) => {
+      if (nextSortOrder === noteSortOrder) return;
+
+      const previousSortOrder = noteSortOrder;
+      setNoteSortOrder(nextSortOrder);
+
+      try {
+        const patch: notesService.SettingsPatch = { sidebarSortOrder: nextSortOrder };
+        await notesService.updateWorkspaceSettings(patch);
+      } catch (error) {
+        console.error("Failed to save note sort order:", error);
+        setNoteSortOrder((current) =>
+          current === nextSortOrder ? previousSortOrder : current,
+        );
+        toast.error("Failed to save note sort order");
+      }
+    },
+    [noteSortOrder],
+  );
 
   // Sync input with search query
   useEffect(() => {
@@ -310,144 +443,156 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       onDragEnd={handleDragEnd}
       onDragCancel={() => setDragLabel(null)}
     >
-    <div className="relative w-full h-full bg-bg-secondary border-r border-border flex flex-col select-none">
-      {/* Drag region */}
-      {!isWindows && <div className="h-11 shrink-0" data-tauri-drag-region></div>}
-      <div className={`flex items-center justify-between pl-4 pr-3 pb-2 border-b border-border shrink-0${isWindows ? " pt-2" : ""}`}>
-        <div className="flex items-center gap-1">
-          <div className="font-medium text-base">Notes</div>
-          <div className="text-text-muted font-medium text-2xs min-w-4.75 h-4.75 flex items-center justify-center px-1 bg-bg-muted rounded-sm mt-0.5 pt-px">
-            {notes.length}
-          </div>
-        </div>
-        <div className="flex items-center gap-px">
-          <IconButton
-            onClick={toggleSearch}
-            title={`Search Notes (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}F)`}
-          >
-            {searchOpen ? (
-              <SearchOffIcon className="w-4.25 h-4.25 stroke-[1.5]" />
-            ) : (
-              <SearchIcon className="w-4.25 h-4.25 stroke-[1.5]" />
-            )}
-          </IconButton>
-          {foldersEnabled ? (
-            <DropdownMenu.Root
-              open={plusMenuOpen}
-              onOpenChange={setPlusMenuOpen}
-            >
-              <DropdownMenu.Trigger asChild>
-                <IconButton
-                  variant="ghost"
-                  title="New Note or Folder"
-                >
-                  <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
-                </IconButton>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content
-                  className="min-w-40 bg-bg border border-border rounded-md shadow-lg py-1 z-50"
-                  sideOffset={5}
-                  align="end"
-                  onCloseAutoFocus={(e) => e.preventDefault()}
-                >
-                  <DropdownMenu.Item
-                    className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
-                    onSelect={() => createNote()}
-                  >
-                    <AddNoteIcon className="w-4 h-4 stroke-[1.6]" />
-                    <span className="flex-1">New Note</span>
-                    <kbd className="text-xs text-text-muted ml-2">
-                      {mod}
-                      {isMac ? "" : "+"}N
-                    </kbd>
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item
-                    className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
-                    onSelect={handleNewFolder}
-                  >
-                    <FolderPlusIcon className="w-4 h-4 stroke-[1.6]" />
-                    New Folder
-                  </DropdownMenu.Item>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          ) : (
-            <IconButton
-              variant="ghost"
-              onClick={() => createNote()}
-              title={`New Note (${mod}${isMac ? "" : "+"}N)`}
-            >
-              <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
-            </IconButton>
-          )}
-        </div>
-      </div>
-      {/* Scrollable area with search and notes */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Search - sticky at top */}
-        {searchOpen && (
-          <div className="sticky top-0 z-10 px-2 pt-2 bg-bg-secondary">
-            <div className="relative">
-              <Input
-                ref={searchInputRef}
-                type="text"
-                value={inputValue}
-                onChange={handleSearchChange}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="Search notes..."
-                className="h-9 pr-8 text-sm"
-              />
-              {inputValue && (
-                <button
-                  onClick={handleClearSearch}
-                  tabIndex={-1}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
-                >
-                  <XIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-                </button>
-              )}
+      <div className="relative w-full h-full bg-bg-secondary border-r border-border flex flex-col select-none">
+        {/* Drag region */}
+        {!isWindows && <div className="h-11 shrink-0" data-tauri-drag-region></div>}
+        <WorkspaceMenu
+          workspaces={workspaces}
+          currentWorkspacePath={notesFolder}
+          onSwitchWorkspace={(path) => void handleSwitchWorkspace(path)}
+          onAddWorkspace={() => void handleAddWorkspace()}
+          onRemoveWorkspace={(path) => void handleRemoveWorkspace(path)}
+        />
+        <div className={`flex items-center justify-between pl-4 pr-3 pb-2 border-b border-border shrink-0${isWindows ? " pt-2" : ""}`}>
+          <div className="flex items-center gap-1">
+            <div className="font-medium text-base">Notes</div>
+            <div className="text-text-muted font-medium text-2xs min-w-4.75 h-4.75 flex items-center justify-center px-1 bg-bg-muted rounded-sm mt-0.5 pt-px">
+              {notes.length}
             </div>
           </div>
-        )}
+          <div className="flex items-center gap-px">
+            <NoteSortMenu
+              sortOrder={noteSortOrder}
+              onChange={handleNoteSortOrderChange}
+            />
+            <IconButton
+              onClick={toggleSearch}
+              title={`Search Notes (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}F)`}
+            >
+              {searchOpen ? (
+                <SearchOffIcon className="w-4.25 h-4.25 stroke-[1.5]" />
+              ) : (
+                <SearchIcon className="w-4.25 h-4.25 stroke-[1.5]" />
+              )}
+            </IconButton>
+            {foldersEnabled ? (
+              <DropdownMenu.Root
+                open={plusMenuOpen}
+                onOpenChange={setPlusMenuOpen}
+              >
+                <DropdownMenu.Trigger asChild>
+                  <IconButton
+                    variant="ghost"
+                    title="New Note or Folder"
+                  >
+                    <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
+                  </IconButton>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    className="min-w-40 bg-bg border border-border rounded-md shadow-lg py-1 z-50"
+                    sideOffset={5}
+                    align="end"
+                    onCloseAutoFocus={(e) => e.preventDefault()}
+                  >
+                    <DropdownMenu.Item
+                      className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
+                      onSelect={() => createNote()}
+                    >
+                      <AddNoteIcon className="w-4 h-4 stroke-[1.6]" />
+                      <span className="flex-1">New Note</span>
+                      <kbd className="text-xs text-text-muted ml-2">
+                        {mod}
+                        {isMac ? "" : "+"}N
+                      </kbd>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
+                      onSelect={handleNewFolder}
+                    >
+                      <FolderPlusIcon className="w-4 h-4 stroke-[1.6]" />
+                      New Folder
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            ) : (
+              <IconButton
+                variant="ghost"
+                onClick={() => createNote()}
+                title={`New Note (${mod}${isMac ? "" : "+"}N)`}
+              >
+                <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
+              </IconButton>
+            )}
+          </div>
+        </div>
+        {/* Scrollable area with search and notes */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Search - sticky at top */}
+          {searchOpen && (
+            <div className="sticky top-0 z-10 px-2 pt-2 bg-bg-secondary">
+              <div className="relative">
+                <Input
+                  ref={searchInputRef}
+                  type="text"
+                  value={inputValue}
+                  onChange={handleSearchChange}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search notes..."
+                  className="h-9 pr-8 text-sm"
+                />
+                {inputValue && (
+                  <button
+                    onClick={handleClearSearch}
+                    tabIndex={-1}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
+                  >
+                    <XIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
-        {/* Note list */}
-        <NoteList
-          multiSelectedNoteIds={multiSelectedNoteIds}
-          setMultiSelectedNoteIds={setMultiSelectedNoteIds}
-          lastClickedNoteId={lastClickedNoteId}
-          setLastClickedNoteId={setLastClickedNoteId}
+          {/* Note list */}
+          <NoteList
+            sortOrder={noteSortOrder}
+            multiSelectedNoteIds={multiSelectedNoteIds}
+            setMultiSelectedNoteIds={setMultiSelectedNoteIds}
+            lastClickedNoteId={lastClickedNoteId}
+            setLastClickedNoteId={setLastClickedNoteId}
+          />
+        </div>
+
+        {/* Footer with git status, commit, and settings */}
+        <Footer onOpenSettings={onOpenSettings} />
+
+        {/* Folder name dialog */}
+        <FolderNameDialog
+          open={folderDialogOpen}
+          onOpenChange={setFolderDialogOpen}
+          onConfirm={handleFolderDialogConfirm}
+          title="Create new folder"
+          description="Enter a name for your new folder"
+          confirmLabel="Create"
         />
       </div>
 
-      {/* Footer with git status, commit, and settings */}
-      <Footer onOpenSettings={onOpenSettings} />
-
-      {/* Folder name dialog */}
-      <FolderNameDialog
-        open={folderDialogOpen}
-        onOpenChange={setFolderDialogOpen}
-        onConfirm={handleFolderDialogConfirm}
-        title="Create new folder"
-        description="Enter a name for your new folder"
-        confirmLabel="Create"
-      />
-    </div>
-
-    {/* Drag overlay — floating label while dragging */}
-    <DragOverlay>
-      {dragLabel && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-bg border border-border rounded-md shadow-lg text-sm text-text">
-          <NoteIcon className="w-3.5 h-3.5 stroke-[1.6] opacity-50 shrink-0" />
-          {dragLabel}
-          {dragCount > 1 && (
-            <span className="ml-1 px-1.5 py-0.5 bg-accent text-text-inverse text-xs rounded-full leading-none">
-              +{dragCount - 1}
-            </span>
-          )}
-        </div>
-      )}
-    </DragOverlay>
+      {/* Drag overlay — floating label while dragging */}
+      <DragOverlay>
+        {dragLabel && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-bg border border-border rounded-md shadow-lg text-sm text-text">
+            <NoteIcon className="w-3.5 h-3.5 stroke-[1.6] opacity-50 shrink-0" />
+            {dragLabel}
+            {dragCount > 1 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-accent text-text-inverse text-xs rounded-full leading-none">
+                +{dragCount - 1}
+              </span>
+            )}
+          </div>
+        )}
+      </DragOverlay>
     </DndContext>
   );
 }
