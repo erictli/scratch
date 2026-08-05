@@ -35,6 +35,7 @@ import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
 import { mod, alt, shift, isMac, isWindows } from "../../lib/platform";
@@ -71,8 +72,17 @@ import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
+import { getTitleBarNoteInfoText } from "../../lib/titleBarNoteInfo";
+import { SETTINGS_CHANGED_DOM_EVENT } from "../../lib/settingsScope";
+import type { ConflictResolutionStrategy } from "../../lib/conflictResolution";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
 import * as notesService from "../../services/notes";
+import * as draftCheckpointService from "../../services/draftCheckpoint";
+import {
+  createDraftCheckpointScheduler,
+  nextCheckpointCaptureDelay,
+  type DraftCheckpointScheduler,
+} from "../../lib/draftCheckpoint";
 import { downloadPdf, downloadMarkdown } from "../../services/pdf";
 import type { Settings } from "../../types/note";
 import {
@@ -428,15 +438,30 @@ function FormatBar({
 }
 
 // Data source for preview mode — bypasses NotesContext
+export interface EditorPersistenceController {
+  flush: () => Promise<void>;
+  getDraft: () => {
+    noteId: string | null;
+    content: string;
+    dirty: boolean;
+  };
+}
+
 export interface PreviewModeData {
   content: string | null;
   title: string;
   filePath: string;
   modified: number;
+  revision: string;
   hasExternalChanges: boolean;
+  hasSaveConflict: boolean;
   reloadVersion: number;
   save: (content: string) => Promise<void>;
   reload: () => Promise<void>;
+  resolveConflict: (strategy: ConflictResolutionStrategy) => Promise<void>;
+  registerPersistenceController: (
+    controller: EditorPersistenceController,
+  ) => () => void;
 }
 
 interface EditorProps {
@@ -447,6 +472,9 @@ interface EditorProps {
   onEditorReady?: (editor: TiptapEditor | null) => void;
   onSaveToFolder?: () => void;
   saveToFolderDisabled?: boolean;
+  onPersistenceControllerReady?: (
+    controller: EditorPersistenceController | null,
+  ) => void;
 }
 
 /**
@@ -510,6 +538,7 @@ export function Editor({
   previewMode,
   onSaveToFolder,
   saveToFolderDisabled,
+  onPersistenceControllerReady,
 }: EditorProps) {
   // Always call the hook (rules of hooks), but it returns null outside NotesProvider
   const notesCtx = useOptionalNotes();
@@ -522,6 +551,7 @@ export function Editor({
           content: previewMode.content,
           path: previewMode.filePath,
           modified: previewMode.modified,
+          revision: previewMode.revision,
         }
       : null
     : (notesCtx?.currentNote ?? null);
@@ -531,27 +561,53 @@ export function Editor({
         await previewMode.save(content);
       }
     : notesCtx!.saveNote;
+  const registerWorkspaceTransitionFlush =
+    notesCtx?.registerWorkspaceTransitionFlush;
+  const registerOpenNoteDraft = notesCtx?.registerOpenNoteDraft;
 
   const createNote = notesCtx?.createNote;
   const consumePendingNewNote = notesCtx?.consumePendingNewNote;
   const hasExternalChanges = previewMode
     ? previewMode.hasExternalChanges
     : notesCtx!.hasExternalChanges;
+  const hasSaveConflict = previewMode
+    ? previewMode.hasSaveConflict
+    : Boolean(notesCtx!.noteConflict);
   const reloadCurrentNote = previewMode
     ? previewMode.reload
     : notesCtx!.reloadCurrentNote;
+  const resolveNoteConflict = previewMode
+    ? previewMode.resolveConflict
+    : notesCtx!.resolveNoteConflict;
   const reloadVersion = previewMode
     ? previewMode.reloadVersion
     : notesCtx!.reloadVersion;
   const pinNote = notesCtx?.pinNote;
   const unpinNote = notesCtx?.unpinNote;
   const notes = notesCtx?.notes;
-  const { textDirection } = useTheme();
+  const {
+    textDirection,
+    editorWidthResizeEnabled,
+    editorToolbarVisible,
+    titleBarModifiedDateVisible,
+    titleBarFilenameVisible,
+  } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const titleBarNoteInfo = currentNote
+    ? getTitleBarNoteInfoText(
+        {
+          modifiedDateVisible: titleBarModifiedDateVisible,
+          filenameVisible: titleBarFilenameVisible,
+        },
+        currentNote,
+        formatDateTime,
+      )
+    : null;
   // Delay transition classes until after initial mount to avoid format bar height animation on note load
   const [hasTransitioned, setHasTransitioned] = useState(false);
   useEffect(() => {
@@ -568,6 +624,9 @@ export function Editor({
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceContent, setSourceContent] = useState("");
   const sourceTimeoutRef = useRef<number | null>(null);
+  const sourceContentRef = useRef("");
+  const sourceNeedsSaveRef = useRef(false);
+  const sourceSaveGenerationRef = useRef(0);
   const sourceModeTransitionRef = useRef<{
     topBlockIndex: number;
     cursorBlockIndex: number;
@@ -584,6 +643,25 @@ export function Editor({
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const saveTimeoutRef = useRef<number | null>(null);
+  const checkpointCaptureTimerRef = useRef<number | null>(null);
+  const checkpointCaptureStartedAtRef = useRef<number | null>(null);
+  const queueCheckpointCaptureRef = useRef<() => void>(() => undefined);
+  const checkpointSchedulerRef = useRef<DraftCheckpointScheduler | null>(null);
+  if (!checkpointSchedulerRef.current) {
+    checkpointSchedulerRef.current = createDraftCheckpointScheduler(
+      {
+        write: draftCheckpointService.writeDraftCheckpoint,
+        clear: draftCheckpointService.clearDraftCheckpoint,
+      },
+      {
+        delayMs: 250,
+        onError: (error) => {
+          console.error("Failed to persist crash checkpoint:", error);
+        },
+      },
+    );
+  }
+  const checkpointScheduler = checkpointSchedulerRef.current;
   const linkPopupRef = useRef<TippyInstance | null>(null);
   const blockMathPopupRef = useRef<TippyInstance | null>(null);
   const isLoadingRef = useRef(false);
@@ -592,6 +670,7 @@ export function Editor({
   const currentNoteIdRef = useRef<string | null>(null);
   // Track if we need to save (use ref to avoid computing markdown on every keystroke)
   const needsSaveRef = useRef(false);
+  const saveGenerationRef = useRef(0);
   // Stable refs for wikilink click handler (avoids re-registering listener on every notes change)
   const notesRef = useRef(notes);
   notesRef.current = notes;
@@ -600,6 +679,7 @@ export function Editor({
 
   // Keep ref in sync with current note ID
   currentNoteIdRef.current = currentNote?.id ?? null;
+  sourceContentRef.current = sourceContent;
 
   // Get markdown from editor
   const getMarkdown = useCallback(
@@ -629,6 +709,21 @@ export function Editor({
         });
     }
   }, [currentNote?.id, notes, previewMode]);
+
+  useEffect(() => {
+    if (previewMode) return;
+    const handleSettingsChanged = () => {
+      void notesService.getSettings().then(setSettings).catch((error) => {
+        console.error("Failed to reload editor settings:", error);
+      });
+    };
+    window.addEventListener(SETTINGS_CHANGED_DOM_EVENT, handleSettingsChanged);
+    return () =>
+      window.removeEventListener(
+        SETTINGS_CHANGED_DOM_EVENT,
+        handleSettingsChanged,
+      );
+  }, [previewMode]);
 
   // Calculate if current note is pinned
   const isPinned =
@@ -732,8 +827,8 @@ export function Editor({
     async (noteId: string, content: string) => {
       setIsSaving(true);
       try {
-        lastSaveRef.current = { noteId, content };
         await saveNote(content, noteId);
+        lastSaveRef.current = { noteId, content };
       } finally {
         setIsSaving(false);
       }
@@ -750,11 +845,19 @@ export function Editor({
 
     // Use loadedNoteIdRef (the note in the editor) not currentNoteIdRef (which may have changed)
     if (needsSaveRef.current && editorRef.current && loadedNoteIdRef.current) {
-      needsSaveRef.current = false;
+      const generation = saveGenerationRef.current;
       const markdown = getMarkdown(editorRef.current);
       await saveImmediately(loadedNoteIdRef.current, markdown);
+      if (saveGenerationRef.current === generation) {
+        needsSaveRef.current = false;
+        setIsDirty(sourceNeedsSaveRef.current);
+        await checkpointScheduler.handleSaveOutcome("saved", {
+          windowLabel: getCurrentWindow().label,
+          noteId: loadedNoteIdRef.current,
+        });
+      }
     }
-  }, [saveImmediately, getMarkdown]);
+  }, [checkpointScheduler, saveImmediately, getMarkdown]);
 
   // Schedule a debounced save (markdown computed only when timer fires)
   const scheduleSave = useCallback(() => {
@@ -766,6 +869,9 @@ export function Editor({
     if (!savingNoteId) return;
 
     needsSaveRef.current = true;
+    setIsDirty(true);
+    queueCheckpointCaptureRef.current();
+    const generation = ++saveGenerationRef.current;
 
     saveTimeoutRef.current = window.setTimeout(async () => {
       if (currentNoteIdRef.current !== savingNoteId || !needsSaveRef.current) {
@@ -774,12 +880,153 @@ export function Editor({
 
       // Compute markdown only now, when we actually save
       if (editorRef.current) {
-        needsSaveRef.current = false;
         const markdown = getMarkdown(editorRef.current);
-        await saveImmediately(savingNoteId, markdown);
+        try {
+          await saveImmediately(savingNoteId, markdown);
+          if (saveGenerationRef.current === generation) {
+            needsSaveRef.current = false;
+            setIsDirty(sourceNeedsSaveRef.current);
+            await checkpointScheduler.handleSaveOutcome("saved", {
+              windowLabel: getCurrentWindow().label,
+              noteId: savingNoteId,
+            });
+          }
+        } catch (error) {
+          needsSaveRef.current = true;
+          console.error("Failed to save note:", error);
+          toast.error("Failed to save note");
+        }
       }
-    }, 500);
-  }, [saveImmediately, getMarkdown, currentNote?.id]);
+    }, 300);
+  }, [checkpointScheduler, saveImmediately, getMarkdown, currentNote?.id]);
+
+  const flushSourceSave = useCallback(async () => {
+    if (sourceTimeoutRef.current) {
+      clearTimeout(sourceTimeoutRef.current);
+      sourceTimeoutRef.current = null;
+    }
+    const noteId = loadedNoteIdRef.current ?? currentNoteIdRef.current;
+    if (!sourceNeedsSaveRef.current || !noteId) return;
+
+    const generation = sourceSaveGenerationRef.current;
+    await saveImmediately(noteId, sourceContentRef.current);
+    if (sourceSaveGenerationRef.current === generation) {
+      sourceNeedsSaveRef.current = false;
+      setIsDirty(needsSaveRef.current);
+      await checkpointScheduler.handleSaveOutcome("saved", {
+        windowLabel: getCurrentWindow().label,
+        noteId,
+      });
+    }
+  }, [checkpointScheduler, saveImmediately]);
+
+  const flushAllPendingSaves = useCallback(async () => {
+    if (sourceNeedsSaveRef.current) {
+      await flushSourceSave();
+      return;
+    }
+    await flushPendingSave();
+  }, [flushPendingSave, flushSourceSave]);
+
+  useEffect(() => {
+    if (!registerWorkspaceTransitionFlush) return;
+    return registerWorkspaceTransitionFlush(flushAllPendingSaves);
+  }, [flushAllPendingSaves, registerWorkspaceTransitionFlush]);
+
+  const getOpenDraftSnapshot = useCallback(() => {
+    const noteId = loadedNoteIdRef.current ?? currentNoteIdRef.current;
+    if (sourceMode) {
+      return {
+        noteId,
+        content: sourceContentRef.current,
+        dirty: sourceNeedsSaveRef.current,
+      };
+    }
+    return {
+      noteId,
+      content: editorRef.current ? getMarkdown(editorRef.current) : "",
+      dirty: needsSaveRef.current,
+    };
+  }, [getMarkdown, sourceMode]);
+
+  useEffect(() => {
+    if (!registerOpenNoteDraft) return;
+    return registerOpenNoteDraft(getOpenDraftSnapshot);
+  }, [getOpenDraftSnapshot, registerOpenNoteDraft]);
+
+  const persistCurrentCrashCheckpoint = useCallback(async () => {
+    const draft = getOpenDraftSnapshot();
+    if (!draft.dirty || !draft.noteId || !currentNote) return;
+    checkpointScheduler.markDirty({
+      key: {
+        windowLabel: getCurrentWindow().label,
+        noteId: draft.noteId,
+      },
+      markdown: draft.content,
+      metadata: {
+        sourcePath: currentNote.path,
+        baseRevision: currentNote.revision ?? null,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    await checkpointScheduler.flush();
+  }, [checkpointScheduler, currentNote, getOpenDraftSnapshot]);
+
+  const persistCurrentCrashCheckpointRef = useRef(persistCurrentCrashCheckpoint);
+
+  useLayoutEffect(() => {
+    persistCurrentCrashCheckpointRef.current = persistCurrentCrashCheckpoint;
+  }, [persistCurrentCrashCheckpoint]);
+
+  queueCheckpointCaptureRef.current = () => {
+    const now = Date.now();
+    checkpointCaptureStartedAtRef.current ??= now;
+    if (checkpointCaptureTimerRef.current) {
+      clearTimeout(checkpointCaptureTimerRef.current);
+    }
+    const delay = nextCheckpointCaptureDelay(
+      now - checkpointCaptureStartedAtRef.current,
+      250,
+      750,
+    );
+    checkpointCaptureTimerRef.current = window.setTimeout(() => {
+      checkpointCaptureTimerRef.current = null;
+      checkpointCaptureStartedAtRef.current = null;
+      void persistCurrentCrashCheckpoint();
+    }, delay);
+  };
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "hidden") return;
+      if (checkpointCaptureTimerRef.current) {
+        clearTimeout(checkpointCaptureTimerRef.current);
+        checkpointCaptureTimerRef.current = null;
+      }
+      checkpointCaptureStartedAtRef.current = null;
+      void persistCurrentCrashCheckpoint();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [persistCurrentCrashCheckpoint]);
+
+  useEffect(() => {
+    const controller: EditorPersistenceController = {
+      flush: flushAllPendingSaves,
+      getDraft: getOpenDraftSnapshot,
+    };
+    if (previewMode) {
+      return previewMode.registerPersistenceController(controller);
+    }
+    onPersistenceControllerReady?.(controller);
+    return () => onPersistenceControllerReady?.(null);
+  }, [
+    flushAllPendingSaves,
+    getOpenDraftSnapshot,
+    onPersistenceControllerReady,
+    previewMode,
+  ]);
 
   const closeBlockMathPopup = useCallback(() => {
     if (blockMathPopupRef.current) {
@@ -1579,21 +1826,31 @@ export function Editor({
     scrollContainerRef.current?.scrollTo(0, 0);
   }, []);
 
-  // Cleanup on unmount - flush pending saves
+  // Save barriers run before settings and window transitions. React cleanup
+  // cannot await I/O, so it must never fire-and-forget the only draft.
   useEffect(() => {
     return () => {
+      const hasPendingSave =
+        needsSaveRef.current || sourceNeedsSaveRef.current;
+      if (hasPendingSave) {
+        void persistCurrentCrashCheckpointRef.current().catch((error) => {
+          console.error("Failed to persist crash checkpoint on unmount:", error);
+        });
+      }
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-      // Flush any pending save before unmounting
-      if (needsSaveRef.current && editorRef.current) {
-        needsSaveRef.current = false;
-        const manager = editorRef.current.storage.markdown?.manager;
-        const markdown = manager
-          ? manager.serialize(editorRef.current.getJSON())
-          : editorRef.current.getText();
-        // Fire and forget - save will complete in background
-        saveNote(markdown);
+      if (sourceTimeoutRef.current) {
+        clearTimeout(sourceTimeoutRef.current);
+      }
+      if (checkpointCaptureTimerRef.current) {
+        clearTimeout(checkpointCaptureTimerRef.current);
+        checkpointCaptureStartedAtRef.current = null;
+      }
+      if (checkpointSchedulerRef.current) {
+        void checkpointSchedulerRef.current.dispose().catch((error) => {
+          console.error("Failed to dispose checkpoint scheduler:", error);
+        });
       }
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
@@ -2121,15 +2378,29 @@ export function Editor({
   const handleSourceChange = useCallback(
     (value: string) => {
       setSourceContent(value);
+      sourceContentRef.current = value;
+      sourceNeedsSaveRef.current = true;
+      setIsDirty(true);
+      queueCheckpointCaptureRef.current();
+      const generation = ++sourceSaveGenerationRef.current;
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
       }
       sourceTimeoutRef.current = window.setTimeout(async () => {
+        sourceTimeoutRef.current = null;
         if (currentNote) {
           setIsSaving(true);
           try {
-            lastSaveRef.current = { noteId: currentNote.id, content: value };
             await saveNote(value, currentNote.id);
+            lastSaveRef.current = { noteId: currentNote.id, content: value };
+            if (sourceSaveGenerationRef.current === generation) {
+              sourceNeedsSaveRef.current = false;
+              setIsDirty(needsSaveRef.current);
+              await checkpointScheduler.handleSaveOutcome("saved", {
+                windowLabel: getCurrentWindow().label,
+                noteId: currentNote.id,
+              });
+            }
           } catch (error) {
             console.error("Failed to save note:", error);
             toast.error("Failed to save note");
@@ -2139,7 +2410,7 @@ export function Editor({
         }
       }, 300);
     },
-    [currentNote, saveNote],
+    [checkpointScheduler, currentNote, saveNote],
   );
 
   if (!currentNote) {
@@ -2257,14 +2528,60 @@ export function Editor({
               <PanelLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
             </IconButton>
           )}
-          <span className="text-xs text-text-muted mb-px truncate">
-            {formatDateTime(currentNote.modified)}
-          </span>
+          {titleBarNoteInfo && (
+            <span className="text-xs text-text-muted mb-px truncate">
+              {titleBarNoteInfo}
+            </span>
+          )}
         </div>
         <div
           className={`titlebar-no-drag flex items-center gap-px shrink-0 transition-opacity duration-400 ${needsSidebarDelay ? "delay-200" : ""} ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
         >
-          {hasExternalChanges ? (
+          {hasSaveConflict && resolveNoteConflict ? (
+            <DropdownMenu.Root>
+              <Tooltip content="Save conflict — local draft preserved; choose which version to keep">
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    className="h-7 px-2 flex items-center gap-1 text-xs text-text-muted hover:bg-bg-emphasis rounded font-medium"
+                  >
+                    <RefreshCwIcon className="w-4 h-4 stroke-[1.6]" />
+                    <span>Resolve Conflict</span>
+                  </button>
+                </DropdownMenu.Trigger>
+              </Tooltip>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="end"
+                  className="min-w-48 p-1 bg-bg border border-border rounded-md shadow-lg z-50"
+                >
+                  <DropdownMenu.Item
+                    className="px-2 py-1.5 text-sm rounded outline-none cursor-pointer hover:bg-bg-emphasis focus:bg-bg-emphasis"
+                    onSelect={() => {
+                      void resolveNoteConflict("keepLocal").catch((error) => {
+                        toast.error(`Conflict remains: ${error}`);
+                      });
+                    }}
+                  >
+                    Keep My Changes
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className="px-2 py-1.5 text-sm rounded outline-none cursor-pointer hover:bg-bg-emphasis focus:bg-bg-emphasis"
+                    onSelect={() => {
+                      void resolveNoteConflict("useRemote").catch((error) => {
+                        toast.error(`Conflict remains: ${error}`);
+                      });
+                    }}
+                  >
+                    Use Version on Disk
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="h-px bg-border my-1" />
+                  <div className="px-2 py-1 text-[11px] text-text-muted max-w-56">
+                    A recovery copy is created before either action.
+                  </div>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          ) : hasExternalChanges ? (
             <Tooltip
               content={`External changes detected (${mod}${isMac ? "" : "+"}R to refresh)`}
             >
@@ -2280,6 +2597,15 @@ export function Editor({
             <Tooltip content="Saving...">
               <div className="h-7 w-7 flex items-center justify-center">
                 <SpinnerIcon className="w-4.5 h-4.5 text-text-muted/40 stroke-[1.5] animate-spin" />
+              </div>
+            </Tooltip>
+          ) : isDirty ? (
+            <Tooltip content="Unsaved changes">
+              <div
+                role="status"
+                className="h-7 w-7 flex items-center justify-center"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-text-muted/60" />
               </div>
             </Tooltip>
           ) : (
@@ -2432,22 +2758,27 @@ export function Editor({
       </div>
 
       {/* Format Bar – transition only after initial mount to avoid height animation on note load */}
-      <div
-        data-format-bar
-        className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? `transition-all duration-400 ${needsSidebarDelay ? "delay-200" : ""}` : ""}`}
-      >
-        <FormatBar
-          editor={editor}
-          onAddLink={handleAddLink}
-          onAddBlockMath={handleAddBlockMath}
-          onAddImage={handleAddImage}
-        />
-      </div>
+      {editorToolbarVisible && (
+        <div
+          data-format-bar
+          className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? `transition-all duration-400 ${needsSidebarDelay ? "delay-200" : ""}` : ""}`}
+        >
+          <FormatBar
+            editor={editor}
+            onAddLink={handleAddLink}
+            onAddBlockMath={handleAddBlockMath}
+            onAddImage={handleAddImage}
+          />
+        </div>
+      )}
 
       {/* Editor content area with resize handles overlay */}
       <div data-editor-content-area className="flex-1 relative overflow-hidden">
         {!focusMode && !sourceMode && (
-          <EditorWidthHandles containerRef={scrollContainerRef} />
+          <EditorWidthHandles
+            containerRef={scrollContainerRef}
+            enabled={editorWidthResizeEnabled}
+          />
         )}
         <div
           data-editor-scroll

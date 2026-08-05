@@ -12,6 +12,40 @@ import { listen } from "@tauri-apps/api/event";
 import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
+import { runWorkspaceSwitch } from "../lib/workspaceSwitch";
+import {
+  reconcileRemoteNote,
+  resolveRemoteNoteId,
+  type NoteSyncConflict,
+} from "../lib/noteSync";
+import { createSerializedTaskQueue } from "../lib/serializedWriter";
+import {
+  flushDraftBeforeRelocation,
+  preserveDraftBeforeDeletion,
+} from "../lib/documentMutationSafety";
+import {
+  runConflictResolution,
+  type ConflictResolutionStrategy,
+} from "../lib/conflictResolution";
+import {
+  DEFAULT_RESTORED_WINDOW_SESSION,
+  readRestoredNote,
+  restoreWindowSession,
+  type RestoredWindowSession,
+} from "../lib/windowSession";
+import { getWindowSession } from "../services/windowSession";
+import {
+  clearDraftCheckpoint,
+  getDraftCheckpoint,
+  listDraftCheckpoints,
+} from "../services/draftCheckpoint";
+import { reconcileDraftCheckpoint } from "../lib/draftCheckpoint";
+
+export interface OpenNoteDraftSnapshot {
+  noteId: string | null;
+  content: string;
+  dirty: boolean;
+}
 
 // Separate contexts to prevent unnecessary re-renders
 // Data context: changes frequently, only subscribed by components that need the data
@@ -26,7 +60,10 @@ interface NotesDataContextValue {
   searchResults: SearchResult[];
   isSearching: boolean;
   hasExternalChanges: boolean;
+  noteConflict: NoteSyncConflict | null;
   reloadVersion: number;
+  restoredWindowSession: RestoredWindowSession;
+  isWindowSessionRestored: boolean;
 }
 
 // Actions context: stable references, rarely causes re-renders
@@ -40,7 +77,21 @@ interface NotesActionsContextValue {
   refreshNotes: () => Promise<void>;
   reloadCurrentNote: () => Promise<void>;
   setNotesFolder: (path: string) => Promise<void>;
+  switchWorkspace: (path: string) => Promise<void>;
   syncNotesFolder: (path: string) => Promise<void>;
+  registerWorkspaceTransitionFlush: (
+    handler: () => Promise<void>,
+  ) => () => void;
+  registerOpenNoteDraft: (
+    handler: () => OpenNoteDraftSnapshot,
+  ) => () => void;
+  flushCurrentDraft: () => Promise<void>;
+  persistCurrentDraftRecovery: (
+    reason: string,
+  ) => Promise<string | undefined>;
+  resolveNoteConflict: (
+    strategy: ConflictResolutionStrategy,
+  ) => Promise<void>;
   search: (query: string) => Promise<void>;
   clearSearch: () => void;
   pinNote: (id: string) => Promise<void>;
@@ -67,25 +118,97 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasExternalChanges, setHasExternalChanges] = useState(false);
+  const [noteConflict, setNoteConflict] = useState<NoteSyncConflict | null>(
+    null,
+  );
+  const noteConflictRef = useRef<NoteSyncConflict | null>(null);
+  useEffect(() => {
+    noteConflictRef.current = noteConflict;
+  }, [noteConflict]);
   // Increments when user manually refreshes, so Editor knows to reload content
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [restoredWindowSession, setRestoredWindowSession] =
+    useState<RestoredWindowSession>(DEFAULT_RESTORED_WINDOW_SESSION);
+  const [isWindowSessionRestored, setIsWindowSessionRestored] = useState(false);
 
-  // Track recently saved note IDs to ignore file-change events from our own saves
-  const recentlySavedRef = useRef<Set<string>>(new Set());
   // Track pending refresh timeout to debounce refreshes during rapid saves
   const refreshTimeoutRef = useRef<number | null>(null);
   // Ref to access selectedNoteId in file watcher without re-registering listener
   const selectedNoteIdRef = useRef<string | null>(null);
-  selectedNoteIdRef.current = selectedNoteId;
+  const currentNoteRef = useRef<Note | null>(null);
+  const notesFolderRef = useRef<string | null>(null);
+  const noteRevisionByIdRef = useRef<Map<string, string>>(new Map());
+  const saveQueueRef = useRef(createSerializedTaskQueue());
+  const openNoteDraftRef = useRef<() => OpenNoteDraftSnapshot>(() => ({
+    noteId: null,
+    content: "",
+    dirty: false,
+  }));
   // Ref to access notes in search callback without re-creating it on every notes change
   const notesRef = useRef<NoteMetadata[]>([]);
-  notesRef.current = notes;
+  useEffect(() => {
+    selectedNoteIdRef.current = selectedNoteId;
+    currentNoteRef.current = currentNote;
+    notesFolderRef.current = notesFolder;
+    notesRef.current = notes;
+  }, [selectedNoteId, currentNote, notesFolder, notes]);
   // Monotonic counter to ignore stale async note selection responses.
   const selectRequestIdRef = useRef(0);
   // Monotonic counter to ignore stale async search responses
   const searchRequestIdRef = useRef(0);
   // Tracks the ID of a newly created note so Editor can focus its title.
   const pendingNewNoteIdRef = useRef<string | null>(null);
+  const workspaceTransitionFlushRef = useRef<() => Promise<void>>(
+    async () => undefined,
+  );
+  const workspaceTransitionQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const registerWorkspaceTransitionFlush = useCallback(
+    (handler: () => Promise<void>) => {
+      workspaceTransitionFlushRef.current = handler;
+      return () => {
+        if (workspaceTransitionFlushRef.current === handler) {
+          workspaceTransitionFlushRef.current = async () => undefined;
+        }
+      };
+    },
+    [],
+  );
+
+  const registerOpenNoteDraft = useCallback(
+    (handler: () => OpenNoteDraftSnapshot) => {
+      openNoteDraftRef.current = handler;
+      return () => {
+        if (openNoteDraftRef.current === handler) {
+          openNoteDraftRef.current = () => ({
+            noteId: null,
+            content: "",
+            dirty: false,
+          });
+        }
+      };
+    },
+    [],
+  );
+
+  const flushCurrentDraft = useCallback(
+    () => workspaceTransitionFlushRef.current(),
+    [],
+  );
+
+  const persistCurrentDraftRecovery = useCallback(async (reason: string) => {
+    const draft = openNoteDraftRef.current();
+    if (!draft.dirty || !draft.noteId) return undefined;
+    const note = currentNoteRef.current;
+    const sourcePath =
+      note && note.id === draft.noteId ? note.path : "";
+    return notesService.persistRecoverySnapshot({
+      noteId: draft.noteId,
+      sourcePath,
+      content: draft.content,
+      reason,
+    });
+  }, []);
 
   const refreshNotes = useCallback(async () => {
     if (!notesFolder) return;
@@ -109,14 +232,22 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, [refreshNotes]);
 
   const selectNote = useCallback(async (id: string) => {
-    const requestId = ++selectRequestIdRef.current;
     try {
+      if (
+        selectedNoteIdRef.current &&
+        selectedNoteIdRef.current !== id &&
+        openNoteDraftRef.current().dirty
+      ) {
+        await workspaceTransitionFlushRef.current();
+      }
+      const requestId = ++selectRequestIdRef.current;
       if (pendingNewNoteIdRef.current !== id) {
         pendingNewNoteIdRef.current = null;
       }
       // Set selected ID immediately for responsive UI
       setSelectedNoteId(id);
       setHasExternalChanges(false);
+      setNoteConflict(null);
       // Expand parent folders so the note is visible in the tree
       const lastSlash = id.lastIndexOf("/");
       if (lastSlash > 0) {
@@ -128,9 +259,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       }
       const note = await notesService.readNote(id);
       if (requestId !== selectRequestIdRef.current) return;
+      noteRevisionByIdRef.current.set(note.id, note.revision);
+      currentNoteRef.current = note;
       setCurrentNote(note);
     } catch (err) {
-      if (requestId !== selectRequestIdRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load note");
     }
   }, []);
@@ -138,9 +270,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const reloadCurrentNote = useCallback(async () => {
     if (!selectedNoteIdRef.current) return;
     try {
+      if (openNoteDraftRef.current().dirty) {
+        await workspaceTransitionFlushRef.current();
+      }
       const note = await notesService.readNote(selectedNoteIdRef.current);
+      noteRevisionByIdRef.current.set(note.id, note.revision);
+      currentNoteRef.current = note;
       setCurrentNote(note);
       setHasExternalChanges(false);
+      setNoteConflict(null);
       setReloadVersion((v) => v + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reload note");
@@ -149,6 +287,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const createNote = useCallback(async () => {
     try {
+      if (openNoteDraftRef.current().dirty) {
+        await workspaceTransitionFlushRef.current();
+      }
       // Derive target folder from the selected note's parent path
       let targetFolder: string | undefined;
       if (selectedNoteIdRef.current) {
@@ -160,17 +301,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       const note = await notesService.createNote(targetFolder);
       selectRequestIdRef.current += 1;
       pendingNewNoteIdRef.current = note.id;
-      // Mark as recently saved to ignore file-change events from our own creation
-      recentlySavedRef.current.add(note.id);
+      noteRevisionByIdRef.current.set(note.id, note.revision);
       await refreshNotes();
+      currentNoteRef.current = note;
       setCurrentNote(note);
       setSelectedNoteId(note.id);
+      selectedNoteIdRef.current = note.id;
+      setNoteConflict(null);
       // Clear search when creating a new note
       setSearchQuery("");
       setSearchResults([]);
-      setTimeout(() => {
-        recentlySavedRef.current.delete(note.id);
-      }, 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create note");
     }
@@ -186,74 +326,157 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const saveNote = useCallback(
-    async (content: string, noteId?: string) => {
-      // Use provided noteId (for flush saves) or fall back to currentNote.id
-      const savingNoteId = noteId || currentNote?.id;
-      if (!savingNoteId) return;
-      let updatedId: string | null = null;
+    (content: string, noteId?: string): Promise<void> => {
+      const savingNoteId = noteId || currentNoteRef.current?.id;
+      if (!savingNoteId) return Promise.resolve();
 
-      try {
-        // Mark this note as recently saved to ignore file-change events from our own save
-        recentlySavedRef.current.add(savingNoteId);
-
-        const updated = await notesService.saveNote(savingNoteId, content);
-        updatedId = updated.id;
-
-        // If the note was renamed (ID changed), also mark the new ID
-        if (updated.id !== savingNoteId) {
-          recentlySavedRef.current.add(updated.id);
-
-          // Transfer pin status to new ID
-          const currentSettings = await notesService.getSettings();
-          const pinnedIds = currentSettings.pinnedNoteIds || [];
-          if (pinnedIds.includes(savingNoteId)) {
-            const updatedSettings = {
-              ...currentSettings,
-              pinnedNoteIds: pinnedIds.map((id) =>
-                id === savingNoteId ? updated.id : id
-              ),
-            };
-            await notesService.updateSettings(updatedSettings);
+      return saveQueueRef.current(async () => {
+        try {
+          const expectedRevision =
+            noteRevisionByIdRef.current.get(savingNoteId) ??
+            (currentNoteRef.current?.id === savingNoteId
+              ? currentNoteRef.current.revision
+              : null);
+          if (!expectedRevision) {
+            throw new Error(`Missing base revision for ${savingNoteId}`);
           }
-        }
 
-        // Clear external changes flag - if it was set by our own save, we want to ignore it
-        setHasExternalChanges(false);
+          const result = await notesService.saveNote(
+            savingNoteId,
+            content,
+            expectedRevision,
+          );
+          if (result.status === "conflict") {
+            let remote: Note | null = null;
+            if (result.current) {
+              try {
+                remote = await notesService.readNote(savingNoteId);
+              } catch {
+                remote = null;
+              }
+            }
+            if (selectedNoteIdRef.current === savingNoteId) {
+              setNoteConflict(
+                remote
+                  ? { kind: "modified", remote }
+                  : { kind: "deleted", remote: null },
+              );
+              setHasExternalChanges(true);
+            }
+            throw new Error(
+              remote
+                ? "Save conflict: a newer version is already on disk"
+                : "Save conflict: the source note was deleted or moved",
+            );
+          }
 
-        // Only update state if we're still on the same note we started saving
-        // This prevents race conditions when user switches notes during save
-        setSelectedNoteId((prevId) => {
-          if (prevId === savingNoteId) {
-            // Update to the new ID if the note was renamed
+          const updated = result.note;
+          noteRevisionByIdRef.current.delete(savingNoteId);
+          noteRevisionByIdRef.current.set(updated.id, updated.revision);
+
+          if (updated.id !== savingNoteId) {
+            const currentSettings = await notesService.getSettings();
+            const pinnedIds = currentSettings.pinnedNoteIds || [];
+            if (pinnedIds.includes(savingNoteId)) {
+              await notesService.updateWorkspaceSettings({
+                pinnedNoteIds: pinnedIds.map((id) =>
+                  id === savingNoteId ? updated.id : id,
+                ),
+              });
+            }
+          }
+
+          if (selectedNoteIdRef.current === savingNoteId) {
+            selectedNoteIdRef.current = updated.id;
+            currentNoteRef.current = updated;
+            setSelectedNoteId(updated.id);
             setCurrentNote(updated);
-            return updated.id;
+            setNoteConflict(null);
+            setHasExternalChanges(false);
           }
-          // User switched to a different note, don't update current note
-          return prevId;
-        });
-
-        // Schedule refresh with debounce - avoids blocking typing during rapid saves
-        scheduleRefresh();
-
-        // Clear the recently saved flag after a short delay
-        // (longer than the file watcher debounce of 500ms)
-        setTimeout(() => {
-          recentlySavedRef.current.delete(savingNoteId);
-          if (updatedId) recentlySavedRef.current.delete(updatedId);
-        }, 1000);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save note");
-        // Clean up immediately on error to avoid leaving stale entries
-        recentlySavedRef.current.delete(savingNoteId);
-        if (updatedId) recentlySavedRef.current.delete(updatedId);
-      }
+          scheduleRefresh();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to save note");
+          throw err;
+        }
+      });
     },
-    [currentNote, scheduleRefresh]
+    [scheduleRefresh],
+  );
+
+  const resolveNoteConflict = useCallback(
+    async (strategy: ConflictResolutionStrategy) => {
+      const conflict = noteConflict;
+      if (!conflict) return;
+      const draft = openNoteDraftRef.current();
+      if (!draft.noteId) {
+        throw new Error("No open draft to resolve");
+      }
+
+      const applyResolvedNote = (note: Note | null) => {
+        noteRevisionByIdRef.current.delete(draft.noteId!);
+        currentNoteRef.current = note;
+        selectedNoteIdRef.current = note?.id ?? null;
+        if (note) {
+          noteRevisionByIdRef.current.set(note.id, note.revision);
+        }
+        setCurrentNote(note);
+        setSelectedNoteId(note?.id ?? null);
+        setNoteConflict(null);
+        setHasExternalChanges(false);
+        setReloadVersion((version) => version + 1);
+      };
+
+      await runConflictResolution(
+        strategy,
+        { draft, remote: conflict.remote },
+        {
+          persistRecovery: () =>
+            persistCurrentDraftRecovery(`conflict-${strategy}`),
+          overwriteRemote: async (localDraft, remote) => {
+            const result = await notesService.saveNote(
+              remote.id,
+              localDraft.content,
+              remote.revision,
+            );
+            if (result.status === "conflict") {
+              throw new Error("The disk version changed again; conflict preserved");
+            }
+            applyResolvedNote(result.note);
+          },
+          recreateDeleted: async (localDraft) => {
+            const result = await notesService.recreateNote(
+              draft.noteId!,
+              localDraft.content,
+            );
+            if (result.status === "conflict") {
+              throw new Error("Could not recreate the deleted note safely");
+            }
+            applyResolvedNote(result.note);
+          },
+          acceptRemote: async (remote) => {
+            applyResolvedNote(remote);
+          },
+        },
+      );
+      await clearDraftCheckpoint({
+        windowLabel: "",
+        noteId: draft.noteId,
+      });
+      await refreshNotes();
+    },
+    [noteConflict, persistCurrentDraftRecovery, refreshNotes],
   );
 
   const deleteNote = useCallback(
     async (id: string) => {
       try {
+        const draft = openNoteDraftRef.current();
+        await preserveDraftBeforeDeletion(
+          draft,
+          draft.noteId === id,
+          () => persistCurrentDraftRecovery("delete-note"),
+        );
         await notesService.deleteNote(id);
 
         // Clean up pinned status for deleted note
@@ -261,41 +484,42 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const pinnedIds = currentSettings.pinnedNoteIds || [];
         if (pinnedIds.includes(id)) {
           const updatedSettings = {
-            ...currentSettings,
             pinnedNoteIds: pinnedIds.filter((pinId) => pinId !== id),
           };
-          await notesService.updateSettings(updatedSettings);
+          await notesService.updateWorkspaceSettings(updatedSettings);
         }
 
         // Only clear selection if we're deleting the currently selected note
-        setSelectedNoteId((prevId) => {
-          if (prevId === id) {
-            setCurrentNote(null);
-            return null;
-          }
-          return prevId;
-        });
+        if (selectedNoteIdRef.current === id) {
+          selectedNoteIdRef.current = null;
+          currentNoteRef.current = null;
+          setSelectedNoteId(null);
+          setCurrentNote(null);
+          setNoteConflict(null);
+        }
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to delete note");
       }
     },
-    [refreshNotes]
+    [persistCurrentDraftRecovery, refreshNotes]
   );
 
   const duplicateNote = useCallback(
     async (id: string) => {
       try {
+        if (openNoteDraftRef.current().dirty) {
+          await workspaceTransitionFlushRef.current();
+        }
         const newNote = await notesService.duplicateNote(id);
         selectRequestIdRef.current += 1;
-        // Mark as recently saved to ignore file-change events from our own creation
-        recentlySavedRef.current.add(newNote.id);
+        noteRevisionByIdRef.current.set(newNote.id, newNote.revision);
         await refreshNotes();
+        currentNoteRef.current = newNote;
+        selectedNoteIdRef.current = newNote.id;
         setCurrentNote(newNote);
         setSelectedNoteId(newNote.id);
-        setTimeout(() => {
-          recentlySavedRef.current.delete(newNote.id);
-        }, 1000);
+        setNoteConflict(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to duplicate note");
       }
@@ -311,10 +535,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
         if (!pinnedIds.includes(id)) {
           const updatedSettings = {
-            ...currentSettings,
             pinnedNoteIds: [...pinnedIds, id],
           };
-          await notesService.updateSettings(updatedSettings);
+          await notesService.updateWorkspaceSettings(updatedSettings);
           await refreshNotes();
         }
       } catch (err) {
@@ -331,10 +554,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const pinnedIds = currentSettings.pinnedNoteIds || [];
 
         const updatedSettings = {
-          ...currentSettings,
           pinnedNoteIds: pinnedIds.filter((pinId) => pinId !== id),
         };
-        await notesService.updateSettings(updatedSettings);
+        await notesService.updateWorkspaceSettings(updatedSettings);
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to unpin note");
@@ -346,18 +568,21 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const createNoteInFolder = useCallback(
     async (folderPath: string) => {
       try {
+        if (openNoteDraftRef.current().dirty) {
+          await workspaceTransitionFlushRef.current();
+        }
         const note = await notesService.createNote(folderPath);
         selectRequestIdRef.current += 1;
         pendingNewNoteIdRef.current = note.id;
-        recentlySavedRef.current.add(note.id);
+        noteRevisionByIdRef.current.set(note.id, note.revision);
         await refreshNotes();
+        currentNoteRef.current = note;
+        selectedNoteIdRef.current = note.id;
         setCurrentNote(note);
         setSelectedNoteId(note.id);
+        setNoteConflict(null);
         setSearchQuery("");
         setSearchResults([]);
-        setTimeout(() => {
-          recentlySavedRef.current.delete(note.id);
-        }, 1000);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to create note"
@@ -385,15 +610,21 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const deleteFolderAction = useCallback(
     async (path: string) => {
       try {
+        const draft = openNoteDraftRef.current();
+        await preserveDraftBeforeDeletion(
+          draft,
+          Boolean(draft.noteId?.startsWith(`${path}/`)),
+          () => persistCurrentDraftRecovery("delete-folder"),
+        );
         await notesService.deleteFolder(path);
-        // If the selected note was inside the deleted folder, clear selection
-        setSelectedNoteId((prevId) => {
-          if (prevId && prevId.startsWith(path + "/")) {
-            setCurrentNote(null);
-            return null;
-          }
-          return prevId;
-        });
+        let shouldClearSelection = false;
+        if (selectedNoteIdRef.current && selectedNoteIdRef.current.startsWith(path + "/")) {
+          shouldClearSelection = true;
+        }
+        if (shouldClearSelection) {
+          setCurrentNote(null);
+          setSelectedNoteId(null);
+        }
         await refreshNotes();
       } catch (err) {
         setError(
@@ -401,12 +632,18 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         );
       }
     },
-    [refreshNotes]
+    [persistCurrentDraftRecovery, refreshNotes]
   );
 
   const renameFolderAction = useCallback(
     async (oldPath: string, newName: string) => {
       try {
+        const draft = openNoteDraftRef.current();
+        await flushDraftBeforeRelocation(
+          draft,
+          Boolean(draft.noteId?.startsWith(`${oldPath}/`)),
+          () => workspaceTransitionFlushRef.current(),
+        );
         await notesService.renameFolder(oldPath, newName);
 
         // Compute new folder path
@@ -419,18 +656,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const newPrefix = newPath + "/";
 
         // Update selectedNoteId if it was inside the renamed folder
-        setSelectedNoteId((prevId) => {
-          if (prevId && prevId.startsWith(oldPrefix)) {
-            const newId = newPrefix + prevId.substring(oldPrefix.length);
-            notesService.readNote(newId).then((note) => {
-              setCurrentNote(note);
-            }).catch((err) => {
-              setError(err instanceof Error ? err.message : "Failed to read renamed note");
-            });
-            return newId;
-          }
-          return prevId;
-        });
+        const selectedId = selectedNoteIdRef.current;
+        if (selectedId && selectedId.startsWith(oldPrefix)) {
+          const newId = newPrefix + selectedId.substring(oldPrefix.length);
+          setSelectedNoteId(newId);
+          notesService.readNote(newId).then((note) => {
+            setCurrentNote(note);
+          }).catch((err) => {
+            setError(err instanceof Error ? err.message : "Failed to read renamed note");
+          });
+        }
 
         await refreshNotes();
       } catch (err) {
@@ -445,19 +680,22 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const moveNoteAction = useCallback(
     async (id: string, targetFolder: string) => {
       try {
+        const draft = openNoteDraftRef.current();
+        await flushDraftBeforeRelocation(
+          draft,
+          draft.noteId === id,
+          () => workspaceTransitionFlushRef.current(),
+        );
         const newId = await notesService.moveNote(id, targetFolder);
         // Update selection if we moved the selected note
-        setSelectedNoteId((prevId) => {
-          if (prevId === id) {
-            notesService.readNote(newId).then((note) => {
-              setCurrentNote(note);
-            }).catch((err) => {
-              setError(err instanceof Error ? err.message : "Failed to read moved note");
-            });
-            return newId;
-          }
-          return prevId;
-        });
+        if (selectedNoteIdRef.current === id) {
+          setSelectedNoteId(newId);
+          notesService.readNote(newId).then((note) => {
+            setCurrentNote(note);
+          }).catch((err) => {
+            setError(err instanceof Error ? err.message : "Failed to read moved note");
+          });
+        }
         await refreshNotes();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to move note");
@@ -469,6 +707,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const moveFolderAction = useCallback(
     async (path: string, targetParent: string) => {
       try {
+        const draft = openNoteDraftRef.current();
+        await flushDraftBeforeRelocation(
+          draft,
+          Boolean(draft.noteId?.startsWith(`${path}/`)),
+          () => workspaceTransitionFlushRef.current(),
+        );
         await notesService.moveFolder(path, targetParent);
 
         // Compute new folder path
@@ -482,18 +726,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const newPrefix = newPath + "/";
 
         // Update selectedNoteId if it was inside the moved folder
-        setSelectedNoteId((prevId) => {
-          if (prevId && prevId.startsWith(oldPrefix)) {
-            const newId = newPrefix + prevId.substring(oldPrefix.length);
-            notesService.readNote(newId).then((note) => {
-              setCurrentNote(note);
-            }).catch((err) => {
-              setError(err instanceof Error ? err.message : "Failed to read moved note");
-            });
-            return newId;
-          }
-          return prevId;
-        });
+        const selectedId = selectedNoteIdRef.current;
+        if (selectedId && selectedId.startsWith(oldPrefix)) {
+          const newId = newPrefix + selectedId.substring(oldPrefix.length);
+          setSelectedNoteId(newId);
+          notesService.readNote(newId).then((note) => {
+            setCurrentNote(note);
+          }).catch((err) => {
+            setError(err instanceof Error ? err.message : "Failed to read moved note");
+          });
+        }
 
         await refreshNotes();
       } catch (err) {
@@ -503,35 +745,153 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [refreshNotes]
   );
 
-  const setNotesFolder = useCallback(async (path: string) => {
-    try {
-      await notesService.setNotesFolder(path);
-      setNotesFolderState(path);
-      // Start file watcher after setting folder
-      await notesService.startFileWatcher();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to set notes folder"
+  const restoreWorkspaceSession = useCallback(
+    async (workspace: string, notesList: readonly NoteMetadata[]) => {
+      setIsWindowSessionRestored(false);
+      const restored = await restoreWindowSession({
+        isPreview: false,
+        workspace,
+        noteIds: notesList.map((note) => note.id),
+        load: getWindowSession,
+      });
+      const diskNote = await readRestoredNote(
+        restored.selectedNoteId,
+        notesService.readNote,
       );
-    }
-  }, []);
+      let restoredNote = diskNote;
+      let recoveredRemote: Note | null = null;
+      if (diskNote) {
+        const checkpoint = await getDraftCheckpoint(diskNote.id).catch(
+          () => null,
+        );
+        if (checkpoint) {
+          const reconciled = reconcileDraftCheckpoint(diskNote, checkpoint);
+          restoredNote = reconciled.note;
+          recoveredRemote = reconciled.remote;
+          if (reconciled.shouldClear) {
+            await clearDraftCheckpoint(checkpoint.key).catch(() => undefined);
+          }
+        }
+      } else {
+        const orphaned = await listDraftCheckpoints().catch(() => []);
+        if (orphaned.length > 0) {
+          setError(
+            `${orphaned.length} recovered draft${orphaned.length === 1 ? " is" : "s are"} available from a previous interrupted session`,
+          );
+        }
+      }
+
+      const appliedSession = restoredNote
+        ? restored
+        : { ...restored, selectedNoteId: null, focusMode: false };
+
+      selectRequestIdRef.current += 1;
+      selectedNoteIdRef.current = restoredNote?.id ?? null;
+      currentNoteRef.current = restoredNote;
+      setSelectedNoteId(restoredNote?.id ?? null);
+      setCurrentNote(restoredNote);
+      setNoteConflict(
+        recoveredRemote ? { kind: "modified", remote: recoveredRemote } : null,
+      );
+      setHasExternalChanges(Boolean(recoveredRemote));
+      if (restoredNote) {
+        noteRevisionByIdRef.current.set(
+          restoredNote.id,
+          restoredNote.revision,
+        );
+      }
+      setRestoredWindowSession(appliedSession);
+      setIsWindowSessionRestored(true);
+    },
+    [],
+  );
+
+  const loadWorkspaceState = useCallback(async (path: string) => {
+    setIsWindowSessionRestored(false);
+    selectRequestIdRef.current += 1;
+    searchRequestIdRef.current += 1;
+    pendingNewNoteIdRef.current = null;
+    noteRevisionByIdRef.current.clear();
+    currentNoteRef.current = null;
+    selectedNoteIdRef.current = null;
+    setNotesFolderState(path);
+    setSelectedNoteId(null);
+    setCurrentNote(null);
+    setNotes([]);
+    setSearchQuery("");
+    setSearchResults([]);
+    setIsSearching(false);
+    setHasExternalChanges(false);
+    setNoteConflict(null);
+
+    const notesList = await notesService.listNotes();
+    setNotes(notesList);
+    await restoreWorkspaceSession(path, notesList);
+    await notesService.startFileWatcher();
+  }, [restoreWorkspaceSession]);
+
+  const queueWorkspaceTransition = useCallback(
+    (
+      path: string,
+      switchBackendWorkspace: (path: string) => Promise<string>,
+    ) => {
+      const transition = workspaceTransitionQueueRef.current.then(async () => {
+        await runWorkspaceSwitch(path, {
+          flushCurrentDraft: () => workspaceTransitionFlushRef.current(),
+          switchBackendWorkspace,
+          loadWorkspace: loadWorkspaceState,
+        });
+      });
+      workspaceTransitionQueueRef.current = transition.catch(() => undefined);
+      return transition;
+    },
+    [loadWorkspaceState],
+  );
+
+  const setNotesFolder = useCallback(
+    async (path: string) => {
+      try {
+        await queueWorkspaceTransition(path, async (requestedPath) => {
+          await notesService.setNotesFolder(requestedPath);
+          return (await notesService.getNotesFolder()) ?? requestedPath;
+        });
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to set notes folder",
+        );
+        throw err;
+      }
+    },
+    [queueWorkspaceTransition],
+  );
+
+  const switchWorkspace = useCallback(
+    async (path: string) => {
+      try {
+        await queueWorkspaceTransition(path, notesService.switchWorkspace);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to switch workspace",
+        );
+        throw err;
+      }
+    },
+    [queueWorkspaceTransition],
+  );
 
   // Update local state only (backend already initialized the folder).
   // Used when the CLI sets the notes folder and emits an event.
   const syncNotesFolder = useCallback(async (path: string) => {
     try {
-      setNotesFolderState(path);
-      setSelectedNoteId(null);
-      setCurrentNote(null);
-      const notesList = await notesService.listNotes();
-      setNotes(notesList);
-      await notesService.startFileWatcher();
+      await workspaceTransitionFlushRef.current();
+      await loadWorkspaceState(path);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to sync notes folder"
       );
+      throw err;
     }
-  }, []);
+  }, [loadWorkspaceState]);
 
   const search = useCallback(async (query: string) => {
     const requestId = ++searchRequestIdRef.current;
@@ -606,8 +966,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (folder) {
           const notesList = await notesService.listNotes();
           setNotes(notesList);
+          await restoreWorkspaceSession(folder, notesList);
           // Start file watcher
           await notesService.startFileWatcher();
+        } else {
+          setRestoredWindowSession(DEFAULT_RESTORED_WINDOW_SESSION);
+          setIsWindowSessionRestored(true);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to initialize");
@@ -616,34 +980,98 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       }
     }
     init();
-  }, []);
+  }, [restoreWorkspaceSession]);
 
-  // Listen for file change events and notify if current note changed externally
+  // Reconcile watcher events by workspace + revision. A clean editor reloads
+  // immediately; a dirty editor keeps its exact draft and enters conflict.
   useEffect(() => {
     let isCancelled = false;
     let unlisten: (() => void) | undefined;
 
-    listen<{ changed_ids: string[] }>("file-change", (event) => {
-      // Don't process if effect was cleaned up
+    listen<{
+      workspace?: string;
+      kind: string;
+      changed_ids: string[];
+      previous_id?: string | null;
+      current_id?: string | null;
+    }>("file-change", (event) => {
       if (isCancelled) return;
+      if (
+        event.payload.workspace &&
+        event.payload.workspace !== notesFolderRef.current
+      ) {
+        return;
+      }
 
       const changedIds = event.payload.changed_ids || [];
+      if (changedIds.length === 0) return;
+      void refreshNotes();
 
-      // Filter out notes we recently saved ourselves
-      const externalChanges = changedIds.filter(
-        (id) => !recentlySavedRef.current.has(id)
-      );
+      const current = currentNoteRef.current;
+      if (!current) return;
+      const remoteId = resolveRemoteNoteId(current.id, {
+        ...event.payload,
+        changed_ids: changedIds,
+      });
+      if (remoteId === undefined) return;
+      const observedId = current.id;
 
-      // Only refresh if there are external changes
-      if (externalChanges.length > 0) {
-        refreshNotes();
-
-        // If the currently selected note was changed externally, set flag (don't auto-reload)
-        const currentId = selectedNoteIdRef.current;
-        if (currentId && externalChanges.includes(currentId)) {
-          setHasExternalChanges(true);
+      void (async () => {
+        let remote: Note | null = null;
+        if (remoteId !== null) {
+          try {
+            remote = await notesService.readNote(remoteId);
+          } catch {
+            remote = null;
+          }
         }
-      }
+        if (
+          isCancelled ||
+          selectedNoteIdRef.current !== observedId ||
+          currentNoteRef.current?.id !== observedId
+        ) {
+          return;
+        }
+
+        const draft = openNoteDraftRef.current();
+        const syncState = {
+          note: currentNoteRef.current,
+          draft:
+            draft.noteId === observedId ? draft.content : current.content,
+          dirty: draft.noteId === observedId && draft.dirty,
+          conflict: noteConflictRef.current,
+        };
+        const next = reconcileRemoteNote(syncState, remote);
+        if (next === syncState) return;
+
+        if (next.conflict) {
+          setNoteConflict(next.conflict);
+          setHasExternalChanges(true);
+          return;
+        }
+
+        noteRevisionByIdRef.current.delete(observedId);
+        if (!next.note) {
+          selectedNoteIdRef.current = null;
+          currentNoteRef.current = null;
+          setSelectedNoteId(null);
+          setCurrentNote(null);
+          setNoteConflict(null);
+          setHasExternalChanges(false);
+          return;
+        }
+
+        currentNoteRef.current = next.note;
+        noteRevisionByIdRef.current.set(next.note.id, next.note.revision);
+        if (next.note.id !== observedId) {
+          selectedNoteIdRef.current = next.note.id;
+          setSelectedNoteId(next.note.id);
+        }
+        setCurrentNote(next.note);
+        setNoteConflict(null);
+        setHasExternalChanges(false);
+        setReloadVersion((version) => version + 1);
+      })();
     }).then((fn) => {
       if (isCancelled) {
         // Effect was cleaned up before listener registered, clean up immediately
@@ -693,7 +1121,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       searchResults,
       isSearching,
       hasExternalChanges,
+      noteConflict,
       reloadVersion,
+      restoredWindowSession,
+      isWindowSessionRestored,
     }),
     [
       notes,
@@ -706,7 +1137,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       searchResults,
       isSearching,
       hasExternalChanges,
+      noteConflict,
       reloadVersion,
+      restoredWindowSession,
+      isWindowSessionRestored,
     ]
   );
 
@@ -722,7 +1156,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       refreshNotes,
       reloadCurrentNote,
       setNotesFolder,
+      switchWorkspace,
       syncNotesFolder,
+      registerWorkspaceTransitionFlush,
+      registerOpenNoteDraft,
+      flushCurrentDraft,
+      persistCurrentDraftRecovery,
+      resolveNoteConflict,
       search,
       clearSearch,
       pinNote,
@@ -744,7 +1184,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       refreshNotes,
       reloadCurrentNote,
       setNotesFolder,
+      switchWorkspace,
       syncNotesFolder,
+      registerWorkspaceTransitionFlush,
+      registerOpenNoteDraft,
+      flushCurrentDraft,
+      persistCurrentDraftRecovery,
+      resolveNoteConflict,
       search,
       clearSearch,
       pinNote,

@@ -11,7 +11,17 @@ export interface Note {
   content: string;
   path: string;
   modified: number;
+  revision: string;
 }
+
+export interface NoteConflictSnapshot {
+  content: string;
+  revision: string;
+}
+
+export type SaveNoteResult =
+  | { status: "saved"; note: Note }
+  | { status: "conflict"; current: NoteConflictSnapshot | null };
 
 export interface ThemeSettings {
   mode: "light" | "dark" | "system";
@@ -20,6 +30,7 @@ export interface ThemeSettings {
 export type FontFamily = "system-sans" | "serif" | "monospace";
 export type TextDirection = "auto" | "ltr" | "rtl";
 export type EditorWidth = "narrow" | "normal" | "wide" | "full" | "custom";
+export type NoteSortOrder = "newest" | "oldest";
 
 export interface EditorFontSettings {
   baseFontFamily?: FontFamily;
@@ -49,10 +60,15 @@ export interface Settings {
   editorFont?: EditorFontSettings;
   gitEnabled?: boolean;
   foldersEnabled?: boolean;
+  sidebarSortOrder?: NoteSortOrder;
   pinnedNoteIds?: string[];
   textDirection?: TextDirection;
   editorWidth?: EditorWidth;
   customEditorWidthPx?: number;
+  editorWidthResizeEnabled?: boolean;
+  editorToolbarVisible?: boolean;
+  titleBarModifiedDateVisible?: boolean;
+  titleBarFilenameVisible?: boolean;
   sidebarWidthPx?: number;
   defaultNoteName?: string;
   interfaceZoom?: number;
