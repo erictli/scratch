@@ -20,6 +20,7 @@ import {
   type TitleBarNoteInfoKind,
   type TitleBarNoteInfoVisibility,
 } from "../lib/titleBarNoteInfo";
+import { createSettingsPatchQueue } from "../lib/settingsUpdateQueue";
 import type {
   ThemeSettings,
   EditorFontSettings,
@@ -28,7 +29,6 @@ import type {
   EditorWidth,
   CustomColors,
   ThemeColorKey,
-  Settings,
 } from "../types/note";
 import { toast } from "sonner";
 
@@ -234,10 +234,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     [],
   );
 
-  const updateSettingsPatch = useCallback(async (patch: Partial<Settings>) => {
-    const settings = await getSettings();
-    await updateSettings({ ...settings, ...patch });
-  }, []);
+  const updateSettingsPatch = useMemo(
+    () => createSettingsPatchQueue(getSettings, updateSettings),
+    [],
+  );
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -461,9 +461,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setCustomColorsLightState({});
     setCustomColorsDarkState({});
     try {
-      const settings = await getSettings();
-      await updateSettings({
-        ...settings,
+      await updateSettingsPatch({
         editorFont: defaultEditorFontSettings,
         textDirection: "auto",
         editorWidth: "normal",
@@ -482,7 +480,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       toast.error("Appearance settings could not be reset");
       await loadSettingsFromBackend();
     }
-  }, [applyTitleBarNoteInfoVisibility, loadSettingsFromBackend]);
+  }, [
+    applyTitleBarNoteInfoVisibility,
+    loadSettingsFromBackend,
+    updateSettingsPatch,
+  ]);
 
   // Save and set text direction
   const setTextDirection = useCallback(async (dir: TextDirection) => {
@@ -555,6 +557,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         await updateSettingsPatch({ editorWidthResizeEnabled: enabled });
       } catch (error) {
         console.error("Failed to save editor width resize setting:", error);
+        toast.error("Appearance setting could not be saved");
       }
     },
     [updateSettingsPatch],
@@ -567,6 +570,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         await updateSettingsPatch({ editorToolbarVisible: visible });
       } catch (error) {
         console.error("Failed to save editor toolbar setting:", error);
+        toast.error("Appearance setting could not be saved");
       }
     },
     [updateSettingsPatch],
@@ -585,6 +589,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         titleBarFilenameVisible: next.filenameVisible,
       }).catch((error) => {
         console.error("Failed to save title bar information setting:", error);
+        toast.error("Appearance setting could not be saved");
       });
     },
     [applyTitleBarNoteInfoVisibility, updateSettingsPatch],
@@ -718,11 +723,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     document.documentElement.style.setProperty("--sidebar-width", `${px}px`);
   }, []);
 
-  // Don't render until initialized to prevent flash
-  if (!isInitialized) {
-    return null;
-  }
-
   const contextValue = useMemo<ThemeContextType>(
     () => ({
       theme,
@@ -796,6 +796,12 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       resetAllCustomColors,
     ],
   );
+
+  // Don't render until initialized to prevent flash. Keep this after every
+  // hook so the provider calls hooks in the same order on every render.
+  if (!isInitialized) {
+    return null;
+  }
 
   return (
     <ThemeContext.Provider value={contextValue}>
