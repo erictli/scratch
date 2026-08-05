@@ -129,6 +129,8 @@ pub struct Settings {
     pub ollama_model: Option<String>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
+    #[serde(rename = "sidebarSortOrder")]
+    pub sidebar_sort_order: Option<String>,
     #[serde(rename = "ignoredPatterns")]
     pub ignored_patterns: Option<Vec<String>>,
     #[serde(rename = "customColorsLight")]
@@ -1793,6 +1795,39 @@ fn update_git_enabled(
     save_settings(&folder, &settings).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+fn persist_sidebar_sort_order(
+    notes_folder: &str,
+    settings: &mut Settings,
+    order: String,
+) -> Result<(), String> {
+    if order != "newest" && order != "oldest" {
+        return Err("Invalid sidebar sort order".to_string());
+    }
+
+    let previous_order = settings.sidebar_sort_order.replace(order);
+    if let Err(error) = save_settings(notes_folder, settings) {
+        settings.sidebar_sort_order = previous_order;
+        return Err(error.to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn update_sidebar_sort_order(order: String, state: State<AppState>) -> Result<(), String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config
+            .notes_folder
+            .clone()
+            .ok_or("Notes folder not set")?
+    };
+
+    let mut settings = state.settings.write().expect("settings write lock");
+    persist_sidebar_sort_order(&folder, &mut settings, order)
 }
 
 #[tauri::command]
@@ -3854,6 +3889,7 @@ pub fn run() {
             get_settings,
             update_settings,
             update_git_enabled,
+            update_sidebar_sort_order,
             preview_note_name,
             write_file,
             search_notes,
@@ -3993,4 +4029,83 @@ fn set_title_bar_theme(
         let _ = (app, is_dark, r, g, b);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_settings, persist_sidebar_sort_order, Settings};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_test_path(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "scratch-sidebar-sort-{name}-{}-{nonce}",
+            std::process::id(),
+        ))
+    }
+
+    #[test]
+    fn settings_preserve_sidebar_note_sort_order() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"theme":{"mode":"system"},"sidebarSortOrder":"oldest"}"#)
+                .expect("settings should deserialize");
+
+        assert_eq!(settings.sidebar_sort_order.as_deref(), Some("oldest"));
+
+        let serialized = serde_json::to_value(settings).expect("settings should serialize");
+        assert_eq!(serialized["sidebarSortOrder"], "oldest");
+    }
+
+    #[test]
+    fn sidebar_sort_patch_persists_only_valid_orders() {
+        let notes_folder = unique_test_path("persist");
+        std::fs::create_dir_all(&notes_folder).expect("test folder should be created");
+        let notes_folder_string = notes_folder.to_string_lossy().into_owned();
+        let mut settings = Settings {
+            sidebar_sort_order: Some("newest".to_string()),
+            ..Settings::default()
+        };
+
+        persist_sidebar_sort_order(&notes_folder_string, &mut settings, "oldest".to_string())
+            .expect("valid order should persist");
+        assert_eq!(settings.sidebar_sort_order.as_deref(), Some("oldest"));
+        assert_eq!(
+            load_settings(&notes_folder_string)
+                .sidebar_sort_order
+                .as_deref(),
+            Some("oldest"),
+        );
+
+        let error = persist_sidebar_sort_order(
+            &notes_folder_string,
+            &mut settings,
+            "unexpected".to_string(),
+        )
+        .expect_err("invalid order should fail");
+        assert_eq!(error, "Invalid sidebar sort order");
+        assert_eq!(settings.sidebar_sort_order.as_deref(), Some("oldest"));
+
+        std::fs::remove_dir_all(notes_folder).expect("test folder should be removed");
+    }
+
+    #[test]
+    fn sidebar_sort_patch_rolls_back_when_persistence_fails() {
+        let notes_folder = unique_test_path("rollback");
+        std::fs::write(&notes_folder, b"not a directory").expect("blocking file should be created");
+        let notes_folder_string = notes_folder.to_string_lossy().into_owned();
+        let mut settings = Settings {
+            sidebar_sort_order: Some("newest".to_string()),
+            ..Settings::default()
+        };
+
+        persist_sidebar_sort_order(&notes_folder_string, &mut settings, "oldest".to_string())
+            .expect_err("write through a file path should fail");
+        assert_eq!(settings.sidebar_sort_order.as_deref(), Some("newest"));
+
+        std::fs::remove_file(notes_folder).expect("blocking file should be removed");
+    }
 }

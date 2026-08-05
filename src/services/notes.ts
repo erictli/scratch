@@ -72,6 +72,10 @@ export async function updateSettings(settings: Settings): Promise<void> {
   return invoke("update_settings", { newSettings: settings });
 }
 
+export async function updateSidebarSortOrder(order: string): Promise<void> {
+  return invoke("update_sidebar_sort_order", { order });
+}
+
 export async function updateGitEnabled(
   enabled: boolean,
   expectedFolder: string,
