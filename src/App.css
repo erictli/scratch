@@ -851,7 +851,7 @@ ul[data-type="taskList"] li > div > p {
   margin: 0;
 }
 
-ul[data-type="taskList"] li[data-checked="true"] > div {
+ul[data-type="taskList"] li[data-checked="true"] > div > p {
   text-decoration: line-through;
   opacity: 0.6;
 }

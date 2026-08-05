@@ -277,8 +277,16 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       const previousSortOrder = noteSortOrder;
       setNoteSortOrder(nextSortOrder);
 
+      // Get current settings and merge with new sort order to avoid overwriting concurrent updates
       void notesService
-        .updateWorkspaceSettings({ sidebarSortOrder: nextSortOrder })
+        .getSettings()
+        .then((currentSettings) => {
+          const mergedSettings = {
+            ...currentSettings,
+            sidebarSortOrder: nextSortOrder,
+          };
+          return notesService.updateSettings(mergedSettings);
+        })
         .catch((error) => {
           console.error("Failed to save note sort order:", error);
           setNoteSortOrder((current) =>
@@ -425,156 +433,156 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       onDragEnd={handleDragEnd}
       onDragCancel={() => setDragLabel(null)}
     >
-    <div className="relative w-full h-full bg-bg-secondary border-r border-border flex flex-col select-none">
-      {/* Drag region */}
-      {!isWindows && <div className="h-11 shrink-0" data-tauri-drag-region></div>}
-      <WorkspaceMenu
-        workspaces={workspaces}
-        currentWorkspacePath={notesFolder}
-        onSwitchWorkspace={(path) => void handleSwitchWorkspace(path)}
-        onAddWorkspace={() => void handleAddWorkspace()}
-        onRemoveWorkspace={(path) => void handleRemoveWorkspace(path)}
-      />
-      <div className={`flex items-center justify-between pl-4 pr-3 pb-2 border-b border-border shrink-0${isWindows ? " pt-2" : ""}`}>
-        <div className="flex items-center gap-1">
-          <div className="font-medium text-base">Notes</div>
-          <div className="text-text-muted font-medium text-2xs min-w-4.75 h-4.75 flex items-center justify-center px-1 bg-bg-muted rounded-sm mt-0.5 pt-px">
-            {notes.length}
-          </div>
-        </div>
-        <div className="flex items-center gap-px">
-          <NoteSortMenu
-            sortOrder={noteSortOrder}
-            onChange={handleNoteSortOrderChange}
-          />
-          <IconButton
-            onClick={toggleSearch}
-            title={`Search Notes (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}F)`}
-          >
-            {searchOpen ? (
-              <SearchOffIcon className="w-4.25 h-4.25 stroke-[1.5]" />
-            ) : (
-              <SearchIcon className="w-4.25 h-4.25 stroke-[1.5]" />
-            )}
-          </IconButton>
-          {foldersEnabled ? (
-            <DropdownMenu.Root
-              open={plusMenuOpen}
-              onOpenChange={setPlusMenuOpen}
-            >
-              <DropdownMenu.Trigger asChild>
-                <IconButton
-                  variant="ghost"
-                  title="New Note or Folder"
-                >
-                  <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
-                </IconButton>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content
-                  className="min-w-40 bg-bg border border-border rounded-md shadow-lg py-1 z-50"
-                  sideOffset={5}
-                  align="end"
-                  onCloseAutoFocus={(e) => e.preventDefault()}
-                >
-                  <DropdownMenu.Item
-                    className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
-                    onSelect={() => createNote()}
-                  >
-                    <AddNoteIcon className="w-4 h-4 stroke-[1.6]" />
-                    <span className="flex-1">New Note</span>
-                    <kbd className="text-xs text-text-muted ml-2">
-                      {mod}
-                      {isMac ? "" : "+"}N
-                    </kbd>
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item
-                    className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
-                    onSelect={handleNewFolder}
-                  >
-                    <FolderPlusIcon className="w-4 h-4 stroke-[1.6]" />
-                    New Folder
-                  </DropdownMenu.Item>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          ) : (
-            <IconButton
-              variant="ghost"
-              onClick={() => createNote()}
-              title={`New Note (${mod}${isMac ? "" : "+"}N)`}
-            >
-              <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
-            </IconButton>
-          )}
-        </div>
-      </div>
-      {/* Scrollable area with search and notes */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Search - sticky at top */}
-        {searchOpen && (
-          <div className="sticky top-0 z-10 px-2 pt-2 bg-bg-secondary">
-            <div className="relative">
-              <Input
-                ref={searchInputRef}
-                type="text"
-                value={inputValue}
-                onChange={handleSearchChange}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="Search notes..."
-                className="h-9 pr-8 text-sm"
-              />
-              {inputValue && (
-                <button
-                  onClick={handleClearSearch}
-                  tabIndex={-1}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
-                >
-                  <XIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-                </button>
-              )}
+      <div className="relative w-full h-full bg-bg-secondary border-r border-border flex flex-col select-none">
+        {/* Drag region */}
+        {!isWindows && <div className="h-11 shrink-0" data-tauri-drag-region></div>}
+        <WorkspaceMenu
+          workspaces={workspaces}
+          currentWorkspacePath={notesFolder}
+          onSwitchWorkspace={(path) => void handleSwitchWorkspace(path)}
+          onAddWorkspace={() => void handleAddWorkspace()}
+          onRemoveWorkspace={(path) => void handleRemoveWorkspace(path)}
+        />
+        <div className={`flex items-center justify-between pl-4 pr-3 pb-2 border-b border-border shrink-0${isWindows ? " pt-2" : ""}`}>
+          <div className="flex items-center gap-1">
+            <div className="font-medium text-base">Notes</div>
+            <div className="text-text-muted font-medium text-2xs min-w-4.75 h-4.75 flex items-center justify-center px-1 bg-bg-muted rounded-sm mt-0.5 pt-px">
+              {notes.length}
             </div>
           </div>
-        )}
+          <div className="flex items-center gap-px">
+            <NoteSortMenu
+              sortOrder={noteSortOrder}
+              onChange={handleNoteSortOrderChange}
+            />
+            <IconButton
+              onClick={toggleSearch}
+              title={`Search Notes (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}F)`}
+            >
+              {searchOpen ? (
+                <SearchOffIcon className="w-4.25 h-4.25 stroke-[1.5]" />
+              ) : (
+                <SearchIcon className="w-4.25 h-4.25 stroke-[1.5]" />
+              )}
+            </IconButton>
+            {foldersEnabled ? (
+              <DropdownMenu.Root
+                open={plusMenuOpen}
+                onOpenChange={setPlusMenuOpen}
+              >
+                <DropdownMenu.Trigger asChild>
+                  <IconButton
+                    variant="ghost"
+                    title="New Note or Folder"
+                  >
+                    <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
+                  </IconButton>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    className="min-w-40 bg-bg border border-border rounded-md shadow-lg py-1 z-50"
+                    sideOffset={5}
+                    align="end"
+                    onCloseAutoFocus={(e) => e.preventDefault()}
+                  >
+                    <DropdownMenu.Item
+                      className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
+                      onSelect={() => createNote()}
+                    >
+                      <AddNoteIcon className="w-4 h-4 stroke-[1.6]" />
+                      <span className="flex-1">New Note</span>
+                      <kbd className="text-xs text-text-muted ml-2">
+                        {mod}
+                        {isMac ? "" : "+"}N
+                      </kbd>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className="px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2"
+                      onSelect={handleNewFolder}
+                    >
+                      <FolderPlusIcon className="w-4 h-4 stroke-[1.6]" />
+                      New Folder
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            ) : (
+              <IconButton
+                variant="ghost"
+                onClick={() => createNote()}
+                title={`New Note (${mod}${isMac ? "" : "+"}N)`}
+              >
+                <PlusIcon className="w-5.25 h-5.25 stroke-[1.4]" />
+              </IconButton>
+            )}
+          </div>
+        </div>
+        {/* Scrollable area with search and notes */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Search - sticky at top */}
+          {searchOpen && (
+            <div className="sticky top-0 z-10 px-2 pt-2 bg-bg-secondary">
+              <div className="relative">
+                <Input
+                  ref={searchInputRef}
+                  type="text"
+                  value={inputValue}
+                  onChange={handleSearchChange}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search notes..."
+                  className="h-9 pr-8 text-sm"
+                />
+                {inputValue && (
+                  <button
+                    onClick={handleClearSearch}
+                    tabIndex={-1}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
+                  >
+                    <XIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
-        {/* Note list */}
-        <NoteList
-          sortOrder={noteSortOrder}
-          multiSelectedNoteIds={multiSelectedNoteIds}
-          setMultiSelectedNoteIds={setMultiSelectedNoteIds}
-          lastClickedNoteId={lastClickedNoteId}
-          setLastClickedNoteId={setLastClickedNoteId}
+          {/* Note list */}
+          <NoteList
+            sortOrder={noteSortOrder}
+            multiSelectedNoteIds={multiSelectedNoteIds}
+            setMultiSelectedNoteIds={setMultiSelectedNoteIds}
+            lastClickedNoteId={lastClickedNoteId}
+            setLastClickedNoteId={setLastClickedNoteId}
+          />
+        </div>
+
+        {/* Footer with git status, commit, and settings */}
+        <Footer onOpenSettings={onOpenSettings} />
+
+        {/* Folder name dialog */}
+        <FolderNameDialog
+          open={folderDialogOpen}
+          onOpenChange={setFolderDialogOpen}
+          onConfirm={handleFolderDialogConfirm}
+          title="Create new folder"
+          description="Enter a name for your new folder"
+          confirmLabel="Create"
         />
       </div>
 
-      {/* Footer with git status, commit, and settings */}
-      <Footer onOpenSettings={onOpenSettings} />
-
-      {/* Folder name dialog */}
-      <FolderNameDialog
-        open={folderDialogOpen}
-        onOpenChange={setFolderDialogOpen}
-        onConfirm={handleFolderDialogConfirm}
-        title="Create new folder"
-        description="Enter a name for your new folder"
-        confirmLabel="Create"
-      />
-    </div>
-
-    {/* Drag overlay — floating label while dragging */}
-    <DragOverlay>
-      {dragLabel && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-bg border border-border rounded-md shadow-lg text-sm text-text">
-          <NoteIcon className="w-3.5 h-3.5 stroke-[1.6] opacity-50 shrink-0" />
-          {dragLabel}
-          {dragCount > 1 && (
-            <span className="ml-1 px-1.5 py-0.5 bg-accent text-text-inverse text-xs rounded-full leading-none">
-              +{dragCount - 1}
-            </span>
-          )}
-        </div>
-      )}
-    </DragOverlay>
+      {/* Drag overlay — floating label while dragging */}
+      <DragOverlay>
+        {dragLabel && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-bg border border-border rounded-md shadow-lg text-sm text-text">
+            <NoteIcon className="w-3.5 h-3.5 stroke-[1.6] opacity-50 shrink-0" />
+            {dragLabel}
+            {dragCount > 1 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-accent text-text-inverse text-xs rounded-full leading-none">
+                +{dragCount - 1}
+              </span>
+            )}
+          </div>
+        )}
+      </DragOverlay>
     </DndContext>
   );
 }

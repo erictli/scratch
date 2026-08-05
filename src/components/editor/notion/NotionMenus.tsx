@@ -665,11 +665,18 @@ export function BlockDragControls({ editor }: { editor: Editor }) {
     typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const handleNodeChange = useCallback(
     ({ node, pos }: Parameters<NonNullable<React.ComponentProps<typeof DragHandle>["onNodeChange"]>>[0]) => {
-      targetRef.current = node ? { node, pos } : null;
-      setNodePos(node ? pos : null);
-      setTableBlockHandleProximate(Boolean(node && node.type.name !== "table"));
+      const target = node ? { node, pos } : null;
+      const movableTarget =
+        target && isCurrentMovableBlockDragTarget(editor, target)
+          ? target
+          : null;
+      targetRef.current = movableTarget;
+      setNodePos(movableTarget?.pos ?? null);
+      setTableBlockHandleProximate(
+        Boolean(movableTarget && movableTarget.node.type.name !== "table"),
+      );
     },
-    [],
+    [editor],
   );
   const getReferencedVirtualElement = useCallback(() => {
     const target = targetRef.current;
@@ -984,7 +991,13 @@ export function BlockDragControls({ editor }: { editor: Editor }) {
 
   const addBlock = () => {
     const target = targetRef.current;
-    if (nodePos === null || !target) return;
+    if (
+      nodePos === null ||
+      !target ||
+      !isCurrentMovableBlockDragTarget(editor, target)
+    ) {
+      return;
+    }
 
     const isListItem = LIST_ITEM_NODE_TYPES.has(target.node.type.name);
     const content = isListItem
@@ -1052,11 +1065,18 @@ export function BlockDragControls({ editor }: { editor: Editor }) {
             if (!target) return;
             event.preventDefault();
             event.stopPropagation();
-            moveBlockByKeyboard(
+            const grip = event.currentTarget;
+            const movedTarget = moveBlockByKeyboard(
               editor,
               target,
               event.key === "ArrowUp" ? -1 : 1,
             );
+            if (!movedTarget) return;
+            targetRef.current = movedTarget;
+            setNodePos(movedTarget.pos);
+            requestAnimationFrame(() => {
+              grip.focus();
+            });
           }}
           onPointerDown={(event) => {
             const target = targetRef.current;

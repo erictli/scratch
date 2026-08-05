@@ -148,6 +148,93 @@ describe("Notion block drag fallback", () => {
     }
   });
 
+  it("moves a paragraph by pointer without crossing the protected title", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<h1>Protected title</h1><p>Alpha</p><p>Beta</p>",
+    });
+    const title = editor.state.doc.child(0);
+    const alphaPosition = title.nodeSize;
+    const alpha = editor.state.doc.nodeAt(alphaPosition);
+    const betaPosition = alphaPosition + editor.state.doc.child(1).nodeSize;
+    const titleElement = document.createElement("h1");
+    const alphaElement = document.createElement("p");
+    const betaElement = document.createElement("p");
+    titleElement.getBoundingClientRect = () => createRect(100, 20, 700, 60);
+    alphaElement.getBoundingClientRect = () => createRect(100, 80, 700, 120);
+    betaElement.getBoundingClientRect = () => createRect(100, 140, 700, 180);
+    editor.view.dom.getBoundingClientRect = () => createRect(0, 0, 800, 300);
+    vi.spyOn(editor.view, "nodeDOM").mockImplementation((position) => {
+      if (position === 0) return titleElement;
+      if (position === alphaPosition) return alphaElement;
+      if (position === betaPosition) return betaElement;
+      return null;
+    });
+    if (!alpha) throw new Error("Missing paragraph pointer target");
+
+    try {
+      expect(
+        moveTopLevelBlockAtPoint(
+          editor,
+          { node: alpha, pos: alphaPosition },
+          { left: 400, top: 180 },
+        ),
+      ).toBe(true);
+      expect(
+        Array.from(
+          { length: editor.state.doc.childCount },
+          (_, index) => editor.state.doc.child(index).textContent,
+        ),
+      ).toEqual(["Protected title", "Beta", "Alpha"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("moves a table by pointer as one atomic top-level block", () => {
+    const editor = new Editor({
+      extensions: [StarterKit, TableKit],
+      content:
+        "<p>Before</p>" +
+        "<table><tbody><tr><td><p>Cell A</p></td><td><p>Cell B</p></td></tr></tbody></table>" +
+        "<p>After</p>",
+    });
+    const before = editor.state.doc.child(0);
+    const tablePosition = before.nodeSize;
+    const table = editor.state.doc.nodeAt(tablePosition);
+    const tableJson = table?.toJSON();
+    const afterPosition = tablePosition + (table?.nodeSize ?? 0);
+    const beforeElement = document.createElement("p");
+    const tableElement = document.createElement("table");
+    const afterElement = document.createElement("p");
+    beforeElement.getBoundingClientRect = () => createRect(100, 20, 700, 60);
+    tableElement.getBoundingClientRect = () => createRect(100, 80, 700, 180);
+    afterElement.getBoundingClientRect = () => createRect(100, 200, 700, 240);
+    editor.view.dom.getBoundingClientRect = () => createRect(0, 0, 800, 320);
+    vi.spyOn(editor.view, "nodeDOM").mockImplementation((position) => {
+      if (position === 0) return beforeElement;
+      if (position === tablePosition) return tableElement;
+      if (position === afterPosition) return afterElement;
+      return null;
+    });
+    if (!table || !tableJson) throw new Error("Missing table pointer target");
+
+    try {
+      expect(
+        moveTopLevelBlockAtPoint(
+          editor,
+          { node: table, pos: tablePosition },
+          { left: 400, top: 240 },
+        ),
+      ).toBe(true);
+      expect(editor.state.doc.child(0).textContent).toBe("Before");
+      expect(editor.state.doc.child(1).textContent).toBe("After");
+      expect(editor.state.doc.child(2).toJSON()).toEqual(tableJson);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("moves one bulleted item after an atomic table without targeting a cell", () => {
     const editor = new Editor({
       extensions: [StarterKit, TableKit],
@@ -370,14 +457,88 @@ describe("Notion block drag fallback", () => {
       );
 
     try {
-      expect(moveBlockByKeyboard(editor, target, -1)).toBe(true);
+      const movedTarget = moveBlockByKeyboard(editor, target, -1);
+      expect(movedTarget).not.toBeNull();
       expect(topLevelTexts()).toEqual(["Two", "One", "Three"]);
       expect(undoDepth(editor.state)).toBe(historyBefore + 1);
       expect(editor.commands.undo()).toBe(true);
       expect(topLevelTexts()).toEqual(["One", "Two", "Three"]);
 
-      expect(moveBlockByKeyboard(editor, target, 1)).toBe(true);
+      const movedTarget2 = moveBlockByKeyboard(editor, target, 1);
+      expect(movedTarget2).not.toBeNull();
       expect(topLevelTexts()).toEqual(["One", "Three", "Two"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("never moves the protected leading H1", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<h1>Protected title</h1><p>Body</p>",
+    });
+    const initialDocument = editor.getJSON();
+    const title = editor.state.doc.child(0);
+
+    try {
+      expect(moveBlockByKeyboard(editor, { node: title, pos: 0 }, 1)).toBeNull();
+      expect(editor.getJSON()).toEqual(initialDocument);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps keyboard-moved body blocks after the protected leading H1", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<h1>Protected title</h1><p>Body</p>",
+    });
+    const initialDocument = editor.getJSON();
+    const title = editor.state.doc.child(0);
+    const body = editor.state.doc.nodeAt(title.nodeSize);
+    if (!body) throw new Error("Missing body block");
+
+    try {
+      expect(
+        moveBlockByKeyboard(editor, { node: body, pos: title.nodeSize }, -1),
+      ).toBeNull();
+      expect(editor.getJSON()).toEqual(initialDocument);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("rejects pointer drops before the protected leading H1", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<h1>Protected title</h1><p>Body</p>",
+    });
+    const initialDocument = editor.getJSON();
+    const title = editor.state.doc.child(0);
+    const bodyPosition = title.nodeSize;
+    const body = editor.state.doc.nodeAt(bodyPosition);
+    const titleElement = editor.view.nodeDOM(0);
+    const bodyElement = editor.view.nodeDOM(bodyPosition);
+    if (
+      !body ||
+      !(titleElement instanceof HTMLElement) ||
+      !(bodyElement instanceof HTMLElement)
+    ) {
+      throw new Error("Missing protected-title pointer fixture");
+    }
+    editor.view.dom.getBoundingClientRect = () => createRect(0, 0, 800, 300);
+    titleElement.getBoundingClientRect = () => createRect(0, 20, 800, 60);
+    bodyElement.getBoundingClientRect = () => createRect(0, 80, 800, 120);
+
+    try {
+      expect(
+        moveTopLevelBlockAtPoint(
+          editor,
+          { node: body, pos: bodyPosition },
+          { left: 100, top: 20 },
+        ),
+      ).toBe(false);
+      expect(editor.getJSON()).toEqual(initialDocument);
     } finally {
       editor.destroy();
     }
@@ -404,13 +565,12 @@ describe("Notion block drag fallback", () => {
     const historyBefore = undoDepth(editor.state);
 
     try {
-      expect(
-        moveBlockByKeyboard(
-          editor,
-          { node: betaNode, pos: betaPosition },
-          -1,
-        ),
-      ).toBe(true);
+      const movedTarget = moveBlockByKeyboard(
+        editor,
+        { node: betaNode, pos: betaPosition },
+        -1,
+      );
+      expect(movedTarget).not.toBeNull();
       expect(editor.state.doc.child(0).toJSON()).toEqual(titleNode.toJSON());
       expect(editor.state.doc.child(1).textContent).toBe("Beta");
       expect(editor.state.doc.child(2).textContent).toBe("Alpha");
@@ -441,13 +601,12 @@ describe("Notion block drag fallback", () => {
     const historyBefore = undoDepth(editor.state);
 
     try {
-      expect(
-        moveBlockByKeyboard(
-          editor,
-          { node: firstItem, pos: firstItemPosition },
-          1,
-        ),
-      ).toBe(true);
+      const movedTarget = moveBlockByKeyboard(
+        editor,
+        { node: firstItem, pos: firstItemPosition },
+        1,
+      );
+      expect(movedTarget).not.toBeNull();
 
       const movedList = editor.state.doc.child(0);
       expect(movedList.type.name).toBe("bulletList");

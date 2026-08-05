@@ -37,6 +37,13 @@ const LIST_CONTAINER_NODE_TYPES = new Set([
   "taskList",
 ]);
 
+function getProtectedLeadingTitleEnd(editor: Editor): number {
+  const firstNode = editor.state.doc.firstChild;
+  return firstNode?.type.name === "heading" && firstNode.attrs.level === 1
+    ? firstNode.nodeSize
+    : 0;
+}
+
 export function getTableBlockHandleReferenceRect(
   tableRect: BlockDragRect,
 ): BlockDragRect {
@@ -137,10 +144,13 @@ export function isCurrentBlockDragTarget(
   target: BlockDragTarget,
 ): boolean {
   const currentNode = editor.state.doc.nodeAt(target.pos);
+  const isProtectedLeadingTitle =
+    target.pos === 0 && getProtectedLeadingTitleEnd(editor) > 0;
   return Boolean(
     currentNode &&
       currentNode.eq(target.node) &&
       currentNode.type.name !== "frontmatter" &&
+      !isProtectedLeadingTitle &&
       editor.state.doc.resolve(target.pos).depth === 0,
   );
 }
@@ -227,6 +237,7 @@ function resolveTopLevelBlockBoundary(
 ): ResolvedBlockDropTarget | null {
   const { doc } = editor.state;
   if (doc.childCount < 2) return null;
+  const minimumPosition = getProtectedLeadingTitleEnd(editor);
 
   const editorRect = editor.view.dom.getBoundingClientRect();
   if (point.top < editorRect.top || point.top > editorRect.bottom) return null;
@@ -252,7 +263,8 @@ function resolveTopLevelBlockBoundary(
   const closestCandidate = [...candidates.values()]
     .filter(
       (candidate) =>
-        candidate.position < excludedStart || candidate.position > excludedEnd,
+        candidate.position >= minimumPosition &&
+        (candidate.position < excludedStart || candidate.position > excludedEnd),
     )
     .reduce<{ position: number; indicatorTop: number } | null>(
       (closest, candidate) => {
@@ -302,6 +314,7 @@ function resolveTopLevelBlockBoundary(
   const position = insertAfter
     ? targetPosition + destinationNode.nodeSize
     : targetPosition;
+  if (position < minimumPosition) return null;
   if (position >= excludedStart && position <= excludedEnd) return null;
 
   return {
@@ -351,8 +364,11 @@ function moveBlockToResolvedTarget(
   editor: Editor,
   target: BlockDragTarget,
   resolvedTarget: ResolvedBlockDropTarget,
-): boolean {
+  options: { focusEditor?: boolean } = {},
+): BlockDragTarget | null {
+  const { focusEditor = true } = options;
   const insertionPosition = resolvedTarget.position;
+  if (insertionPosition < getProtectedLeadingTitleEnd(editor)) return null;
   const sourceEnd = target.pos + target.node.nodeSize;
 
   const listContext = getListItemDragContext(editor, target);
@@ -394,8 +410,14 @@ function moveBlockToResolvedTarget(
       ),
     );
     editor.view.dispatch(transaction.scrollIntoView());
-    editor.view.focus();
-    return true;
+    if (focusEditor) {
+      editor.view.focus();
+    }
+    // A wrapped list adds one position before its item.
+    return {
+      node: target.node,
+      pos: mappedInsertionPosition + 1,
+    };
   }
 
   const transaction = editor.state.tr.delete(target.pos, sourceEnd);
@@ -416,15 +438,20 @@ function moveBlockToResolvedTarget(
         );
   transaction.setSelection(selection);
   editor.view.dispatch(transaction.scrollIntoView());
-  editor.view.focus();
-  return true;
+  if (focusEditor) {
+    editor.view.focus();
+  }
+  return {
+    node: target.node,
+    pos: mappedInsertionPosition,
+  };
 }
 
 export function moveBlockByKeyboard(
   editor: Editor,
   target: BlockDragTarget,
   direction: -1 | 1,
-): boolean {
+): BlockDragTarget | null {
   const listContext = getListItemDragContext(editor, target);
   const siblings: Array<{ node: ProseMirrorNode; pos: number }> = [];
 
@@ -435,7 +462,7 @@ export function moveBlockByKeyboard(
   } else if (isCurrentBlockDragTarget(editor, target)) {
     editor.state.doc.forEach((node, pos) => siblings.push({ node, pos }));
   } else {
-    return false;
+    return null;
   }
 
   const sourceIndex = siblings.findIndex(
@@ -447,18 +474,23 @@ export function moveBlockByKeyboard(
     destinationIndex < 0 ||
     destinationIndex >= siblings.length
   ) {
-    return false;
+    return null;
   }
 
   const destination = siblings[destinationIndex];
   const insertionPosition =
     direction < 0 ? destination.pos : destination.pos + destination.node.nodeSize;
-  return moveBlockToResolvedTarget(editor, target, {
-    position: insertionPosition,
-    indicatorTop: 0,
-    indicatorLeft: 0,
-    indicatorWidth: 0,
-  });
+  return moveBlockToResolvedTarget(
+    editor,
+    target,
+    {
+      position: insertionPosition,
+      indicatorTop: 0,
+      indicatorLeft: 0,
+      indicatorWidth: 0,
+    },
+    { focusEditor: false },
+  );
 }
 
 export function moveTopLevelBlockAtPoint(
@@ -469,7 +501,7 @@ export function moveTopLevelBlockAtPoint(
   const resolvedTarget = resolveTopLevelBlockDropTarget(editor, target, point);
   if (!resolvedTarget) return false;
 
-  return moveBlockToResolvedTarget(editor, target, resolvedTarget);
+  return moveBlockToResolvedTarget(editor, target, resolvedTarget) !== null;
 }
 
 export function moveBlockAtPoint(
@@ -480,5 +512,5 @@ export function moveBlockAtPoint(
   const resolvedTarget = resolveBlockDropTarget(editor, target, point);
   if (!resolvedTarget) return false;
 
-  return moveBlockToResolvedTarget(editor, target, resolvedTarget);
+  return moveBlockToResolvedTarget(editor, target, resolvedTarget) !== null;
 }

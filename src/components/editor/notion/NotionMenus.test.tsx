@@ -186,6 +186,253 @@ describe("block drag handle layout", () => {
     }
   });
 
+  it("keeps block controls unavailable on the protected leading H1", async () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<h1>Protected title</h1><p>Body</p>",
+    });
+    const initialDocument = editor.getJSON();
+    const controls = document.createElement("div");
+    document.body.append(editor.view.dom, controls);
+    const root = createRoot(controls);
+    const title = editor.view.dom.querySelector("h1");
+    if (!title) throw new Error("Missing protected title fixture");
+    title.getBoundingClientRect = () => createRect(100, 40, 700, 80);
+    editor.view.dom.getBoundingClientRect = () =>
+      createRect(100, 20, 700, 240);
+    vi.spyOn(editor.view, "posAtCoords").mockReturnValue({
+      pos: 1,
+      inside: 0,
+    });
+
+    try {
+      await act(async () => {
+        root.render(<BlockDragControls editor={editor} />);
+      });
+      await act(async () => {
+        title.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 140,
+            clientY: 60,
+          }),
+        );
+        await flushAnimationFrames();
+      });
+
+      const addButton = document.querySelector<HTMLButtonElement>(
+        '.notion-block-add[aria-label="Add block"]',
+      );
+      const grip = document.querySelector<HTMLButtonElement>(
+        '.notion-block-grip[aria-label="Move block with Arrow Up or Arrow Down"]',
+      );
+      expect(addButton?.tabIndex).toBe(-1);
+      expect(grip?.tabIndex).toBe(-1);
+
+      await act(async () => {
+        addButton?.click();
+      });
+      expect(editor.getJSON()).toEqual(initialDocument);
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+    }
+  });
+
+  it("moves the same block repeatedly with Arrow Down while preserving grip focus", async () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content:
+        "<h1>Protected title</h1><p>Alpha</p><p>Beta</p><p>Gamma</p><p>Delta</p>",
+    });
+    const controls = document.createElement("div");
+    document.body.append(editor.view.dom, controls);
+    const root = createRoot(controls);
+    const paragraphs = editor.view.dom.querySelectorAll(":scope > p");
+    const beta = paragraphs[1];
+    if (!beta) throw new Error("Missing keyboard grip target");
+
+    let betaTextPosition = -1;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "paragraph" && node.textContent === "Beta") {
+        betaTextPosition = pos + 1;
+      }
+    });
+    if (betaTextPosition < 0) throw new Error("Missing Beta text position");
+
+    editor.view.dom.getBoundingClientRect = () =>
+      createRect(100, 40, 700, 320);
+    beta.getBoundingClientRect = () => createRect(100, 120, 700, 152);
+    vi.spyOn(editor.view, "posAtCoords").mockReturnValue({
+      pos: betaTextPosition,
+      inside: betaTextPosition - 1,
+    });
+
+    const topLevelTexts = () =>
+      Array.from(
+        { length: editor.state.doc.childCount },
+        (_, index) => editor.state.doc.child(index).textContent,
+      );
+
+    let currentTime = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => currentTime);
+
+    const advanceTime = () => {
+      currentTime += 600;
+    };
+
+    try {
+      await act(async () => {
+        root.render(<BlockDragControls editor={editor} />);
+      });
+      await act(async () => {
+        beta.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 140,
+            clientY: 136,
+          }),
+        );
+        await flushAnimationFrames();
+      });
+
+      const grip = document.querySelector<HTMLButtonElement>(
+        '.notion-block-grip[aria-label="Move block with Arrow Up or Arrow Down"]',
+      );
+      if (!grip) throw new Error("Missing keyboard block grip");
+
+      // First ArrowDown: Beta moves below Gamma
+      await act(async () => {
+        const keyEvent = new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        });
+        grip.dispatchEvent(keyEvent);
+        expect(keyEvent.defaultPrevented).toBe(true);
+      });
+      advanceTime();
+
+      expect(topLevelTexts()).toEqual([
+        "Protected title",
+        "Alpha",
+        "Gamma",
+        "Beta",
+        "Delta",
+      ]);
+      expect(document.activeElement).toBe(grip);
+
+      // Second ArrowDown: Beta moves below Delta
+      await act(async () => {
+        const keyEvent = new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        });
+        grip.dispatchEvent(keyEvent);
+        expect(keyEvent.defaultPrevented).toBe(true);
+      });
+      advanceTime();
+
+      expect(topLevelTexts()).toEqual([
+        "Protected title",
+        "Alpha",
+        "Gamma",
+        "Delta",
+        "Beta",
+      ]);
+      expect(document.activeElement).toBe(grip);
+
+      // Verify H1 remains first
+      expect(editor.state.doc.child(0).type.name).toBe("heading");
+      expect(editor.state.doc.child(0).attrs.level).toBe(1);
+
+      // Test repeated ArrowUp sequence
+      await act(async () => {
+        const keyEvent = new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          bubbles: true,
+          cancelable: true,
+        });
+        grip.dispatchEvent(keyEvent);
+        expect(keyEvent.defaultPrevented).toBe(true);
+      });
+      advanceTime();
+
+      expect(topLevelTexts()).toEqual([
+        "Protected title",
+        "Alpha",
+        "Gamma",
+        "Beta",
+        "Delta",
+      ]);
+      expect(document.activeElement).toBe(grip);
+
+      await act(async () => {
+        const keyEvent = new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          bubbles: true,
+          cancelable: true,
+        });
+        grip.dispatchEvent(keyEvent);
+        expect(keyEvent.defaultPrevented).toBe(true);
+      });
+      advanceTime();
+
+      expect(topLevelTexts()).toEqual([
+        "Protected title",
+        "Alpha",
+        "Beta",
+        "Gamma",
+        "Delta",
+      ]);
+      expect(document.activeElement).toBe(grip);
+
+      // Verify undo behavior: each undo reverses one keyboard move
+      expect(editor.commands.undo()).toBe(true);
+      expect(topLevelTexts()).toEqual([
+        "Protected title",
+        "Alpha",
+        "Gamma",
+        "Beta",
+        "Delta",
+      ]);
+
+      // Second undo reverses the previous move
+      expect(editor.commands.undo()).toBe(true);
+      expect(topLevelTexts()).toEqual([
+        "Protected title",
+        "Alpha",
+        "Gamma",
+        "Delta",
+        "Beta",
+      ]);
+
+      // Third undo
+      expect(editor.commands.undo()).toBe(true);
+      expect(topLevelTexts()).toEqual([
+        "Protected title",
+        "Alpha",
+        "Gamma",
+        "Beta",
+        "Delta",
+      ]);
+
+      // Fourth undo returns to original
+      expect(editor.commands.undo()).toBe(true);
+      expect(topLevelTexts()).toEqual([
+        "Protected title",
+        "Alpha",
+        "Beta",
+        "Gamma",
+        "Delta",
+      ]);
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+    }
+  });
+
   it("uses centered vector icons for both block controls", async () => {
     const editor = new Editor({
       extensions: [StarterKit],
@@ -742,6 +989,59 @@ describe("block drag handle layout", () => {
       editor.destroy();
     }
   });
+
+  it("adds an empty paragraph before a normal text block", async () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>Existing body</p>",
+    });
+    const host = document.createElement("div");
+    const controls = document.createElement("div");
+    host.append(editor.view.dom, controls);
+    document.body.append(host);
+    const root = createRoot(controls);
+    const paragraph = editor.view.dom.querySelector("p");
+    if (!paragraph) throw new Error("Missing paragraph add fixture");
+    paragraph.getBoundingClientRect = () => createRect(100, 80, 700, 120);
+    editor.view.dom.getBoundingClientRect = () =>
+      createRect(100, 20, 700, 240);
+    vi.spyOn(editor.view, "posAtCoords").mockReturnValue({ pos: 1, inside: 0 });
+
+    try {
+      await act(async () => {
+        root.render(<BlockDragControls editor={editor} />);
+      });
+      await act(async () => {
+        paragraph.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 140,
+            clientY: 100,
+          }),
+        );
+        await flushAnimationFrames();
+      });
+
+      const addButton = document.querySelector<HTMLButtonElement>(
+        '.notion-block-add[aria-label="Add block"]',
+      );
+      await act(async () => {
+        addButton?.click();
+      });
+
+      expect(
+        Array.from(
+          { length: editor.state.doc.childCount },
+          (_, index) => editor.state.doc.child(index).textContent,
+        ),
+      ).toEqual(["", "Existing body"]);
+      expect(editor.state.selection.$from.parent.type.name).toBe("paragraph");
+      expect(editor.state.selection.$from.parent.textContent).toBe("");
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+    }
+  });
 });
 
 describe("macOS image block pointer drag", () => {
@@ -821,6 +1121,65 @@ describe("macOS image block pointer drag", () => {
       }
     },
   );
+
+  it("leaves the document unchanged when pointer movement stays below the drag threshold", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    const editor = new Editor({
+      extensions: [StarterKit, Image.configure({ inline: false })],
+      content:
+        '<p>Before</p><img src="asset://localhost/assets/photo.png"><p>After</p>',
+    });
+    const initialDocument = editor.getJSON();
+    const host = document.createElement("div");
+    const controls = document.createElement("div");
+    host.append(editor.view.dom, controls);
+    document.body.append(host);
+    const root = createRoot(controls);
+    const image = editor.view.dom.querySelector("img");
+    if (!image) throw new Error("Missing pointer click image fixture");
+
+    try {
+      await act(async () => {
+        root.render(<BlockDragControls editor={editor} />);
+      });
+      await act(async () => {
+        image.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            clientX: 200,
+            clientY: 100,
+            isPrimary: true,
+            pointerId: 1,
+          }),
+        );
+        document.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            clientX: 202,
+            clientY: 101,
+            isPrimary: true,
+            pointerId: 1,
+          }),
+        );
+        document.dispatchEvent(
+          new PointerEvent("pointerup", {
+            bubbles: true,
+            clientX: 202,
+            clientY: 101,
+            isPrimary: true,
+            pointerId: 1,
+          }),
+        );
+      });
+
+      expect(editor.getJSON()).toEqual(initialDocument);
+      expect(document.querySelector(".notion-block-drop-indicator")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+    }
+  });
 
   it("moves an image directly without relying on an HTML drop event", async () => {
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
