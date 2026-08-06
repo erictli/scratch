@@ -184,6 +184,19 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 /// entry. The hard-link operation is atomic within the destination directory:
 /// another process either wins first or receives `AlreadyExists`.
 fn atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    atomic_create_new_with_hard_link(path, bytes, |source, destination| {
+        fs::hard_link(source, destination)
+    })
+}
+
+fn atomic_create_new_with_hard_link<F>(
+    path: &Path,
+    bytes: &[u8],
+    hard_link: F,
+) -> io::Result<()>
+where
+    F: FnOnce(&Path, &Path) -> io::Result<()>,
+{
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -197,7 +210,26 @@ fn atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     temporary_file.sync_all()?;
     drop(temporary_file);
 
-    fs::hard_link(temporary_path.path(), path)?;
+    match hard_link(temporary_path.path(), path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => {
+            let mut source = File::open(temporary_path.path())?;
+            let mut destination = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)?;
+            let publish_result = io::copy(&mut source, &mut destination)
+                .and_then(|_| destination.flush())
+                .and_then(|_| destination.sync_all());
+            drop(destination);
+            if let Err(error) = publish_result {
+                let _ = fs::remove_file(path);
+                return Err(error);
+            }
+        }
+        Err(error) => return Err(error),
+    }
+
     fs::remove_file(temporary_path.path())?;
     temporary_path.commit();
     sync_parent_directory(parent)?;
@@ -421,6 +453,23 @@ mod tests {
             fs::read_to_string(&path).unwrap(),
             "created by another process"
         );
+        assert!(temporary_artifacts(&directory.path).is_empty());
+    }
+
+    #[test]
+    fn atomic_create_new_falls_back_when_hard_links_are_unsupported() {
+        let directory = TestDirectory::new("unsupported-hard-link");
+        let path = directory.note_path();
+
+        atomic_create_new_with_hard_link(&path, b"local draft", |_, _| {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "hard links are unavailable",
+            ))
+        })
+        .expect("create-only fallback should publish the prepared content");
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "local draft");
         assert!(temporary_artifacts(&directory.path).is_empty());
     }
 
