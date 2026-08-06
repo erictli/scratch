@@ -105,10 +105,14 @@ export function PreviewApp({ filePath }: PreviewAppProps) {
             );
           }
         });
-    }).then((removeListener) => {
-      if (disposed) removeListener();
-      else unlisten = removeListener;
-    });
+    })
+      .then((removeListener) => {
+        if (disposed) removeListener();
+        else unlisten = removeListener;
+      })
+      .catch((error) => {
+        console.error("Failed to register close handler:", error);
+      });
 
     return () => {
       disposed = true;

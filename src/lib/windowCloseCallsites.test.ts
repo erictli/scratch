@@ -27,4 +27,13 @@ describe("safe window close call sites", () => {
     expect(source).toContain("result.recoveredTo");
     expect(source).toContain("Draft recovered to ${result.recoveredTo}");
   });
+
+  it.each(closeHandlers)(
+    "handles rejected close-listener registration in %s",
+    (sourcePath) => {
+      const source = readFileSync(sourcePath, "utf8");
+
+      expect(source).toContain("Failed to register close handler:");
+    },
+  );
 });
