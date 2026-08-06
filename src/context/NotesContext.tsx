@@ -1082,7 +1082,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
       const changedIds = event.payload.changed_ids || [];
       if (changedIds.length === 0) return;
-      void refreshNotes();
+      scheduleRefresh();
 
       const current = currentNoteRef.current;
       if (!current) return;
@@ -1164,7 +1164,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         unlisten();
       }
     };
-  }, [refreshNotes]);
+  }, [scheduleRefresh]);
 
   // Listen for "select-note" events from the backend (CLI, drag-drop, Open With, import from preview)
   useEffect(() => {

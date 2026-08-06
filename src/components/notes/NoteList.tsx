@@ -300,7 +300,12 @@ export function NoteList({
   }, []);
 
   const refreshSettings = useCallback(() => {
-    notesService.getSettings().then(setSettings);
+    notesService
+      .getSettings()
+      .then(setSettings)
+      .catch((error) => {
+        console.error("Failed to refresh settings:", error);
+      });
   }, []);
 
   useEffect(() => {
