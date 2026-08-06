@@ -11,6 +11,7 @@ import {
   TableControls,
   hasValidRowResizeGeometry,
   layoutsEquivalent,
+  selectTableAxis,
   type TableLayout,
 } from "./TableControls";
 
@@ -92,6 +93,23 @@ describe("table control geometry guards", () => {
     expect(layoutsEquivalent(base, base)).toBe(true);
     expect(layoutsEquivalent(base, insertedColumn)).toBe(false);
     expect(layoutsEquivalent(base, movedTable)).toBe(false);
+  });
+
+  it("rejects a stale row index without reading past the table", () => {
+    const editor = new Editor({
+      extensions: [StarterKit, TableKit],
+      content: "<table><tbody><tr><td><p>A1</p></td></tr></tbody></table>",
+    });
+    const staleLayout = layoutWith(
+      [createRect(100, 100, 500, 160), createRect(100, 160, 500, 220)],
+      [createRect(100, 100, 500, 220)],
+    );
+
+    try {
+      expect(selectTableAxis(editor, staleLayout, "row", 1)).toBe(false);
+    } finally {
+      editor.destroy();
+    }
   });
 });
 

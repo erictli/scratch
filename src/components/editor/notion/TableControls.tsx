@@ -241,7 +241,7 @@ function getTableCellPosition(
   return cellPos;
 }
 
-function selectTableAxis(
+export function selectTableAxis(
   editor: Editor,
   layout: TableLayout,
   axis: TableDragAxis,
@@ -251,6 +251,7 @@ function selectTableAxis(
   if (!table || table.type.name !== "table" || table.childCount === 0) {
     return false;
   }
+  if (axis === "row" && (index < 0 || index >= table.childCount)) return false;
 
   const anchorPos =
     axis === "row"
