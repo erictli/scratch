@@ -638,7 +638,12 @@ describe("Scratch Markdown document adapter", () => {
 
   it("decodes valid Unicode preserved-cell metadata", () => {
     const editor = createTableEditor();
-    const visibleContent = [paragraph("Safe A")];
+    const visibleContent = [
+      {
+        content: [{ text: "Safe A", type: "text" }],
+        type: "paragraph",
+      },
+    ];
     const markdown = [
       `<!-- scratch-table:${JSON.stringify({
         columns: [],

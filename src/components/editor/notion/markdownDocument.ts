@@ -37,6 +37,25 @@ function encodeBase64Utf8(value: string): string {
   return btoa(binary);
 }
 
+function canonicalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [
+          key,
+          canonicalizeJson((value as Record<string, unknown>)[key]),
+        ]),
+    );
+  }
+  return value;
+}
+
+function canonicalJsonStringify(value: unknown): string {
+  return JSON.stringify(canonicalizeJson(value));
+}
+
 function decodeBase64Utf8(value: string): string | null {
   if (
     value.length > MAX_ENCODED_CELL_MARKDOWN_LENGTH ||
@@ -304,7 +323,7 @@ function collectTableGeometries(
         (row.content ?? []).map((cell, columnIndex) =>
           shouldPreserveCellBlocks(cell)
             ? encodeBase64Utf8(
-                JSON.stringify(
+                canonicalJsonStringify(
                   visibleRows[rowIndex]?.content?.[columnIndex]?.content ?? [],
                 ),
               )
@@ -470,9 +489,17 @@ function parsePreservedCellBlocks(
   visibleContent: JSONContent[] | undefined,
 ): JSONContent[] | null {
   if (!encodedMarkdown || !encodedVisibleSource) return null;
+  const visibleSource = decodeBase64Utf8(encodedVisibleSource);
+  if (visibleSource === null) return null;
+  let storedVisibleContent: unknown;
+  try {
+    storedVisibleContent = JSON.parse(visibleSource);
+  } catch {
+    return null;
+  }
   if (
-    encodeBase64Utf8(JSON.stringify(visibleContent ?? [])) !==
-    encodedVisibleSource
+    canonicalJsonStringify(visibleContent ?? []) !==
+    canonicalJsonStringify(storedVisibleContent)
   ) {
     return null;
   }
