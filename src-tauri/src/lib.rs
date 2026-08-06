@@ -831,7 +831,7 @@ where
 {
     if let Some(existing) = registry
         .read()
-        .expect("shared registry read lock")
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .get(&key)
         .cloned()
     {
@@ -840,15 +840,17 @@ where
 
     let initializer = initializers
         .lock()
-        .expect("shared initializer registry lock")
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .entry(key.clone())
         .or_insert_with(|| Arc::new(Mutex::new(())))
         .clone();
-    let _initializing = initializer.lock().expect("shared initializer lock");
+    let _initializing = initializer
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     if let Some(existing) = registry
         .read()
-        .expect("shared registry read lock")
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .get(&key)
         .cloned()
     {
@@ -858,7 +860,7 @@ where
     let created = Arc::new(create()?);
     registry
         .write()
-        .expect("shared registry write lock")
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(key, Arc::clone(&created));
     Ok(created)
 }
@@ -7169,6 +7171,48 @@ mod workspace_registry_tests {
         assert_eq!(factory_calls.load(Ordering::SeqCst), 1);
         assert!(Arc::ptr_eq(&sessions[0], &sessions[1]));
         assert_eq!(*sessions[0], 42);
+    }
+
+    #[test]
+    fn shared_workspace_acquisition_recovers_poisoned_registry_locks() {
+        let key = "workspace-poisoned".to_string();
+        let registry = Arc::new(RwLock::new(HashMap::<String, Arc<usize>>::new()));
+        let initializer = Arc::new(Mutex::new(()));
+        let initializers = Arc::new(Mutex::new(HashMap::from([(
+            key.clone(),
+            Arc::clone(&initializer),
+        )])));
+
+        let poisoned_registry = Arc::clone(&registry);
+        assert!(std::thread::spawn(move || {
+            let _guard = poisoned_registry.write().unwrap();
+            panic!("poison shared registry");
+        })
+        .join()
+        .is_err());
+
+        let poisoned_initializers = Arc::clone(&initializers);
+        assert!(std::thread::spawn(move || {
+            let _guard = poisoned_initializers.lock().unwrap();
+            panic!("poison initializer registry");
+        })
+        .join()
+        .is_err());
+
+        let poisoned_initializer = Arc::clone(&initializer);
+        assert!(std::thread::spawn(move || {
+            let _guard = poisoned_initializer.lock().unwrap();
+            panic!("poison per-workspace initializer");
+        })
+        .join()
+        .is_err());
+
+        let resource = get_or_initialize_shared(&registry, &initializers, key, || {
+            Ok::<usize, String>(42)
+        })
+        .expect("poisoned locks should not disable every workspace");
+
+        assert_eq!(*resource, 42);
     }
 
     #[test]
