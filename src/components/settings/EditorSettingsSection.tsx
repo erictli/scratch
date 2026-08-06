@@ -56,6 +56,148 @@ const boldWeightOptions = [
   { value: 800, label: "Extra Bold", excludeForMonospace: false },
 ];
 
+interface EditorWidthResizeControlProps {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+}
+
+interface BinarySettingControlProps {
+  label: string;
+  description: string;
+  ariaLabel: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}
+
+function BinarySettingControl({
+  label,
+  description,
+  ariaLabel,
+  value,
+  onChange,
+}: BinarySettingControlProps) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <div className="text-sm text-text font-medium">{label}</div>
+        <p className="text-xs text-text-muted">{description}</p>
+      </div>
+      <div
+        role="group"
+        aria-label={ariaLabel}
+        className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0"
+      >
+        <Button
+          type="button"
+          variant={!value ? "primary" : "ghost"}
+          size="xs"
+          aria-pressed={!value}
+          onClick={() => onChange(false)}
+        >
+          Off
+        </Button>
+        <Button
+          type="button"
+          variant={value ? "primary" : "ghost"}
+          size="xs"
+          aria-pressed={value}
+          onClick={() => onChange(true)}
+        >
+          On
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function EditorWidthResizeControl({
+  enabled,
+  onChange,
+}: EditorWidthResizeControlProps) {
+  return (
+    <BinarySettingControl
+      label="Resize with Mouse"
+      description="Drag the page edges to change its width"
+      ariaLabel="Resize editor with mouse"
+      value={enabled}
+      onChange={onChange}
+    />
+  );
+}
+
+interface EditorToolbarVisibilityControlProps {
+  visible: boolean;
+  onChange: (visible: boolean) => void;
+}
+
+export function EditorToolbarVisibilityControl({
+  visible,
+  onChange,
+}: EditorToolbarVisibilityControlProps) {
+  return (
+    <BinarySettingControl
+      label="Formatting Toolbar"
+      description="Show the fixed toolbar above the document"
+      ariaLabel="Show formatting toolbar"
+      value={visible}
+      onChange={onChange}
+    />
+  );
+}
+
+interface TitleBarNoteInfoControlsProps {
+  modifiedDateVisible: boolean;
+  filenameVisible: boolean;
+  onModifiedDateChange: (visible: boolean) => void;
+  onFilenameChange: (visible: boolean) => void;
+}
+
+type TitleBarNoteInfoMode = "modifiedDate" | "filename" | "none";
+
+export function TitleBarNoteInfoControls({
+  modifiedDateVisible,
+  filenameVisible,
+  onModifiedDateChange,
+  onFilenameChange,
+}: TitleBarNoteInfoControlsProps) {
+  let mode: TitleBarNoteInfoMode = "none";
+  if (filenameVisible) {
+    mode = "filename";
+  } else if (modifiedDateVisible) {
+    mode = "modifiedDate";
+  }
+
+  const handleModeChange = (nextMode: TitleBarNoteInfoMode) => {
+    onModifiedDateChange(nextMode === "modifiedDate");
+    onFilenameChange(nextMode === "filename");
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <div className="text-sm text-text font-medium">
+          Title Bar Information
+        </div>
+        <p className="text-xs text-text-muted">
+          Choose what appears beside the note icon
+        </p>
+      </div>
+      <Select
+        aria-label="Title bar information"
+        value={mode}
+        onChange={(event) =>
+          handleModeChange(event.target.value as TitleBarNoteInfoMode)
+        }
+        className="w-44"
+      >
+        <option value="modifiedDate">Modification Date</option>
+        <option value="filename">Filename</option>
+        <option value="none">None</option>
+      </Select>
+    </div>
+  );
+}
+
 export function AppearanceSettingsSection() {
   const {
     theme,
@@ -72,6 +214,14 @@ export function AppearanceSettingsSection() {
     setInterfaceZoom,
     customEditorWidthPx,
     setCustomEditorWidthPx,
+    editorWidthResizeEnabled,
+    setEditorWidthResizeEnabled,
+    editorToolbarVisible,
+    setEditorToolbarVisible,
+    titleBarModifiedDateVisible,
+    setTitleBarModifiedDateVisible,
+    titleBarFilenameVisible,
+    setTitleBarFilenameVisible,
     customColorsLight,
     customColorsDark,
     setCustomColor,
@@ -92,14 +242,18 @@ export function AppearanceSettingsSection() {
     setEditorFontSetting(field, clamped);
   };
 
-  // Check if settings differ from defaults
-  const hasCustomFonts =
+  // Check if appearance settings differ from defaults
+  const hasCustomAppearanceSettings =
     editorFontSettings.baseFontFamily !== "system-sans" ||
     editorFontSettings.baseFontSize !== 15 ||
     editorFontSettings.boldWeight !== 600 ||
     editorFontSettings.lineHeight !== 1.6 ||
     textDirection !== "auto" ||
     editorWidth !== "normal" ||
+    !editorWidthResizeEnabled ||
+    editorToolbarVisible ||
+    !titleBarModifiedDateVisible ||
+    titleBarFilenameVisible ||
     Math.round(interfaceZoom * 100) !== 100;
 
   // Filter weight options based on font family
@@ -183,7 +337,7 @@ export function AppearanceSettingsSection() {
       <section>
         <div className="flex items-baseline justify-between mb-3">
           <h2 className="text-xl font-medium">Typography</h2>
-          {hasCustomFonts && (
+          {hasCustomAppearanceSettings && (
             <Button onClick={resetEditorFontSettings} variant="ghost" size="sm">
               Reset to defaults
             </Button>
@@ -323,6 +477,23 @@ export function AppearanceSettingsSection() {
               </div>
             </div>
           )}
+
+          <EditorWidthResizeControl
+            enabled={editorWidthResizeEnabled}
+            onChange={setEditorWidthResizeEnabled}
+          />
+
+          <EditorToolbarVisibilityControl
+            visible={editorToolbarVisible}
+            onChange={setEditorToolbarVisible}
+          />
+
+          <TitleBarNoteInfoControls
+            modifiedDateVisible={titleBarModifiedDateVisible}
+            filenameVisible={titleBarFilenameVisible}
+            onModifiedDateChange={setTitleBarModifiedDateVisible}
+            onFilenameChange={setTitleBarFilenameVisible}
+          />
 
           {/* Interface Zoom */}
           <div className="flex items-center justify-between">

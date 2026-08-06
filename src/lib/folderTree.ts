@@ -1,14 +1,62 @@
-import type { NoteMetadata, FolderNode } from "../types/note";
+import type {
+  NoteMetadata,
+  FolderNode,
+  NoteSortOrder,
+} from "../types/note";
 
 export interface FolderTreeData {
   rootNotes: NoteMetadata[];
   folders: FolderNode[];
 }
 
+function compareNotesByModified(
+  first: Pick<NoteMetadata, "id" | "modified">,
+  second: Pick<NoteMetadata, "id" | "modified">,
+  sortOrder: NoteSortOrder,
+): number {
+  const modifiedDifference =
+    sortOrder === "oldest"
+      ? first.modified - second.modified
+      : second.modified - first.modified;
+
+  return modifiedDifference || first.id.localeCompare(second.id);
+}
+
+export function sortNotesByModified<
+  T extends Pick<NoteMetadata, "id" | "modified">,
+>(
+  notes: readonly T[],
+  sortOrder: NoteSortOrder,
+  pinnedIds: ReadonlySet<string> = new Set(),
+): T[] {
+  return [...notes].sort((first, second) => {
+    const firstPinned = pinnedIds.has(first.id);
+    const secondPinned = pinnedIds.has(second.id);
+    if (firstPinned !== secondPinned) return firstPinned ? -1 : 1;
+    return compareNotesByModified(first, second, sortOrder);
+  });
+}
+
+export function orderNoteListItems<
+  T extends Pick<NoteMetadata, "id" | "modified">,
+>(
+  notes: readonly T[],
+  sortOrder: NoteSortOrder,
+  pinnedIds: ReadonlySet<string>,
+  isSearching: boolean,
+): T[] {
+  // Search service returns relevance-ranked results. Date and pin sorting is
+  // only a browsing preference and must not overwrite that ranking.
+  return isSearching
+    ? [...notes]
+    : sortNotesByModified(notes, sortOrder, pinnedIds);
+}
+
 export function buildFolderTree(
   notes: NoteMetadata[],
   pinnedIds: Set<string>,
   knownFolders?: string[],
+  sortOrder: NoteSortOrder = "newest",
 ): FolderTreeData {
   const rootNotes: NoteMetadata[] = [];
   const folderMap = new Map<string, FolderNode>();
@@ -51,14 +99,16 @@ export function buildFolderTree(
     }
   }
 
+  const compareFolderNotes = (first: NoteMetadata, second: NoteMetadata) => {
+    const firstPinned = pinnedIds.has(first.id);
+    const secondPinned = pinnedIds.has(second.id);
+    if (firstPinned !== secondPinned) return firstPinned ? -1 : 1;
+    return compareNotesByModified(first, second, sortOrder);
+  };
+
   function sortNode(node: FolderNode) {
     node.children.sort((a, b) => a.name.localeCompare(b.name));
-    node.notes.sort((a, b) => {
-      const ap = pinnedIds.has(a.id);
-      const bp = pinnedIds.has(b.id);
-      if (ap !== bp) return ap ? -1 : 1;
-      return b.modified - a.modified;
-    });
+    node.notes.sort(compareFolderNotes);
     node.children.forEach(sortNode);
   }
 
@@ -68,13 +118,8 @@ export function buildFolderTree(
   topLevelFolders.sort((a, b) => a.name.localeCompare(b.name));
   topLevelFolders.forEach(sortNode);
 
-  // Sort root notes: pinned first, then by modified desc
-  rootNotes.sort((a, b) => {
-    const ap = pinnedIds.has(a.id);
-    const bp = pinnedIds.has(b.id);
-    if (ap !== bp) return ap ? -1 : 1;
-    return b.modified - a.modified;
-  });
+  // Keep pinned notes first, then apply the selected date order.
+  rootNotes.sort(compareFolderNotes);
 
   return { rootNotes, folders: topLevelFolders };
 }
@@ -122,6 +167,20 @@ export function getVisibleItems(
   }
 
   return items;
+}
+
+/** Hide the folder branch from keyboard navigation when its section is closed. */
+export function getVisibleItemsForFolderSection(
+  tree: FolderTreeData,
+  pinnedIds: Set<string>,
+  collapsedFolders: Set<string>,
+  foldersSectionCollapsed: boolean,
+): TreeItem[] {
+  return getVisibleItems(
+    foldersSectionCollapsed ? { ...tree, folders: [] } : tree,
+    pinnedIds,
+    collapsedFolders,
+  );
 }
 
 export function countNotesInFolder(folder: FolderNode): number {

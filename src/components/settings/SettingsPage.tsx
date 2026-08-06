@@ -16,9 +16,8 @@ import { ToolsSettingsSection } from "./ToolsSettingsSection";
 import { mod, isMac, isWindows } from "../../lib/platform";
 
 interface SettingsPageProps {
-  onBack: () => void;
+  onBack?: () => void;
 }
-
 type SettingsTab = "general" | "tools" | "editor" | "shortcuts" | "about";
 
 const tabs: {
@@ -81,13 +80,15 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
         {/* Header with back button and Settings title */}
         <div className={`flex items-center justify-between px-3 pb-2 border-b border-border shrink-0${isWindows ? " pt-2" : ""}`}>
-          <div className="flex items-center gap-1">
-            <IconButton
-              onClick={onBack}
-              title={`Back (${mod}${isMac ? "" : "+"},)`}
-            >
-              <ArrowLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
-            </IconButton>
+          <div className={`flex items-center ${onBack ? "gap-1" : "px-2"}`}>
+            {onBack && (
+              <IconButton
+                onClick={onBack}
+                title={`Back (${mod}${isMac ? "" : "+"},)`}
+              >
+                <ArrowLeftIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+              </IconButton>
+            )}
             <div className="font-medium text-base">Settings</div>
           </div>
         </div>
