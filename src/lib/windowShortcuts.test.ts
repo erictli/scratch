@@ -53,4 +53,24 @@ describe("resolveWindowShortcut", () => {
       }),
     ).toBe("zoom-in");
   });
+
+  it.each([
+    ["Equal", "zoom-in"],
+    ["NumpadAdd", "zoom-in"],
+    ["Minus", "zoom-out"],
+    ["NumpadSubtract", "zoom-out"],
+    ["Digit0", "zoom-reset"],
+    ["Numpad0", "zoom-reset"],
+  ] as const)("uses physical %s as a keyboard-layout fallback", (code, expected) => {
+    expect(
+      resolveWindowShortcut({
+        key: "Dead",
+        code,
+        metaKey: true,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBe(expected);
+  });
 });
