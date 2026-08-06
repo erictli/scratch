@@ -114,6 +114,7 @@ import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { getTitleBarNoteInfoText } from "../../lib/titleBarNoteInfo";
 import { persistCheckpointBeforeEditorDisposal } from "../../lib/editorCheckpointCleanup";
+import { flushPendingEditorSaves } from "../../lib/pendingEditorSaves";
 import { SETTINGS_CHANGED_DOM_EVENT } from "../../lib/settingsScope";
 import type { ConflictResolutionStrategy } from "../../lib/conflictResolution";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -1005,11 +1006,10 @@ export function Editor({
   }, [checkpointScheduler, saveImmediately]);
 
   const flushAllPendingSaves = useCallback(async () => {
-    if (sourceNeedsSaveRef.current) {
-      await flushSourceSave();
-      return;
-    }
-    await flushPendingSave();
+    await flushPendingEditorSaves({
+      flushSource: flushSourceSave,
+      flushFormatted: flushPendingSave,
+    });
   }, [flushPendingSave, flushSourceSave]);
 
   useEffect(() => {
