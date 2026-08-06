@@ -5,10 +5,10 @@ import { normalizeNestedTablesInJson } from "./notion/tableIntegrity";
 
 function normalizeLoadedContent(editor: Editor, content: Content): Content {
   if (typeof content === "string") {
-    const inertDocument = document.implementation.createHTMLDocument("");
-    const container = inertDocument.createElement("div");
-    container.innerHTML = content;
-    const parsed = ProseMirrorDOMParser.fromSchema(editor.schema).parse(container);
+    const inertDocument = new DOMParser().parseFromString(content, "text/html");
+    const parsed = ProseMirrorDOMParser.fromSchema(editor.schema).parse(
+      inertDocument.body,
+    );
     return normalizeNestedTablesInJson(parsed.toJSON());
   }
 

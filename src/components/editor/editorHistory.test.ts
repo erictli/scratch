@@ -120,10 +120,9 @@ describe("editor note history", () => {
       extensions: [StarterKit],
       content: "<p>Before</p>",
     });
-    const createInertDocument = vi.spyOn(
-      document.implementation,
-      "createHTMLDocument",
-    );
+    const parseFromString = vi.spyOn(DOMParser.prototype, "parseFromString");
+    const loadedContent =
+      '<p>Safe</p><img src="https://invalid.example/image.png" onerror="markLoaded()">';
     let eventHandlerRan = false;
     (globalThis as typeof globalThis & { markLoaded?: () => void }).markLoaded =
       () => {
@@ -133,16 +132,16 @@ describe("editor note history", () => {
     try {
       replaceEditorContentWithoutHistory(
         editor,
-        '<p>Safe</p><img src="https://invalid.example/image.png" onerror="markLoaded()">',
+        loadedContent,
       );
 
-      expect(createInertDocument).toHaveBeenCalledWith("");
+      expect(parseFromString).toHaveBeenCalledWith(loadedContent, "text/html");
       expect(eventHandlerRan).toBe(false);
       expect(editor.getText()).toBe("Safe");
     } finally {
       delete (globalThis as typeof globalThis & { markLoaded?: () => void })
         .markLoaded;
-      createInertDocument.mockRestore();
+      parseFromString.mockRestore();
       editor.destroy();
     }
   });
