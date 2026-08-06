@@ -13,7 +13,11 @@ import * as gitService from "../services/git";
 import * as notesService from "../services/notes";
 import type { GitStatus } from "../services/git";
 import { useNotesData } from "./NotesContext";
-import { SETTINGS_CHANGED_DOM_EVENT } from "../lib/settingsScope";
+import {
+  SETTINGS_CHANGED_DOM_EVENT,
+  shouldApplySettingsChange,
+  type SettingsChangedEvent,
+} from "../lib/settingsScope";
 
 interface GitContextValue {
   // State
@@ -341,8 +345,13 @@ export function GitProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const handleSettingsChanged = () =>
+    const handleSettingsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<SettingsChangedEvent>).detail;
+      if (!detail || !shouldApplySettingsChange(detail, notesFolderRef.current)) {
+        return;
+      }
       setSettingsRevision((revision) => revision + 1);
+    };
     window.addEventListener(SETTINGS_CHANGED_DOM_EVENT, handleSettingsChanged);
     return () =>
       window.removeEventListener(
