@@ -148,6 +148,43 @@ describe("normalizeNestedTablesInJson table integrity", () => {
     expectValidTableIntegrity(source);
   });
 
+  it("pads rows using effective colspan width", () => {
+    const source = documentWith(
+      table(
+        row({
+          ...cell("spanning"),
+          attrs: { colspan: 2, rowspan: 1 },
+        }),
+        row(cell("single")),
+      ),
+    );
+
+    const normalizedRows =
+      normalizeNestedTablesInJson(source).content?.[0]?.content ?? [];
+
+    expect(normalizedRows[0]?.content).toHaveLength(1);
+    expect(normalizedRows[0]?.content?.[0]?.attrs?.colspan).toBe(2);
+    expect(normalizedRows[1]?.content).toHaveLength(2);
+  });
+
+  it("does not pad a row into a column occupied by a rowspan", () => {
+    const source = documentWith(
+      table(
+        row(
+          { ...cell("vertical"), attrs: { colspan: 1, rowspan: 2 } },
+          cell("top right"),
+        ),
+        row(cell("bottom right")),
+      ),
+    );
+
+    const normalizedRows =
+      normalizeNestedTablesInJson(source).content?.[0]?.content ?? [];
+
+    expect(normalizedRows[0]?.content).toHaveLength(2);
+    expect(normalizedRows[1]?.content).toHaveLength(1);
+  });
+
   it("normalizes a 100 x 20 table without rebuilding invalid descendants", () => {
     const source = documentWith(
       table(

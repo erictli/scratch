@@ -80,6 +80,67 @@ function normalizeRow(node: JSONContent): JSONContent {
   };
 }
 
+function cellSpan(
+  cell: JSONContent,
+  attribute: "colspan" | "rowspan",
+): number {
+  const value = cell.attrs?.[attribute];
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : 1;
+}
+
+function layoutTableRow(
+  cells: readonly JSONContent[],
+  activeRowspans: readonly number[],
+): { occupied: boolean[]; nextRowspans: number[] } {
+  const occupied = activeRowspans.map((remaining) => remaining > 0);
+  const nextRowspans = activeRowspans.map((remaining) =>
+    Math.max(0, remaining - 1),
+  );
+  let searchFrom = 0;
+
+  for (const cell of cells) {
+    const colspan = cellSpan(cell, "colspan");
+    let start = searchFrom;
+
+    while (true) {
+      while (occupied[start]) start += 1;
+      let blockedOffset = -1;
+      for (let offset = 0; offset < colspan; offset += 1) {
+        if (occupied[start + offset]) {
+          blockedOffset = offset;
+          break;
+        }
+      }
+      if (blockedOffset === -1) break;
+      start += blockedOffset + 1;
+    }
+
+    const rowspan = cellSpan(cell, "rowspan");
+    for (let offset = 0; offset < colspan; offset += 1) {
+      const column = start + offset;
+      occupied[column] = true;
+      if (rowspan > 1) {
+        nextRowspans[column] = Math.max(
+          nextRowspans[column] ?? 0,
+          rowspan - 1,
+        );
+      }
+    }
+    searchFrom = start + colspan;
+  }
+
+  return { occupied, nextRowspans };
+}
+
+function occupiedWidth(occupied: readonly boolean[]): number {
+  for (let index = occupied.length - 1; index >= 0; index -= 1) {
+    if (occupied[index]) return index + 1;
+  }
+  return 0;
+}
+
 function normalizeTable(node: JSONContent): JSONContent {
   const rows: JSONContent[] = [];
   let pendingCells: JSONContent[] = [];
@@ -105,16 +166,31 @@ function normalizeTable(node: JSONContent): JSONContent {
 
   if (rows.length === 0) rows.push({ type: "tableRow", content: [emptyCell()] });
 
+  let activeRowspans: number[] = [];
+  const rowLayouts = rows.map((row) => {
+    const layout = layoutTableRow(row.content ?? [], activeRowspans);
+    activeRowspans = layout.nextRowspans;
+    return layout;
+  });
   const width = Math.max(
     1,
-    ...rows.map((row) => row.content?.length ?? 0),
+    ...rowLayouts.map((layout) => occupiedWidth(layout.occupied)),
   );
-  const rectangularRows = rows.map((row) => {
+  const rectangularRows = rows.map((row, rowIndex) => {
     const cells = [...(row.content ?? [])];
+    const layout = rowLayouts[rowIndex];
+    const occupiedColumns =
+      layout?.occupied.slice(0, width).filter(Boolean).length ?? 0;
     const paddingType = cells.every((cell) => cell.type === "tableHeader")
       ? "tableHeader"
       : "tableCell";
-    while (cells.length < width) cells.push(emptyCell(paddingType));
+    for (
+      let paddingIndex = occupiedColumns;
+      paddingIndex < width;
+      paddingIndex += 1
+    ) {
+      cells.push(emptyCell(paddingType));
+    }
     return { ...row, content: cells };
   });
 
