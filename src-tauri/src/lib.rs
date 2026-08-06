@@ -7207,10 +7207,9 @@ mod workspace_registry_tests {
         .join()
         .is_err());
 
-        let resource = get_or_initialize_shared(&registry, &initializers, key, || {
-            Ok::<usize, String>(42)
-        })
-        .expect("poisoned locks should not disable every workspace");
+        let resource =
+            get_or_initialize_shared(&registry, &initializers, key, || Ok::<usize, String>(42))
+                .expect("poisoned locks should not disable every workspace");
 
         assert_eq!(*resource, 42);
     }

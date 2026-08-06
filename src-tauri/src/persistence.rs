@@ -189,11 +189,7 @@ fn atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })
 }
 
-fn atomic_create_new_with_hard_link<F>(
-    path: &Path,
-    bytes: &[u8],
-    hard_link: F,
-) -> io::Result<()>
+fn atomic_create_new_with_hard_link<F>(path: &Path, bytes: &[u8], hard_link: F) -> io::Result<()>
 where
     F: FnOnce(&Path, &Path) -> io::Result<()>,
 {
@@ -214,10 +210,7 @@ where
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::Unsupported => {
             let mut source = File::open(temporary_path.path())?;
-            let mut destination = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(path)?;
+            let mut destination = OpenOptions::new().write(true).create_new(true).open(path)?;
             let publish_result = io::copy(&mut source, &mut destination)
                 .and_then(|_| destination.flush())
                 .and_then(|_| destination.sync_all());
