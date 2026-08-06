@@ -185,6 +185,31 @@ describe("normalizeNestedTablesInJson table integrity", () => {
     expect(normalizedRows[1]?.content).toHaveLength(1);
   });
 
+  it("wraps wikilinks in a paragraph inside repaired cells", () => {
+    const source = documentWith(
+      table(
+        row({
+          type: "tableCell",
+          content: [
+            { type: "wikilink", attrs: { noteTitle: "Project plan" } },
+          ],
+        }),
+      ),
+    );
+
+    const normalizedCell = normalizeNestedTablesInJson(source)
+      .content?.[0]?.content?.[0]?.content?.[0];
+
+    expect(normalizedCell?.content).toEqual([
+      {
+        type: "paragraph",
+        content: [
+          { type: "wikilink", attrs: { noteTitle: "Project plan" } },
+        ],
+      },
+    ]);
+  });
+
   it("normalizes a 100 x 20 table without rebuilding invalid descendants", () => {
     const source = documentWith(
       table(

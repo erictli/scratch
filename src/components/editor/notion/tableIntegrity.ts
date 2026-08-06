@@ -41,7 +41,11 @@ function normalizeCellContent(content: readonly JSONContent[]): JSONContent[] {
   };
 
   for (const child of flattened) {
-    if (child.type === "text" || child.type === "hardBreak") {
+    if (
+      child.type === "text" ||
+      child.type === "hardBreak" ||
+      child.type === "wikilink"
+    ) {
       pendingInline.push(child);
     } else {
       flushInline();
