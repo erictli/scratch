@@ -168,21 +168,8 @@ export function TitleBarNoteInfoControls({
   }
 
   const handleModeChange = (nextMode: TitleBarNoteInfoMode) => {
-    if (nextMode === "filename") {
-      onFilenameChange(true);
-      return;
-    }
-
-    if (nextMode === "modifiedDate") {
-      onModifiedDateChange(true);
-      return;
-    }
-
-    if (filenameVisible) {
-      onFilenameChange(false);
-    } else if (modifiedDateVisible) {
-      onModifiedDateChange(false);
-    }
+    onModifiedDateChange(nextMode === "modifiedDate");
+    onFilenameChange(nextMode === "filename");
   };
 
   return (

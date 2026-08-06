@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -115,7 +115,7 @@ describe("TitleBarNoteInfoControls", () => {
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(onFilenameChange).toHaveBeenCalledWith(true);
-    expect(onModifiedDateChange).not.toHaveBeenCalled();
+    expect(onModifiedDateChange).toHaveBeenCalledWith(false);
 
     act(() => root.unmount());
     container.remove();
@@ -151,7 +151,48 @@ describe("TitleBarNoteInfoControls", () => {
     });
 
     expect(onFilenameChange).toHaveBeenCalledWith(false);
-    expect(onModifiedDateChange).not.toHaveBeenCalled();
+    expect(onModifiedDateChange).toHaveBeenCalledWith(false);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("can switch from modified date to filename and then to None", () => {
+    function StatefulTitleBarControl() {
+      const [modifiedDateVisible, setModifiedDateVisible] = useState(true);
+      const [filenameVisible, setFilenameVisible] = useState(false);
+      return (
+        <TitleBarNoteInfoControls
+          modifiedDateVisible={modifiedDateVisible}
+          filenameVisible={filenameVisible}
+          onModifiedDateChange={setModifiedDateVisible}
+          onFilenameChange={setFilenameVisible}
+        />
+      );
+    }
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    act(() => root.render(<StatefulTitleBarControl />));
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Title bar information"]',
+    );
+
+    act(() => {
+      if (!select) return;
+      select.value = "filename";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(select?.value).toBe("filename");
+
+    act(() => {
+      if (!select) return;
+      select.value = "none";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(select?.value).toBe("none");
 
     act(() => root.unmount());
     container.remove();
