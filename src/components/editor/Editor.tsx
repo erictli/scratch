@@ -109,6 +109,104 @@ import {
   FolderPlusIcon,
 } from "../icons";
 
+function toggleCodeBlockAtCursor(editor: TiptapEditor): boolean {
+  if (editor.isActive("codeBlock")) {
+    return editor.chain().focus().toggleCodeBlock().run();
+  }
+
+  const { selection } = editor.state;
+  if (selection.empty && selection.$from.parentOffset > 0) {
+    return editor
+      .chain()
+      .focus()
+      .splitBlock({ keepMarks: false })
+      .setCodeBlock()
+      .run();
+  }
+
+  return editor.chain().focus().setCodeBlock().run();
+}
+
+const ScratchCodeBlock = CodeBlockLowlight.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(CodeBlockView);
+  },
+
+  addKeyboardShortcuts() {
+    const parentShortcuts = this.parent?.() ?? {};
+
+    return {
+      ...parentShortcuts,
+      "Mod-Alt-c": () => toggleCodeBlockAtCursor(this.editor),
+      Enter: (props) => {
+        const { selection } = this.editor.state;
+        const { $from } = selection;
+
+        if (
+          selection.empty &&
+          !this.editor.isActive(this.name) &&
+          !this.editor.isActive("code")
+        ) {
+          const textBeforeCursor = $from.parent.textBetween(
+            0,
+            $from.parentOffset,
+          );
+          const match = textBeforeCursor.match(
+            /```([a-zA-Z0-9_+#.-]*)$/,
+          );
+
+          if (match) {
+            const triggerFrom = selection.from - match[0].length;
+            const command = this.editor
+              .chain()
+              .deleteRange({ from: triggerFrom, to: selection.from });
+
+            if ($from.parentOffset > match[0].length) {
+              command
+                .setTextSelection(triggerFrom)
+                .splitBlock({ keepMarks: false });
+            }
+
+            return command
+              .setCodeBlock(
+                match[1] ? { language: match[1].toLowerCase() } : undefined,
+              )
+              .run();
+          }
+        }
+
+        return parentShortcuts.Enter?.(props) ?? false;
+      },
+    };
+  },
+
+  addInputRules() {
+    return [
+      new InputRule({
+        // Convert after the first space following ``` or ```language.
+        // Unlike TipTap's default rule, this also works after text.
+        find: /```([a-zA-Z0-9_+#.-]*) $/,
+        handler: ({ state, range, match, chain }) => {
+          const command = chain().deleteRange(range);
+
+          if (state.doc.resolve(range.from).parentOffset > 0) {
+            command
+              .setTextSelection(range.from)
+              .splitBlock({ keepMarks: false });
+          }
+
+          command
+            .setCodeBlock(
+              match[1] ? { language: match[1].toLowerCase() } : undefined,
+            )
+            .run();
+        },
+      }),
+      ...(this.parent?.() ?? []),
+    ];
+  },
+});
+
 function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
   return date.toLocaleDateString(undefined, {
@@ -353,7 +451,7 @@ function FormatBar({
         <InlineCodeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
       </ToolbarButton>
       <ToolbarButton
-        onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+        onClick={() => toggleCodeBlockAtCursor(editor)}
         isActive={editor.isActive("codeBlock")}
         title={`Code Block (${mod}${isMac ? "" : "+"}${alt}${isMac ? "" : "+"}C)`}
       >
@@ -1054,11 +1152,7 @@ export function Editor({
         },
         codeBlock: false,
       }),
-      CodeBlockLowlight.extend({
-        addNodeView() {
-          return ReactNodeViewRenderer(CodeBlockView);
-        },
-      }).configure({
+      ScratchCodeBlock.configure({
         lowlight,
         defaultLanguage: null,
       }),
