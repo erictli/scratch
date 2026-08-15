@@ -114,6 +114,10 @@ pub struct Settings {
     pub pinned_note_ids: Option<Vec<String>>,
     #[serde(rename = "textDirection")]
     pub text_direction: Option<TextDirection>,
+    #[serde(rename = "spellCheckEnabled")]
+    pub spell_check_enabled: Option<bool>,
+    #[serde(rename = "autoCorrectEnabled")]
+    pub auto_correct_enabled: Option<bool>,
     #[serde(rename = "editorWidth")]
     pub editor_width: Option<String>,
     #[serde(rename = "defaultNoteName")]

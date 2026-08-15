@@ -546,7 +546,7 @@ export function Editor({
   const pinNote = notesCtx?.pinNote;
   const unpinNote = notesCtx?.unpinNote;
   const notes = notesCtx?.notes;
-  const { textDirection } = useTheme();
+  const { textDirection, spellCheckEnabled, autoCorrectEnabled } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
@@ -1134,8 +1134,8 @@ export function Editor({
       attributes: {
         class:
           "prose prose-lg dark:prose-invert max-w-3xl mx-auto focus:outline-none min-h-full px-6 pt-8 pb-24",
-        spellcheck: "true",
-        autocorrect: "on",
+        spellcheck: spellCheckEnabled ? "true" : "false",
+        autocorrect: autoCorrectEnabled ? "on" : "off",
         autocapitalize: "sentences",
       },
       // Serialize copied text as markdown instead of plain text

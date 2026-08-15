@@ -66,6 +66,10 @@ export function AppearanceSettingsSection() {
     resetEditorFontSettings,
     textDirection,
     setTextDirection,
+    spellCheckEnabled,
+    setSpellCheckEnabled,
+    autoCorrectEnabled,
+    setAutoCorrectEnabled,
     editorWidth,
     setEditorWidth,
     interfaceZoom,
@@ -174,6 +178,64 @@ export function AppearanceSettingsSection() {
             className="mt-4"
           />
         )}
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Writing Section */}
+      <section>
+        <h2 className="text-xl font-medium mb-3">Writing</h2>
+        <div className="rounded-[10px] border border-border pl-4 py-3 pr-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-text font-medium">
+              Spell Check
+            </label>
+            <div className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0">
+              <Button
+                onClick={() => setSpellCheckEnabled(false)}
+                variant={!spellCheckEnabled ? "primary" : "ghost"}
+                size="xs"
+              >
+                Off
+              </Button>
+              <Button
+                onClick={() => setSpellCheckEnabled(true)}
+                variant={spellCheckEnabled ? "primary" : "ghost"}
+                size="xs"
+              >
+                On
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-text font-medium">
+              Auto Correct
+            </label>
+            <div className="flex gap-1 p-1 rounded-[10px] border border-border shrink-0">
+              <Button
+                onClick={() => setAutoCorrectEnabled(false)}
+                variant={!autoCorrectEnabled ? "primary" : "ghost"}
+                size="xs"
+              >
+                Off
+              </Button>
+              <Button
+                onClick={() => setAutoCorrectEnabled(true)}
+                variant={autoCorrectEnabled ? "primary" : "ghost"}
+                size="xs"
+              >
+                On
+              </Button>
+            </div>
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-text-muted">
+          Auto Correct requires Spell Check. Enabling it also enables Spell
+          Check. Spell checking may reduce performance when inserting large
+          amounts of text.
+        </p>
       </section>
 
       {/* Divider */}

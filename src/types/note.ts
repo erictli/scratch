@@ -51,6 +51,8 @@ export interface Settings {
   foldersEnabled?: boolean;
   pinnedNoteIds?: string[];
   textDirection?: TextDirection;
+  spellCheckEnabled?: boolean;
+  autoCorrectEnabled?: boolean;
   editorWidth?: EditorWidth;
   customEditorWidthPx?: number;
   sidebarWidthPx?: number;
