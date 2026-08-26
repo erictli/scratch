@@ -1,4 +1,5 @@
 import type { NoteMetadata, FolderNode } from "../types/note";
+import { getSortStrategy } from "./sorting";
 
 export interface FolderTreeData {
   rootNotes: NoteMetadata[];
@@ -9,7 +10,9 @@ export function buildFolderTree(
   notes: NoteMetadata[],
   pinnedIds: Set<string>,
   knownFolders?: string[],
+  sortOrder?: string,
 ): FolderTreeData {
+  const strategy = getSortStrategy(sortOrder);
   const rootNotes: NoteMetadata[] = [];
   const folderMap = new Map<string, FolderNode>();
 
@@ -51,13 +54,16 @@ export function buildFolderTree(
     }
   }
 
+  const folderComparator =
+    strategy.compareFolders || ((a: FolderNode, b: FolderNode) => a.name.localeCompare(b.name));
+
   function sortNode(node: FolderNode) {
-    node.children.sort((a, b) => a.name.localeCompare(b.name));
+    node.children.sort(folderComparator);
     node.notes.sort((a, b) => {
       const ap = pinnedIds.has(a.id);
       const bp = pinnedIds.has(b.id);
       if (ap !== bp) return ap ? -1 : 1;
-      return b.modified - a.modified;
+      return strategy.compareNotes(a, b);
     });
     node.children.forEach(sortNode);
   }
@@ -65,15 +71,15 @@ export function buildFolderTree(
   const topLevelFolders = Array.from(folderMap.values()).filter(
     (f) => !f.path.includes("/"),
   );
-  topLevelFolders.sort((a, b) => a.name.localeCompare(b.name));
+  topLevelFolders.sort(folderComparator);
   topLevelFolders.forEach(sortNode);
 
-  // Sort root notes: pinned first, then by modified desc
+  // Sort root notes: pinned first, then by strategy
   rootNotes.sort((a, b) => {
     const ap = pinnedIds.has(a.id);
     const bp = pinnedIds.has(b.id);
     if (ap !== bp) return ap ? -1 : 1;
-    return b.modified - a.modified;
+    return strategy.compareNotes(a, b);
   });
 
   return { rootNotes, folders: topLevelFolders };

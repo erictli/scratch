@@ -22,6 +22,7 @@ import {
   TrashIcon,
 } from "../icons";
 import type { Settings } from "../../types/note";
+import { getSortStrategy } from "../../lib/sorting";
 
 const menuItemClass =
   "px-3 py-1.5 text-sm text-text cursor-pointer outline-none hover:bg-bg-muted focus:bg-bg-muted flex items-center gap-2 rounded-sm";
@@ -304,8 +305,16 @@ export function NoteList({
         modified: r.modified,
       }));
     }
-    return notes;
-  }, [searchQuery, searchResults, notes]);
+    const strategy = getSortStrategy(settings?.sortOrder);
+    const sorted = [...notes];
+    sorted.sort((a, b) => {
+      const ap = pinnedIds.has(a.id);
+      const bp = pinnedIds.has(b.id);
+      if (ap !== bp) return ap ? -1 : 1;
+      return strategy.compareNotes(a, b);
+    });
+    return sorted;
+  }, [searchQuery, searchResults, notes, settings?.sortOrder, pinnedIds]);
 
   // Listen for focus request from editor (when Escape is pressed)
   useEffect(() => {

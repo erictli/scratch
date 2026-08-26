@@ -15,7 +15,8 @@ import {
   ChevronRightIcon,
   XIcon,
 } from "../icons";
-import type { Settings } from "../../types/note";
+import type { Settings, SortOrder } from "../../types/note";
+import { SORT_STRATEGIES, DEFAULT_SORT_ORDER } from "../../lib/sorting";
 
 // Format remote URL for display - extract user/repo from full URL
 function formatRemoteUrl(url: string | null): string {
@@ -300,6 +301,22 @@ export function GeneralSettingsSection() {
             </p>
           </div>
           <FoldersToggle />
+        </div>
+      </section>
+
+      {/* Divider */}
+      <div className="border-t border-border border-dashed" />
+
+      {/* Note Sorting Section */}
+      <section className="pb-2">
+        <div className="flex items-center justify-between gap-6">
+          <div className="flex flex-col gap-0.75">
+            <h2 className="text-xl font-medium">Sidebar Note Order</h2>
+            <p className="text-sm text-text-muted max-w-lg">
+              Choose how notes and folder contents are ordered in the sidebar.
+            </p>
+          </div>
+          <NoteSortSelector />
         </div>
       </section>
 
@@ -812,6 +829,54 @@ function FoldersToggle() {
         On
       </Button>
     </div>
+  );
+}
+
+function NoteSortSelector() {
+  const [sortOrder, setSortOrder] = useState<SortOrder>(DEFAULT_SORT_ORDER);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const { notesFolder, refreshNotes } = useNotes();
+
+  useEffect(() => {
+    invoke<Settings>("get_settings")
+      .then((settings) => {
+        setSortOrder(settings.sortOrder || DEFAULT_SORT_ORDER);
+      })
+      .catch((err) => {
+        console.error("Failed to load sortOrder:", err);
+      });
+  }, [notesFolder]);
+
+  const handleChange = async (newOrder: SortOrder) => {
+    setIsUpdating(true);
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      await invoke("update_settings", {
+        newSettings: { ...settings, sortOrder: newOrder },
+      });
+      setSortOrder(newOrder);
+      refreshNotes();
+      toast.success("Sidebar sorting updated");
+    } catch {
+      toast.error("Failed to update sidebar sorting");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  return (
+    <select
+      value={sortOrder}
+      onChange={(e) => handleChange(e.target.value as SortOrder)}
+      disabled={isUpdating}
+      className="px-3 py-1.5 text-sm bg-bg border border-border rounded-[10px] text-text cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent shrink-0"
+    >
+      {Object.values(SORT_STRATEGIES).map((strategy) => (
+        <option key={strategy.id} value={strategy.id}>
+          {strategy.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
