@@ -83,7 +83,7 @@ function SuggestionListInner<T>(
     <div
       ref={listRef}
       className={cn(
-        "bg-bg border border-border rounded-lg shadow-lg p-1.5 max-h-80 overflow-y-auto animate-slide-down flex flex-col gap-0.5",
+        "bg-bg border border-border rounded-lg shadow-lg p-1.5 max-h-80 overflow-y-auto scrollbar-minimal animate-slide-down flex flex-col gap-0.5",
         width,
       )}
     >

@@ -15,7 +15,7 @@ interface AiEditModalProps {
   open: boolean;
   provider: AiProvider;
   onBack: () => void; // Go back to command palette
-  onExecute: (prompt: string, ollamaModel?: string) => Promise<void>;
+  onExecute: (prompt: string, ollamaModel?: string) => Promise<unknown>;
   isExecuting: boolean;
 }
 

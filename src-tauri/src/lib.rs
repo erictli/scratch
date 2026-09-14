@@ -18,6 +18,16 @@ use tokio::io::AsyncWriteExt;
 
 mod git;
 
+/// A folder in the sidebar backed by a tag instead of a directory.
+///
+/// `name` is what the sidebar shows and is always a single path segment;
+/// `tag` may contain `/` for nested tags such as `area/finance`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmartFolder {
+    pub name: String,
+    pub tag: String,
+}
+
 // Note metadata for list display
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteMetadata {
@@ -25,6 +35,10 @@ pub struct NoteMetadata {
     pub title: String,
     pub preview: String,
     pub modified: i64,
+    /// Frontmatter tags, so the sidebar can resolve smart folders without
+    /// re-reading files or making a second round trip.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,8 +141,14 @@ pub struct Settings {
     pub sidebar_width_px: Option<u32>,
     #[serde(rename = "ollamaModel")]
     pub ollama_model: Option<String>,
+    /// Model chosen per AI harness, keyed by provider id ("claude", "codex", ...).
+    #[serde(rename = "aiModels")]
+    pub ai_models: Option<std::collections::HashMap<String, String>>,
     #[serde(rename = "foldersEnabled")]
     pub folders_enabled: Option<bool>,
+    /// Folders whose contents are a live tag query rather than files on disk.
+    #[serde(rename = "smartFolders")]
+    pub smart_folders: Option<Vec<SmartFolder>>,
     #[serde(rename = "ignoredPatterns")]
     pub ignored_patterns: Option<Vec<String>>,
     #[serde(rename = "customColorsLight")]
@@ -172,6 +192,7 @@ pub struct SearchIndex {
     id_field: Field,
     title_field: Field,
     content_field: Field,
+    tags_field: Field,
     modified_field: Field,
 }
 
@@ -182,13 +203,28 @@ impl SearchIndex {
         let id_field = schema_builder.add_text_field("id", STRING | STORED);
         let title_field = schema_builder.add_text_field("title", TEXT | STORED);
         let content_field = schema_builder.add_text_field("content", TEXT | STORED);
+        // Tags are matched exactly, not tokenized, so `tag:` queries are precise.
+        let tags_field = schema_builder.add_text_field("tags", STRING | STORED);
         let modified_field = schema_builder.add_i64_field("modified", INDEXED | STORED);
         let schema = schema_builder.build();
 
-        // Create or open index
+        // Create or open index.
+        //
+        // An index written by an older build has a different schema (no `tags`
+        // field), and field handles are positional — reusing it would write to
+        // the wrong column. Discard and recreate on any schema mismatch; the
+        // caller rebuilds from the notes folder immediately afterwards, so
+        // nothing is lost but the time to reindex.
         std::fs::create_dir_all(index_path)?;
-        let index = Index::create_in_dir(index_path, schema.clone())
-            .or_else(|_| Index::open_in_dir(index_path))?;
+        let index = match Index::open_in_dir(index_path) {
+            Ok(existing) if existing.schema() == schema => existing,
+            Ok(_) => {
+                std::fs::remove_dir_all(index_path)?;
+                std::fs::create_dir_all(index_path)?;
+                Index::create_in_dir(index_path, schema.clone())?
+            }
+            Err(_) => Index::create_in_dir(index_path, schema.clone())?,
+        };
 
         let reader = index
             .reader_builder()
@@ -205,6 +241,7 @@ impl SearchIndex {
             id_field,
             title_field,
             content_field,
+            tags_field,
             modified_field,
         })
     }
@@ -217,12 +254,16 @@ impl SearchIndex {
         writer.delete_term(id_term);
 
         // Add new document
-        writer.add_document(doc!(
+        let mut document = doc!(
             self.id_field => id,
             self.title_field => title,
             self.content_field => content,
             self.modified_field => modified,
-        ))?;
+        );
+        for tag in extract_tags(content) {
+            document.add_text(self.tags_field, &tag);
+        }
+        writer.add_document(document)?;
 
         writer.commit()?;
         Ok(())
@@ -237,6 +278,17 @@ impl SearchIndex {
     }
 
     fn search(&self, query_str: &str, limit: usize) -> Result<Vec<SearchResult>> {
+        // `tag:foo` (or `#foo`) is an exact tag lookup, not a full-text search.
+        if let Some(tag) = query_str
+            .strip_prefix("tag:")
+            .or_else(|| query_str.strip_prefix('#'))
+        {
+            let tag = tag.trim().trim_matches('"');
+            if !tag.is_empty() {
+                return self.search_by_tag(tag, limit);
+            }
+        }
+
         let searcher = self.reader.searcher();
         let query_parser =
             QueryParser::for_index(&self.index, vec![self.title_field, self.content_field]);
@@ -288,6 +340,74 @@ impl SearchIndex {
         Ok(results)
     }
 
+    /// Exact-match lookup of every note carrying `tag`, newest first.
+    fn search_by_tag(&self, tag: &str, limit: usize) -> Result<Vec<SearchResult>> {
+        let searcher = self.reader.searcher();
+        let term = tantivy::Term::from_field_text(self.tags_field, tag);
+        let query = tantivy::query::TermQuery::new(term, IndexRecordOption::Basic);
+        let top_docs = searcher.search(&query, &TopDocs::with_limit(limit))?;
+
+        let mut results = Vec::with_capacity(top_docs.len());
+        for (_, doc_address) in top_docs {
+            let doc: TantivyDocument = searcher.doc(doc_address)?;
+            let content = doc
+                .get_first(self.content_field)
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            results.push(SearchResult {
+                id: doc
+                    .get_first(self.id_field)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                title: doc
+                    .get_first(self.title_field)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                preview: generate_preview(content),
+                modified: doc
+                    .get_first(self.modified_field)
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0),
+                score: 1.0,
+            });
+        }
+        // `modified` is not a fast field, so order after collection.
+        results.sort_by_key(|a| std::cmp::Reverse(a.modified));
+        Ok(results)
+    }
+
+    /// Every tag in the vault with the number of notes carrying it,
+    /// ordered by count descending then alphabetically.
+    fn all_tags(&self) -> Result<Vec<TagCount>> {
+        let searcher = self.reader.searcher();
+        let mut counts: HashMap<String, usize> = HashMap::new();
+
+        for segment_reader in searcher.segment_readers() {
+            let store = segment_reader.get_store_reader(0)?;
+            let alive = segment_reader.alive_bitset();
+            for doc_id in 0..segment_reader.max_doc() {
+                if alive.map(|bits| !bits.is_alive(doc_id)).unwrap_or(false) {
+                    continue;
+                }
+                let doc: TantivyDocument = store.get(doc_id)?;
+                for value in doc.get_all(self.tags_field) {
+                    if let Some(tag) = value.as_str() {
+                        *counts.entry(tag.to_string()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        let mut tags: Vec<TagCount> = counts
+            .into_iter()
+            .map(|(tag, count)| TagCount { tag, count })
+            .collect();
+        tags.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.tag.cmp(&b.tag)));
+        Ok(tags)
+    }
+
     fn rebuild_index(&self, notes_folder: &PathBuf, ignored_dirs: &[String]) -> Result<()> {
         let mut writer = self.writer.lock().expect("search writer mutex");
         writer.delete_all_documents()?;
@@ -316,12 +436,16 @@ impl SearchIndex {
 
                         let title = extract_title(&content);
 
-                        writer.add_document(doc!(
+                        let mut document = doc!(
                             self.id_field => id.as_str(),
                             self.title_field => title,
                             self.content_field => content.as_str(),
                             self.modified_field => modified,
-                        ))?;
+                        );
+                        for tag in extract_tags(&content) {
+                            document.add_text(self.tags_field, &tag);
+                        }
+                        writer.add_document(document)?;
                     }
                 }
             }
@@ -330,6 +454,12 @@ impl SearchIndex {
         writer.commit()?;
         Ok(())
     }
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct TagCount {
+    pub tag: String,
+    pub count: usize,
 }
 
 // App state with improved structure
@@ -466,6 +596,77 @@ fn strip_frontmatter(content: &str) -> &str {
         }
     }
     content
+}
+
+/// Extract a note's tags from its YAML frontmatter `tags:` key.
+///
+/// Supports flow style (`tags: [a, b]`), block style (`tags:` followed by
+/// indented `- a` items) and a bare scalar. Values are returned in file order,
+/// deduplicated, with surrounding quotes and a leading `#` removed.
+///
+/// Frontmatter is the only source. A `#word` in the body is prose, not
+/// metadata — notes carrying `Type: #type/meeting` header lines are
+/// unmigrated and should be fixed at the source rather than parsed here.
+fn extract_tags(content: &str) -> Vec<String> {
+    let mut tags = extract_frontmatter_tags(content);
+    let mut seen = std::collections::HashSet::new();
+    tags.retain(|tag| seen.insert(tag.clone()));
+    tags
+}
+
+/// Read the `tags:` key out of a note's YAML frontmatter, if it has any.
+fn extract_frontmatter_tags(content: &str) -> Vec<String> {
+    let trimmed = content.trim_start();
+    let Some(rest) = trimmed.strip_prefix("---") else {
+        return Vec::new();
+    };
+    let Some(end) = rest.find("\n---") else {
+        return Vec::new();
+    };
+    let frontmatter = &rest[..end];
+
+    let clean = |raw: &str| -> Option<String> {
+        let value = raw
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .trim_start_matches('#')
+            .trim();
+        if value.is_empty() || value == "[]" || value.ends_with('/') {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    };
+
+    let mut tags = Vec::new();
+    let mut lines = frontmatter.lines();
+    while let Some(line) = lines.next() {
+        let Some(value) = line.strip_prefix("tags:") else {
+            continue;
+        };
+        let value = value.trim();
+        if let Some(inner) = value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+            // Flow style: tags: [a, b]
+            tags.extend(inner.split(',').filter_map(clean));
+        } else if !value.is_empty() {
+            // Single scalar: tags: work
+            tags.extend(clean(value));
+        } else {
+            // Block style: subsequent indented `- item` lines
+            for next in lines.by_ref() {
+                let indented = next.starts_with(' ') || next.starts_with('\t');
+                let Some(item) = next.trim_start().strip_prefix("- ") else {
+                    break;
+                };
+                if !indented {
+                    break;
+                }
+                tags.extend(clean(item));
+            }
+        }
+        break;
+    }
+    tags
 }
 
 // Utility: Extract title from markdown content
@@ -631,11 +832,31 @@ fn get_effective_ignored_dirs(settings: &Settings) -> Vec<String> {
     })
 }
 
-/// Filter for WalkDir: skips excluded and user-ignored directories.
+/// Agent instruction files. They live alongside notes and are worth searching,
+/// but they are tooling config rather than notes, so the note list hides them.
+const AGENT_DOC_STEMS: &[&str] = &["AGENTS", "CLAUDE", "GEMINI", "COPILOT-INSTRUCTIONS"];
+
+/// True for a note ID whose file is an agent instruction file, at any depth.
+fn is_agent_doc_id(id: &str) -> bool {
+    let stem = id.rsplit('/').next().unwrap_or(id);
+    AGENT_DOC_STEMS
+        .iter()
+        .any(|name| stem.eq_ignore_ascii_case(name))
+}
+
+/// True for tool config directories (`.claude`, `.agents`, `.cursor`, …). Every
+/// dot-directory is config by convention, so the rule covers future tools too.
+fn is_config_dir(name: &str) -> bool {
+    name.starts_with('.') && name != "."
+}
+
+/// Filter for WalkDir: skips excluded, config and user-ignored directories.
 fn is_visible_notes_entry(entry: &walkdir::DirEntry, ignored_dirs: &[String]) -> bool {
     if entry.file_type().is_dir() {
         let name = entry.file_name().to_str().unwrap_or("");
-        return !EXCLUDED_DIRS.contains(&name) && !ignored_dirs.iter().any(|d| d == name);
+        return !EXCLUDED_DIRS.contains(&name)
+            && !is_config_dir(name)
+            && !ignored_dirs.iter().any(|d| d == name);
     }
     true
 }
@@ -650,7 +871,10 @@ fn id_from_abs_path(notes_root: &Path, file_path: &Path, ignored_dirs: &[String]
     for component in rel.parent().unwrap_or(Path::new("")).components() {
         if let std::path::Component::Normal(name) = component {
             let name_str = name.to_str()?;
-            if EXCLUDED_DIRS.contains(&name_str) || ignored_dirs.iter().any(|d| d == name_str) {
+            if EXCLUDED_DIRS.contains(&name_str)
+                || is_config_dir(name_str)
+                || ignored_dirs.iter().any(|d| d == name_str)
+            {
                 return None;
             }
         }
@@ -911,7 +1135,7 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
     let path_clone = path.clone();
     let discovered = tokio::task::spawn_blocking(move || {
         use walkdir::WalkDir;
-        let mut results: Vec<(String, String, String, i64)> = Vec::new();
+        let mut results: Vec<(String, String, String, i64, Vec<String>)> = Vec::new();
         for entry in WalkDir::new(&path_clone)
             .max_depth(10)
             .into_iter()
@@ -933,7 +1157,8 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
                         .unwrap_or(0);
                     let title = extract_title(&content);
                     let preview = generate_preview(&content);
-                    results.push((id, title, preview, modified));
+                    let tags = extract_tags(&content);
+                    results.push((id, title, preview, modified, tags));
                 }
             }
         }
@@ -944,11 +1169,12 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
 
     let mut notes: Vec<NoteMetadata> = discovered
         .into_iter()
-        .map(|(id, title, preview, modified)| NoteMetadata {
+        .map(|(id, title, preview, modified, tags)| NoteMetadata {
             id,
             title,
             preview,
             modified,
+            tags,
         })
         .collect();
 
@@ -982,6 +1208,10 @@ async fn list_notes(state: State<'_, AppState>) -> Result<Vec<NoteMetadata>, Str
             cache.insert(note.id.clone(), note.clone());
         }
     }
+
+    // Agent instruction files stay in the cache and the search index — they are
+    // findable and openable — but they don't belong in the list of notes.
+    notes.retain(|note| !is_agent_doc_id(&note.id));
 
     Ok(notes)
 }
@@ -2001,6 +2231,7 @@ async fn import_file_to_folder(
         title: extracted_title,
         preview,
         modified,
+        tags: extract_tags(&content),
     };
 
     // Update notes cache so fallback search sees the imported note immediately
@@ -2016,6 +2247,16 @@ async fn import_file_to_folder(
     }
 
     Ok(metadata)
+}
+
+/// Every tag in the vault with its note count, for the sidebar tag pane.
+#[tauri::command]
+async fn list_tags(state: State<'_, AppState>) -> Result<Vec<TagCount>, String> {
+    let index = state.search_index.lock().expect("search index mutex");
+    match (*index).as_ref() {
+        Some(search_index) => search_index.all_tags().map_err(|e| e.to_string()),
+        None => Ok(vec![]),
+    }
 }
 
 #[tauri::command]
@@ -3013,6 +3254,15 @@ async fn ai_check_opencode_cli() -> Result<bool, String> {
 
 /// Shared AI CLI execution: spawns `command` with `args`, writes `stdin_input` to stdin,
 /// and returns the result with a 5-minute timeout.
+// One raw stdout line from a running agent CLI. Lines are forwarded verbatim;
+// the frontend owns provider-specific parsing so this stays provider-agnostic.
+#[derive(Clone, Serialize)]
+struct AiStreamLine {
+    run_id: String,
+    line: String,
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn execute_ai_cli(
     cli_name: &str,
     command: String,
@@ -3021,6 +3271,7 @@ async fn execute_ai_cli(
     not_found_msg: String,
     current_dir: Option<String>,
     extra_env: Option<Vec<(String, String)>>,
+    stream: Option<(AppHandle, String)>,
 ) -> Result<AiExecutionResult, String> {
     use std::io::Write;
     use std::process::{Child, Stdio};
@@ -3140,17 +3391,42 @@ async fn execute_ai_cli(
             .ok()
             .and_then(|mut g| g.as_mut().and_then(|p| p.stderr.take()));
 
-        use std::io::Read;
+        use std::io::{BufRead, BufReader, Read};
 
+        // Drain stderr on its own thread. Streaming makes long runs normal, and a
+        // CLI that fills the stderr pipe while we are still reading stdout would
+        // block mid-write and deadlock until the timeout fires.
+        let stderr_reader = std::thread::spawn(move || {
+            let mut buf = String::new();
+            if let Some(mut err) = stderr_handle {
+                let _ = err.read_to_string(&mut buf);
+            }
+            buf
+        });
+
+        // Read stdout a line at a time so the frontend can render progress while
+        // the CLI is still running. The full text is still accumulated, so the
+        // returned AiExecutionResult is unchanged for non-streaming callers.
         let mut stdout_str = String::new();
-        if let Some(mut out) = stdout_handle {
-            let _ = out.read_to_string(&mut stdout_str);
+        if let Some(out) = stdout_handle {
+            let reader = BufReader::new(out);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                if let Some((app, run_id)) = &stream {
+                    let _ = app.emit(
+                        "ai-stream-line",
+                        AiStreamLine {
+                            run_id: run_id.clone(),
+                            line: line.clone(),
+                        },
+                    );
+                }
+                stdout_str.push_str(&line);
+                stdout_str.push('\n');
+            }
         }
 
-        let mut stderr_str = String::new();
-        if let Some(mut err) = stderr_handle {
-            let _ = err.read_to_string(&mut stderr_str);
-        }
+        let stderr_str = stderr_reader.join().unwrap_or_default();
 
         // Collect exit status — process has exited after stdout/stderr close
         let success = child_for_task
@@ -3222,10 +3498,110 @@ async fn execute_ai_cli(
     Ok(result)
 }
 
+/// Tools a note-editing agent is allowed to use without prompting. Bash and
+/// anything else destructive is deliberately absent: these runs are
+/// non-interactive, so a prompt would be auto-denied rather than shown.
+const AI_ALLOWED_TOOLS: &str =
+    "Read Edit Write Glob Grep WebFetch WebSearch TodoWrite";
+
+/// MCP server names configured for the Claude CLI: user scope, this folder's
+/// project scope, and a `.mcp.json` in the notes folder. Claude rejects
+/// wildcard allow rules, so each server has to be named to be usable in a
+/// headless run.
+fn claude_mcp_servers(notes_folder: &str) -> Vec<String> {
+    fn server_names(value: &serde_json::Value) -> Vec<String> {
+        value
+            .get("mcpServers")
+            .and_then(|servers| servers.as_object())
+            .map(|servers| servers.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    fn read_json(path: PathBuf) -> Option<serde_json::Value> {
+        let contents = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&contents).ok()
+    }
+
+    let mut names: Vec<String> = Vec::new();
+
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        if let Some(config) = read_json(home.join(".claude.json")) {
+            names.extend(server_names(&config));
+            if let Some(project) = config.get("projects").and_then(|p| p.get(notes_folder)) {
+                names.extend(server_names(project));
+            }
+        }
+    }
+
+    if let Some(project_config) = read_json(PathBuf::from(notes_folder).join(".mcp.json")) {
+        names.extend(server_names(&project_config));
+    }
+
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The contract every harness gets alongside the user's instruction. Runs are
+/// headless, so the agent has to decide rather than ask.
+fn note_agent_instructions(file_path: &str) -> String {
+    format!(
+        "You are a thinking partner for one Markdown note: {file_path}\n\
+         \n\
+         Decide first whether the message is a question or an instruction to \
+         change the note. A question — \"what are\", \"how much\", \"should \
+         we\", asking for options, opinions or a comparison — is answered in \
+         your reply and nothing is written to the file. Only edit when asked \
+         to: add, write, put, update, rewrite, clean up, extract, summarise \
+         into the note, and so on. When in doubt, answer and offer to write \
+         it down.\n\
+         \n\
+         Answer from real sources, not memory. For anything about the world — \
+         places, neighbourhoods, prices, products, rules, availability — use \
+         WebSearch and WebFetch first, and say what you found. Read the note \
+         for context before answering; it holds the thread between turns, \
+         since each run starts fresh with no memory of earlier ones.\n\
+         \n\
+         When you do edit, change only this file. Never create, delete, \
+         rename, or modify any other file.\n\
+         \n\
+         You are running non-interactively: never ask follow-up questions and \
+         never ask the user to grant permissions or paste content. If an \
+         instruction is ambiguous, take the most reasonable reading, act on \
+         it, and say which reading you took. Close with one or two sentences \
+         saying what you changed, or, if you only answered, nothing further."
+    )
+}
+
+/// Reasoning depths the CLIs accept. Values from the frontend are matched
+/// against this list so nothing unexpected reaches a command line.
+const AI_EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+fn effort_level(effort: &Option<String>) -> Option<&'static str> {
+    let requested = effort.as_deref()?.trim();
+    AI_EFFORT_LEVELS
+        .iter()
+        .find(|level| level.eq_ignore_ascii_case(requested))
+        .copied()
+}
+
+/// Appends `--model <name>` when the caller picked one; an empty or missing
+/// value leaves the CLI on its own default.
+fn push_model_flag(args: &mut Vec<String>, model: &Option<String>) {
+    if let Some(name) = model.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        args.push("--model".to_string());
+        args.push(name.to_string());
+    }
+}
+
 #[tauri::command]
 async fn ai_execute_claude(
+    app: AppHandle,
     file_path: String,
     prompt: String,
+    run_id: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<AiExecutionResult, String> {
     let folder = {
@@ -3247,45 +3623,89 @@ async fn ai_execute_claude(
         return Err("File must be within notes folder".to_string());
     }
 
+    let mut args = vec![
+        "--print".to_string(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+        "--permission-mode".to_string(),
+        "acceptEdits".to_string(),
+        "--permission-prompts".to_string(),
+        "none".to_string(),
+        "--allowedTools".to_string(),
+        std::iter::once(AI_ALLOWED_TOOLS.to_string())
+            .chain(
+                claude_mcp_servers(&folder)
+                    .into_iter()
+                    .map(|server| format!("mcp__{server}")),
+            )
+            .collect::<Vec<_>>()
+            .join(" "),
+        "--append-system-prompt".to_string(),
+        note_agent_instructions(&canonical.to_string_lossy()),
+    ];
+    push_model_flag(&mut args, &model);
+    if let Some(level) = effort_level(&effort) {
+        args.push("--effort".to_string());
+        args.push(level.to_string());
+    }
+
     execute_ai_cli(
         "Claude",
         "claude".to_string(),
-        vec![
-            canonical.to_string_lossy().to_string(),
-            "--dangerously-skip-permissions".to_string(),
-            "--print".to_string(),
-        ],
+        args,
         prompt,
         "Claude CLI not found. Please install it from https://claude.ai/code".to_string(),
+        Some(folder),
         None,
-        None,
+        run_id.map(|id| (app, id)),
     )
     .await
 }
 
 #[tauri::command]
-async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecutionResult, String> {
+async fn ai_execute_codex(
+    app: AppHandle,
+    file_path: String,
+    prompt: String,
+    run_id: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<AiExecutionResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+    };
     let stdin_input = format!(
-        "Edit only this markdown file: {file_path}\n\
-         Apply the user's instructions below directly to that file.\n\
-         Do not create, delete, rename, or modify any other files.\n\
-         User instructions:\n\
-         {prompt}"
+        "{}\n\nUser instructions:\n{prompt}",
+        note_agent_instructions(&file_path)
     );
+
+    let mut args = vec![
+        "exec".to_string(),
+        "--json".to_string(),
+        "--skip-git-repo-check".to_string(),
+        "--sandbox".to_string(),
+        "workspace-write".to_string(),
+    ];
+    push_model_flag(&mut args, &model);
+    // Codex has no effort flag; it reads the same value from its config.
+    if let Some(level) = effort_level(&effort) {
+        args.push("-c".to_string());
+        args.push(format!("model_reasoning_effort=\"{level}\""));
+    }
+    args.push("-".to_string());
 
     execute_ai_cli(
         "Codex",
         "codex".to_string(),
-        vec![
-            "exec".to_string(),
-            "--skip-git-repo-check".to_string(),
-            "--dangerously-bypass-approvals-and-sandbox".to_string(),
-            "-".to_string(),
-        ],
+        args,
         stdin_input,
         "Codex CLI not found. Please install it from https://github.com/openai/codex".to_string(),
+        Some(folder),
         None,
-        None,
+        run_id.map(|id| (app, id)),
     )
     .await
 }
@@ -3294,6 +3714,7 @@ async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecuti
 async fn ai_execute_opencode(
     file_path: String,
     prompt: String,
+    model: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<AiExecutionResult, String> {
     let folder = {
@@ -3316,23 +3737,24 @@ async fn ai_execute_opencode(
     }
 
     let run_prompt = format!(
-        "Edit the attached markdown file in place.\n\
-         Do not create, delete, rename, or modify any other files.\n\
-         User instructions:\n\
-         {}",
+        "{}\n\nUser instructions:\n{}",
+        note_agent_instructions(&canonical.to_string_lossy()),
         prompt
     );
+
+    let mut args = vec![
+        "run".to_string(),
+        "--file".to_string(),
+        canonical.to_string_lossy().to_string(),
+    ];
+    push_model_flag(&mut args, &model);
+    args.push("--".to_string());
+    args.push(run_prompt);
 
     execute_ai_cli(
         "OpenCode",
         "opencode".to_string(),
-        vec![
-            "run".to_string(),
-            "--file".to_string(),
-            canonical.to_string_lossy().to_string(),
-            "--".to_string(),
-            run_prompt,
-        ],
+        args,
         String::new(),
         "OpenCode CLI not found. Please install it from https://opencode.ai".to_string(),
         Some(notes_root.to_string_lossy().to_string()),
@@ -3342,6 +3764,7 @@ async fn ai_execute_opencode(
                 r#"{"*":"allow","bash":"deny","task":"deny","webfetch":"deny","websearch":"deny","codesearch":"deny","skill":"deny","external_directory":"deny","doom_loop":"deny"}"#.to_string(),
             ),
         ]),
+        None,
     )
     .await
 }
@@ -3440,6 +3863,7 @@ async fn ai_execute_ollama(
         vec!["run".to_string(), model_name.clone()],
         stdin_input,
         "Ollama CLI not found. Please install it from https://ollama.com".to_string(),
+        None,
         None,
         None,
     )
@@ -3857,6 +4281,7 @@ pub fn run() {
             preview_note_name,
             write_file,
             search_notes,
+            list_tags,
             start_file_watcher,
             rebuild_search_index,
             get_default_ignored_patterns,
@@ -3993,4 +4418,85 @@ fn set_title_bar_theme(
         let _ = (app, is_dark, r, g, b);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_tags, is_agent_doc_id, is_config_dir};
+
+    #[test]
+    fn finds_mcp_servers_configured_for_claude() {
+        // The user's own config is the source; an unconfigured folder adds none.
+        let servers = super::claude_mcp_servers("/nonexistent-notes-folder");
+        assert!(servers.iter().all(|name| !name.is_empty()));
+        assert_eq!(
+            servers.len(),
+            servers
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            "server names must be deduplicated"
+        );
+    }
+
+    #[test]
+    fn hides_agent_docs_at_any_depth() {
+        assert!(is_agent_doc_id("AGENTS"));
+        assert!(is_agent_doc_id("projects/scratch/CLAUDE"));
+        assert!(is_agent_doc_id("claude")); // filenames vary in case
+        assert!(!is_agent_doc_id("agents-meeting"));
+        assert!(!is_agent_doc_id("notes/claude-api-ideas"));
+    }
+
+    #[test]
+    fn treats_dot_directories_as_tool_config() {
+        assert!(is_config_dir(".claude"));
+        assert!(is_config_dir(".agents"));
+        assert!(!is_config_dir("agents"));
+        assert!(!is_config_dir("."));
+    }
+
+    #[test]
+    fn parses_flow_style_tags() {
+        let note = "---\ntags: [reference, finance]\n---\n\n# Title\n";
+        assert_eq!(extract_tags(note), vec!["reference", "finance"]);
+    }
+
+    #[test]
+    fn parses_block_style_tags() {
+        let note = "---\ntags:\n  - work\n  - \"hub\"\n---\n\n# Title\n";
+        assert_eq!(extract_tags(note), vec!["work", "hub"]);
+    }
+
+    #[test]
+    fn parses_scalar_and_strips_leading_hash() {
+        assert_eq!(extract_tags("---\ntags: #work\n---\n"), vec!["work"]);
+    }
+
+    #[test]
+    fn ignores_notes_without_any_tags() {
+        assert!(extract_tags("# Title\n\nJust prose.\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_body_hashtags_and_legacy_header_tags() {
+        // Frontmatter is the only source of truth. A note still carrying
+        // `Type: #type/meeting` header lines is unmigrated, not tagged.
+        let legacy = "Type: #type/meeting\nArea: #area/business\n\nSee #finance too.\n";
+        assert!(extract_tags(legacy).is_empty());
+
+        let tagged = "---\ntags: [meeting]\n---\n\nSee #finance too.\n";
+        assert_eq!(extract_tags(tagged), vec!["meeting"]);
+    }
+
+    #[test]
+    fn handles_empty_tag_list() {
+        assert!(extract_tags("---\ntags: []\n---\n").is_empty());
+    }
+
+    #[test]
+    fn stops_block_list_at_next_key() {
+        let note = "---\ntags:\n  - work\nstatus: active\n---\n";
+        assert_eq!(extract_tags(note), vec!["work"]);
+    }
 }

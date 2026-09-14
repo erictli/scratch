@@ -100,7 +100,7 @@ export function KeyboardShortcutsModal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-text/50 backdrop-blur-sm animate-fade-in"
+        className="absolute inset-0 bg-overlay backdrop-blur-sm animate-fade-in"
         onClick={onClose}
       />
 
@@ -124,7 +124,7 @@ export function KeyboardShortcutsModal({
         </div>
 
         {/* Content — 3-column grid */}
-        <div className="overflow-y-auto p-5">
+        <div className="overflow-y-auto scrollbar-minimal p-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
             {modalCategories.map((category) => (
               <div key={category.title}>

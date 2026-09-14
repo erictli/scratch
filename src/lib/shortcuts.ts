@@ -48,6 +48,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { keys: [mod, shift, "C"], description: "Copy & Export" },
       { keys: [mod, shift, "P"], description: "Print / Export as PDF" },
       { keys: [mod, shift, "M"], description: "Markdown source" },
+      { keys: [mod, shift, "A"], description: "AI assistant" },
       { keys: [mod, shift, "Enter"], description: "Focus mode" },
       { keys: ["/"], description: "Slash commands" },
     ],

@@ -94,6 +94,21 @@ export async function searchNotes(query: string): Promise<SearchResult[]> {
   return invoke("search_notes", { query });
 }
 
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
+/** Every tag in the vault with its note count, ordered by count descending. */
+export async function listTags(): Promise<TagCount[]> {
+  return invoke("list_tags");
+}
+
+/** Query string that makes `searchNotes` do an exact tag lookup. */
+export function tagQuery(tag: string): string {
+  return `tag:${tag}`;
+}
+
 export async function startFileWatcher(): Promise<void> {
   return invoke("start_file_watcher");
 }

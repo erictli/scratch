@@ -355,6 +355,9 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     const root = document.documentElement;
     root.classList.add("zoom-no-transition");
     root.style.zoom = String(interfaceZoom);
+    // Exposed so floating elements can undo the zoom for positioning; see
+    // the [data-radix-popper-content-wrapper] rule in App.css.
+    root.style.setProperty("--interface-zoom", String(interfaceZoom));
     const raf = requestAnimationFrame(() => {
       root.classList.remove("zoom-no-transition");
     });

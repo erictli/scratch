@@ -42,6 +42,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     selectedNoteId,
     moveNote,
     moveFolder,
+    refreshNotes,
   } = useNotes();
   const [searchOpen, setSearchOpen] = useState(false);
   const [inputValue, setInputValue] = useState(searchQuery);
@@ -277,6 +278,38 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const handleFolderDialogConfirm = useCallback(
     async (name: string) => {
       try {
+        // A name starting with `#` makes a smart folder: its contents are a
+        // live tag query rather than files on disk. No directory is created.
+        if (name.startsWith("#")) {
+          const tag = name.slice(1).trim().replace(/^\/+|\/+$/g, "");
+          if (!tag) {
+            toast.error("Enter a tag after the #, for example #area/finance");
+            return;
+          }
+          const settings = await notesService.getSettings();
+          const existing = settings.smartFolders ?? [];
+          if (existing.some((folder) => folder.tag === tag)) {
+            toast.error(`A smart folder for #${tag} already exists`);
+            return;
+          }
+          // The sidebar shows the last tag segment; `/` is the path separator,
+          // so it can never appear in a folder name.
+          const label = tag.split("/").pop() ?? tag;
+          const taken = await notesService.listFolders();
+          if (taken.includes(label) || existing.some((f) => f.name === label)) {
+            toast.error(`A folder named "${label}" already exists`);
+            return;
+          }
+          await notesService.updateSettings({
+            ...settings,
+            smartFolders: [...existing, { name: label, tag }],
+          });
+          await refreshNotes();
+          setFolderDialogOpen(false);
+          toast.success(`Smart folder "${label}" tracks #${tag}`);
+          return;
+        }
+
         await createFolder(folderDialogParent, name);
         setFolderDialogOpen(false);
       } catch (error) {
@@ -284,7 +317,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         toast.error("Failed to create folder");
       }
     },
-    [createFolder, folderDialogParent],
+    [createFolder, folderDialogParent, refreshNotes],
   );
 
   // Listen for create-new-folder event (from command palette / keyboard shortcut)
@@ -384,7 +417,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         </div>
       </div>
       {/* Scrollable area with search and notes */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-minimal">
         {/* Search - sticky at top */}
         {searchOpen && (
           <div className="sticky top-0 z-10 px-2 pt-2 bg-bg-secondary">
@@ -429,7 +462,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         onOpenChange={setFolderDialogOpen}
         onConfirm={handleFolderDialogConfirm}
         title="Create new folder"
-        description="Enter a name for your new folder"
+        description={'Enter a name, or "#tag" for a folder that tracks a tag'}
         confirmLabel="Create"
       />
     </div>

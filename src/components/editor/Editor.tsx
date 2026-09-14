@@ -107,6 +107,7 @@ import {
   MarkdownIcon,
   MarkdownOffIcon,
   FolderPlusIcon,
+  ClaudeIcon,
 } from "../icons";
 
 function formatDateTime(timestamp: number): string {
@@ -441,6 +442,8 @@ export interface PreviewModeData {
 
 interface EditorProps {
   onToggleSidebar?: () => void;
+  onToggleAiSidebar?: () => void;
+  aiSidebarOpen?: boolean;
   sidebarVisible?: boolean;
   focusMode?: boolean;
   previewMode?: PreviewModeData;
@@ -504,6 +507,8 @@ function blockIndexToPos(
 
 export function Editor({
   onToggleSidebar,
+  onToggleAiSidebar,
+  aiSidebarOpen,
   sidebarVisible,
   focusMode,
   onEditorReady,
@@ -2324,6 +2329,20 @@ export function Editor({
               </IconButton>
             </Tooltip>
           )}
+          {currentNote && onToggleAiSidebar && (
+            <Tooltip
+              content={`AI assistant (${mod}${isMac ? "" : "+"}${shift}${isMac ? "" : "+"}A)`}
+            >
+              <IconButton
+                onClick={onToggleAiSidebar}
+                aria-label="AI assistant"
+                aria-pressed={aiSidebarOpen}
+                className={cn(aiSidebarOpen && "bg-bg-muted text-text")}
+              >
+                <ClaudeIcon className="w-4.5 h-4.5 stroke-[1.5]" />
+              </IconButton>
+            </Tooltip>
+          )}
           {currentNote && (
             <Tooltip content={`Find in note (${mod}${isMac ? "" : "+"}F)`}>
               <IconButton onClick={openEditorSearch}>
@@ -2452,7 +2471,7 @@ export function Editor({
         <div
           data-editor-scroll
           ref={scrollContainerRef}
-          className="absolute inset-0 overflow-y-auto overflow-x-hidden"
+          className="absolute inset-0 overflow-y-auto overflow-x-hidden scrollbar-minimal"
           dir={textDirection}
         >
           {sourceMode ? (

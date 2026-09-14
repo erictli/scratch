@@ -67,7 +67,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE3RTQ2NTA4QzJGODdFRTYKUldUbWZ2akNDR1hrcDlud3VQSVhuYVU0cDk5V0RkaVFuVElRSGRVMjlFam9IdFVCNnU1ZlVJOXEK",
       "endpoints": [
-        "https://github.com/erictli/scratch/releases/latest/download/latest.json"
+        "https://github.com/multiplehats/scratch/releases/latest/download/latest.json"
       ]
     }
   }

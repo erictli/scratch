@@ -1,14 +1,25 @@
-import type { NoteMetadata, FolderNode } from "../types/note";
+import type { NoteMetadata, FolderNode, SmartFolder } from "../types/note";
 
 export interface FolderTreeData {
   rootNotes: NoteMetadata[];
   folders: FolderNode[];
 }
 
+/** Does a note carry `tag`, or a tag nested beneath it? */
+export function noteMatchesTag(note: NoteMetadata, tag: string): boolean {
+  const needle = tag.toLowerCase();
+  return note.tags.some((raw) => {
+    const candidate = raw.toLowerCase();
+    // `area` also matches `area/finance`, the way nested tags behave elsewhere.
+    return candidate === needle || candidate.startsWith(`${needle}/`);
+  });
+}
+
 export function buildFolderTree(
   notes: NoteMetadata[],
   pinnedIds: Set<string>,
   knownFolders?: string[],
+  smartFolders?: SmartFolder[],
 ): FolderTreeData {
   const rootNotes: NoteMetadata[] = [];
   const folderMap = new Map<string, FolderNode>();
@@ -68,6 +79,28 @@ export function buildFolderTree(
   topLevelFolders.sort((a, b) => a.name.localeCompare(b.name));
   topLevelFolders.forEach(sortNode);
 
+  // Smart folders resolve against the same `notes` array the tree was built
+  // from, so they stay current without any extra refresh: whenever notes
+  // change, this runs again. A note can appear in several of them, and in a
+  // real folder too — they are views, not locations.
+  const smartNodes: FolderNode[] = (smartFolders ?? []).map((smart) => {
+    const matched = notes.filter((note) => noteMatchesTag(note, smart.tag));
+    matched.sort((a, b) => {
+      const ap = pinnedIds.has(a.id);
+      const bp = pinnedIds.has(b.id);
+      if (ap !== bp) return ap ? -1 : 1;
+      return b.modified - a.modified;
+    });
+    return {
+      name: smart.name,
+      path: smart.name,
+      children: [],
+      notes: matched,
+      smartTag: smart.tag,
+    };
+  });
+  smartNodes.sort((a, b) => a.name.localeCompare(b.name));
+
   // Sort root notes: pinned first, then by modified desc
   rootNotes.sort((a, b) => {
     const ap = pinnedIds.has(a.id);
@@ -76,7 +109,8 @@ export function buildFolderTree(
     return b.modified - a.modified;
   });
 
-  return { rootNotes, folders: topLevelFolders };
+  // Smart folders sit above real ones so the views you defined lead.
+  return { rootNotes, folders: [...smartNodes, ...topLevelFolders] };
 }
 
 export type TreeItem =

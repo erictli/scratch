@@ -1,0 +1,212 @@
+import type React from "react";
+import { CodeCopyButton } from "../ui";
+
+// Lightweight markdown renderer shared by the AI response toast and the AI sidebar.
+// Intentionally small: agent output is short prose, code blocks and lists.
+export function parseMarkdown(text: string): React.ReactNode {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeBlockContent: string[] = [];
+  let listItems: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+
+  const flushList = (index: number) => {
+    if (listItems.length > 0) {
+      const ListTag = listType === "ol" ? "ol" : "ul";
+      elements.push(
+        <ListTag
+          key={`list-${index}`}
+          className={
+            listType === "ol"
+              ? "list-decimal list-inside space-y-0.5 my-1"
+              : "list-disc list-inside space-y-0.5 my-1"
+          }
+        >
+          {listItems.map((item, i) => (
+            <li key={i} className="text-xs">
+              {parseInlineMarkdown(item)}
+            </li>
+          ))}
+        </ListTag>,
+      );
+      listItems = [];
+      listType = null;
+    }
+  };
+
+  lines.forEach((line, index) => {
+    // Code blocks
+    if (line.trim().startsWith("```")) {
+      if (inCodeBlock) {
+        const codeText = codeBlockContent.join("\n");
+        elements.push(
+          <div key={`code-${index}`} className="relative my-1">
+            <div className="absolute top-1.5 right-1.5 z-10">
+              <CodeCopyButton
+                text={codeText}
+                className="bg-bg/80 backdrop-blur-sm"
+              />
+            </div>
+            <pre className="bg-bg-secondary rounded px-2 pt-8 pb-1 my-1 overflow-x-auto">
+              <code className="text-xs font-mono">{codeText}</code>
+            </pre>
+          </div>,
+        );
+        codeBlockContent = [];
+        inCodeBlock = false;
+      } else {
+        flushList(index);
+        inCodeBlock = true;
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      return;
+    }
+
+    // Unordered list items
+    if (line.match(/^\s*[-*]\s+/)) {
+      if (listType !== "ul") {
+        flushList(index);
+        listType = "ul";
+      }
+      listItems.push(line.replace(/^\s*[-*]\s+/, ""));
+      return;
+    }
+
+    // Ordered list items
+    if (line.match(/^\s*\d+\.\s+/)) {
+      if (listType !== "ol") {
+        flushList(index);
+        listType = "ol";
+      }
+      listItems.push(line.replace(/^\s*\d+\.\s+/, ""));
+      return;
+    }
+
+    // Headers - render as bold text
+    const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (headerMatch) {
+      flushList(index);
+      const headerText = headerMatch[2];
+      elements.push(
+        <p key={`header-${index}`} className="text-xs my-1 font-semibold">
+          {parseInlineMarkdown(headerText)}
+        </p>,
+      );
+      return;
+    }
+
+    // Regular line
+    flushList(index);
+    if (line.trim()) {
+      elements.push(
+        <p key={`line-${index}`} className="text-xs my-1">
+          {parseInlineMarkdown(line)}
+        </p>,
+      );
+    } else if (elements.length > 0) {
+      // Empty line adds spacing
+      elements.push(<div key={`space-${index}`} className="h-1" />);
+    }
+  });
+
+  // Flush any unclosed code block
+  if (inCodeBlock && codeBlockContent.length > 0) {
+    const codeText = codeBlockContent.join("\n");
+    elements.push(
+      <div key={`code-unclosed`} className="relative my-1">
+        <div className="absolute top-1.5 right-1.5 z-10">
+          <CodeCopyButton
+            text={codeText}
+            className="bg-bg/80 backdrop-blur-sm"
+          />
+        </div>
+        <pre className="bg-bg-secondary rounded px-2 pt-8 pb-1 my-1 overflow-x-auto">
+          <code className="text-xs font-mono">{codeText}</code>
+        </pre>
+      </div>,
+    );
+  }
+
+  flushList(lines.length);
+
+  return elements;
+}
+
+function parseInlineMarkdown(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+
+  // Order matters: code first (to avoid processing markdown inside code)
+  const patterns = [
+    {
+      // Inline code: `code`
+      regex: /`([^`]+)`/g,
+      render: (match: string) => (
+        <code
+          key={key++}
+          className="bg-bg-secondary rounded px-1 py-0.5 font-mono text-xs"
+        >
+          {match}
+        </code>
+      ),
+    },
+    {
+      // Bold: **text** or __text__
+      regex: /(\*\*|__)(.+?)\1/g,
+      render: (match: string) => (
+        <strong key={key++} className="font-semibold">
+          {match}
+        </strong>
+      ),
+    },
+    {
+      // Italic: *text* or _text_ (but not ** or __)
+      regex: /(?<!\*)\*(?!\*)(.+?)\*(?!\*)|(?<!_)_(?!_)(.+?)_(?!_)/g,
+      render: (match: string) => (
+        <em key={key++} className="italic">
+          {match}
+        </em>
+      ),
+    },
+  ];
+
+  patterns.forEach(({ regex, render }) => {
+    const newParts: React.ReactNode[] = [];
+    const currentParts = parts.length > 0 ? parts : [remaining];
+
+    currentParts.forEach((part) => {
+      if (typeof part !== "string") {
+        newParts.push(part);
+        return;
+      }
+
+      let lastIndex = 0;
+      const matches = Array.from(part.matchAll(regex));
+
+      matches.forEach((match) => {
+        if (match.index! > lastIndex) {
+          newParts.push(part.slice(lastIndex, match.index));
+        }
+        // Extract the captured group (content without markers)
+        const content = match[2] || match[1];
+        newParts.push(render(content));
+        lastIndex = match.index! + match[0].length;
+      });
+
+      if (lastIndex < part.length) {
+        newParts.push(part.slice(lastIndex));
+      }
+    });
+
+    parts.splice(0, parts.length, ...newParts);
+  });
+
+  return parts.length > 0 ? parts : remaining;
+}
+
