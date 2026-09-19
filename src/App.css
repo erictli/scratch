@@ -16,6 +16,7 @@
   --color-border: rgba(28, 25, 23, 0.08);
   --color-accent: #1c1917;
   --color-selection: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 */
+  --color-text-selection: rgba(96, 165, 250, 0.35); /* Tailwind blue-400 */
 
   /* Editor font settings - simplified (overridden by ThemeContext) */
   --editor-font-family:
@@ -61,6 +62,7 @@
   --color-border: rgba(250, 249, 249, 0.07);
   --color-accent: #fafaf9;
   --color-selection: rgba(253, 224, 71, 0.35); /* Tailwind yellow-300 */
+  --color-text-selection: rgba(147, 197, 253, 0.3); /* Tailwind blue-300 */
 
   /* Syntax highlighting colors - Dark (GitHub) */
   --color-syntax-keyword: #ea4a5a;
@@ -145,13 +147,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Text and image selection highlight */
+/* Text and image selection highlight - always blue, distinct from yellow highlight marks */
 ::selection {
-  background-color: var(--color-selection);
+  background-color: var(--color-text-selection);
 }
 
 ::-moz-selection {
-  background-color: var(--color-selection);
+  background-color: var(--color-text-selection);
 }
 
 /* Hide scrollbar while allowing scroll */
@@ -392,6 +394,13 @@ html.dark {
 .prose b {
   font-weight: var(--editor-bold-weight);
   color: var(--color-text);
+}
+
+/* Highlighted text - yellow background, theme-aware text color */
+.prose mark {
+  background-color: rgba(250, 204, 21, 0.4);
+  color: inherit;
+  border-radius: 0.15em;
 }
 
 /* Code blocks and inline code */

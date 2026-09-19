@@ -70,6 +70,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { keys: ["**bold**"], description: "Bold text" },
       { keys: ["*italic*"], description: "Italic text" },
       { keys: ["~~text~~"], description: "Strikethrough" },
+      { keys: ["==text=="], description: "Highlight" },
       { keys: ["-"], description: "Bullet list" },
       { keys: ["1."], description: "Numbered list" },
       { keys: ["- [ ]"], description: "Task list" },

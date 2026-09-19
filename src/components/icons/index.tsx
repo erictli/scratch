@@ -378,6 +378,26 @@ export function LinkOffIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   );
 }
 
+export function HighlighterIcon({ className = "w-4.5 h-4.5" }: IconProps) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M9 11l6 6l-3.5 3.5a2.121 2.121 0 0 1 -3 -3l.5 -.5" />
+      <path d="M11 6l6.5 6.5" />
+      <path d="M4 20h4.5" />
+      <path d="M13.5 6.5l3.5 -3.5l4 4l-3.5 3.5" />
+    </svg>
+  );
+}
+
 export function ImageIcon({ className = "w-4.5 h-4.5" }: IconProps) {
   return (
     <svg
