@@ -879,10 +879,12 @@ html.dark {
 .prose .callout {
   position: relative;
   margin: 1.25em 0;
-  padding: 0.75em 1em;
-  border-left: 3px solid var(--callout-color);
+  padding: 0.75em 1em 0.75em calc(1em + 3px);
+  /* The bar is a background stripe rather than border-left: WebKit bleeds a one-sided border's
+     color into the rounded corners on the other side */
   border-radius: 0.375rem;
   background-color: color-mix(in srgb, var(--callout-color) 10%, transparent);
+  background-image: linear-gradient(to right, var(--callout-color) 3px, transparent 3px);
 }
 .prose .callout::before {
   content: attr(data-label);
@@ -1462,6 +1464,12 @@ img.ProseMirror-separator {
     background: white !important;
     color: black !important;
     box-shadow: none !important;
+  }
+
+  /* Callout bars are a background on screen, which the rule above removes */
+  .prose .callout {
+    border-left: 3px solid var(--callout-color);
+    padding-left: 1em;
   }
 
   /* Remove all height/overflow constraints to allow multi-page printing */

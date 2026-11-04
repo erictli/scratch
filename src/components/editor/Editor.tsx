@@ -25,7 +25,7 @@ import { Markdown } from "@tiptap/markdown";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { lowlight } from "./lowlight";
 import { CodeBlockView } from "./CodeBlockView";
-import { Extension, InputRule } from "@tiptap/core";
+import { Extension, InputRule, textInputRule } from "@tiptap/core";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
@@ -1350,6 +1350,18 @@ export function Editor({
                 });
               },
             }),
+          ];
+        },
+      }),
+      // Typographic replacements: "->" becomes an arrow, "--" an en dash and a third "-" an em
+      // dash. "--" only converts after other text, so "---" on an empty line stays a horizontal rule
+      Extension.create({
+        name: "typographyInputRules",
+        addInputRules() {
+          return [
+            textInputRule({ find: /->$/, replace: "→" }),
+            textInputRule({ find: /–-$/, replace: "—" }),
+            textInputRule({ find: /(?<=[^-])--$/, replace: "–" }),
           ];
         },
       }),
