@@ -391,7 +391,7 @@ export const Sidebar = memo(function Sidebar({ onOpenSettings }: SidebarProps) {
         </div>
       </div>
       {/* Scrollable area with search and notes */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-none">
         {/* Search - sticky at top */}
         {searchOpen && (
           <div className="sticky top-0 z-10 px-2 pt-2 bg-bg-secondary">

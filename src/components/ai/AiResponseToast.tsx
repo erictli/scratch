@@ -231,7 +231,7 @@ export function AiResponseToast({ output, provider }: AiResponseToastProps) {
       <Icon className="w-4.5 h-4.5 shrink-0 mt-px" />
       <div className="flex-1 stack-y-2 min-w-0">
         <div className="font-medium text-sm">AI Edit Complete</div>
-        <div className="text-text-muted max-h-60 overflow-y-auto pr-2">
+        <div className="text-text-muted max-h-60 overflow-y-auto scrollbar-none pr-2">
           {parseMarkdown(output)}
         </div>
         <div className="text-xs text-text-muted mt-2 pt-2.5 border-t border-border border-dashed">

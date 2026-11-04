@@ -735,7 +735,7 @@ export function CommandPalette({
         </div>
 
         {/* Results */}
-        <div ref={listRef} className="overflow-y-auto h-full p-2.5 flex-1">
+        <div ref={listRef} className="overflow-y-auto scrollbar-none h-full p-2.5 flex-1">
           {allItems.length === 0 ? (
             <div className="text-sm font-medium opacity-50 text-text-muted p-2">
               No results found

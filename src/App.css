@@ -221,11 +221,6 @@ body {
   display: none; /* Chrome, Safari, Opera */
 }
 
-/* Keep layout width stable when vertical scrollbar appears */
-.scrollbar-gutter-stable {
-  scrollbar-gutter: stable;
-}
-
 /* Link tooltip in editor */
 .prose a {
   position: relative;

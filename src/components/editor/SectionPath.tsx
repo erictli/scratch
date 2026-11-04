@@ -179,7 +179,7 @@ export const SectionPath = memo(function SectionPath({
           )}
           style={panelTransition}
         >
-          <div className="max-h-[60vh] min-h-0 overflow-y-auto overscroll-contain">
+          <div className="max-h-[60vh] min-h-0 overflow-y-auto overscroll-contain scrollbar-none">
             <div className="py-1">
               {headings.map((heading, index) => (
                 <button

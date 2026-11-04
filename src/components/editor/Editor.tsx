@@ -74,6 +74,7 @@ import { SourceLineNumbers } from "./SourceLineNumbers";
 import { LineCounter } from "./LineCounter";
 import { ResizableTable, TableWidths } from "./TableWidths";
 import { TabBar } from "./TabBar";
+import { useIsFullscreen } from "./useIsFullscreen";
 import { getNotePosition, setNotePosition } from "../../lib/notePositions";
 import {
   Callout,
@@ -366,7 +367,7 @@ function CalloutMenu({ editor, isActive }: CalloutMenuProps) {
       </Tooltip>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className="py-1 min-w-40 max-h-80 overflow-y-auto bg-bg border border-border rounded-md shadow-lg z-50"
+          className="py-1 min-w-40 max-h-80 overflow-y-auto scrollbar-none bg-bg border border-border rounded-md shadow-lg z-50"
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           {CALLOUT_TYPES.map((type: CalloutType) => (
@@ -714,6 +715,7 @@ export function Editor({
   // Delay format bar / header transitions only when the sidebar needs to animate closed
   const needsSidebarDelay = focusMode && sidebarVisible;
   const isSidebarActive = sidebarVisible && !focusMode;
+  const isFullscreen = useIsFullscreen();
   const lineNumbersVisible = lineNumbers !== "off" && !focusMode;
   // Filename bar: revealed by scrolling up, hidden again by scrolling down
   const [nameBarVisible, setNameBarVisible] = useState(false);
@@ -2590,7 +2592,7 @@ export function Editor({
       <div
         className={cn(
           "h-11 shrink-0 flex items-center justify-between px-3",
-          !isSidebarActive && !isWindows && "pl-22",
+          !isSidebarActive && !isWindows && !isFullscreen && "pl-22",
         )}
         data-tauri-drag-region
       >
@@ -2845,7 +2847,7 @@ export function Editor({
         <div
           data-editor-scroll
           ref={scrollContainerRef}
-          className={`absolute inset-0 overflow-y-auto overflow-x-hidden ${lineNumbersVisible ? `line-numbers line-numbers-${lineNumbers}` : ""}`}
+          className={`absolute inset-0 overflow-y-auto overflow-x-hidden scrollbar-none ${lineNumbersVisible ? `line-numbers line-numbers-${lineNumbers}` : ""}`}
           dir={textDirection}
           onWheel={handleEditorWheel}
         >
@@ -2868,7 +2870,7 @@ export function Editor({
                 onChange={(e) => handleSourceChange(e.target.value)}
                 wrap="off"
                 dir={textDirection}
-                className="source-textarea w-full h-full bg-transparent text-text focus:outline-none resize-none px-6 pt-8 pb-24 block"
+                className="source-textarea scrollbar-none w-full h-full bg-transparent text-text focus:outline-none resize-none px-6 pt-8 pb-24 block"
                 style={{ ...SOURCE_TEXT_STYLE, tabSize: 2 }}
                 spellCheck={false}
               />
