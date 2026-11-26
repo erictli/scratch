@@ -340,6 +340,7 @@ pub struct AppState {
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
     pub debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    pub git_op_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Default for AppState {
@@ -351,6 +352,7 @@ impl Default for AppState {
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
+            git_op_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 }
@@ -2549,6 +2551,7 @@ async fn git_get_status(state: State<'_, AppState>) -> Result<git::GitStatus, St
 
 #[tauri::command]
 async fn git_init_repo(state: State<'_, AppState>) -> Result<(), String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone().ok_or("Notes folder not set")?
@@ -2563,6 +2566,7 @@ async fn git_init_repo(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 async fn git_commit(message: String, state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -2586,6 +2590,7 @@ async fn git_commit(message: String, state: State<'_, AppState>) -> Result<git::
 
 #[tauri::command]
 async fn git_push(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -2609,6 +2614,7 @@ async fn git_push(state: State<'_, AppState>) -> Result<git::GitResult, String> 
 
 #[tauri::command]
 async fn git_fetch(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -2632,6 +2638,7 @@ async fn git_fetch(state: State<'_, AppState>) -> Result<git::GitResult, String>
 
 #[tauri::command]
 async fn git_pull(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -2655,6 +2662,7 @@ async fn git_pull(state: State<'_, AppState>) -> Result<git::GitResult, String> 
 
 #[tauri::command]
 async fn git_add_remote(url: String, state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -2678,6 +2686,7 @@ async fn git_add_remote(url: String, state: State<'_, AppState>) -> Result<git::
 
 #[tauri::command]
 async fn git_set_remote_url(url: String, state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -2701,6 +2710,7 @@ async fn git_set_remote_url(url: String, state: State<'_, AppState>) -> Result<g
 
 #[tauri::command]
 async fn git_remove_remote(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -2724,6 +2734,7 @@ async fn git_remove_remote(state: State<'_, AppState>) -> Result<git::GitResult,
 
 #[tauri::command]
 async fn git_push_with_upstream(state: State<'_, AppState>) -> Result<git::GitResult, String> {
+    let _git_guard = state.git_op_lock.clone().lock_owned().await;
     let folder = {
         let app_config = state.app_config.read().expect("app_config read lock");
         app_config.notes_folder.clone()
@@ -3775,6 +3786,7 @@ pub fn run() {
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
+                git_op_lock: Arc::new(tokio::sync::Mutex::new(())),
             };
             app.manage(state);
 

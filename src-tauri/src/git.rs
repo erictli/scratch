@@ -18,6 +18,16 @@ fn git_cmd() -> Command {
     }
 }
 
+/// Create a read-only git `Command` that never acquires optional locks (such as `.git/index.lock`).
+/// Prevents background `git status` refreshes from colliding with commits or leaving stale locks
+/// on slow/cloud/WebDAV filesystems.
+fn git_readonly_cmd() -> Command {
+    let mut cmd = git_cmd();
+    cmd.env("GIT_OPTIONAL_LOCKS", "0")
+        .arg("--no-optional-locks");
+    cmd
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatus {
@@ -83,7 +93,7 @@ pub fn get_status(path: &Path) -> GitStatus {
     };
 
     // Get current branch
-    if let Ok(output) = git_cmd()
+    if let Ok(output) = git_readonly_cmd()
         .args(["branch", "--show-current"])
         .current_dir(path)
         .output()
@@ -97,7 +107,7 @@ pub fn get_status(path: &Path) -> GitStatus {
     }
 
     // Check for remote
-    if let Ok(output) = git_cmd()
+    if let Ok(output) = git_readonly_cmd()
         .args(["remote"])
         .current_dir(path)
         .output()
@@ -112,7 +122,7 @@ pub fn get_status(path: &Path) -> GitStatus {
     }
 
     // Get status with porcelain format for easy parsing
-    if let Ok(output) = git_cmd()
+    if let Ok(output) = git_readonly_cmd()
         .args(["status", "--porcelain"])
         .current_dir(path)
         .output()
@@ -125,7 +135,7 @@ pub fn get_status(path: &Path) -> GitStatus {
 
     // Get ahead/behind count if we have a remote
     if status.has_remote && status.current_branch.is_some() {
-        match git_cmd()
+        match git_readonly_cmd()
             .args(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])
             .current_dir(path)
             .output()
@@ -183,14 +193,19 @@ pub fn commit_all(path: &Path, message: &str) -> GitResult {
     if !stage_output.status.success() {
         let stderr = String::from_utf8_lossy(&stage_output.stderr).to_string();
         let stdout = String::from_utf8_lossy(&stage_output.stdout).to_string();
+        let detail = format!(
+            "Failed to stage changes: {}{}",
+            stderr.trim(),
+            if stdout.trim().is_empty() {
+                String::new()
+            } else {
+                format!("\n{}", stdout.trim())
+            }
+        );
         return GitResult {
             success: false,
             message: None,
-            error: Some(format!(
-                "Failed to stage changes: {}{}",
-                stderr,
-                if stdout.is_empty() { String::new() } else { format!("\n{}", stdout) }
-            )),
+            error: Some(format_lock_hint_if_needed(detail)),
         };
     }
 
@@ -221,7 +236,7 @@ pub fn commit_all(path: &Path, message: &str) -> GitResult {
                     GitResult {
                         success: false,
                         message: None,
-                        error: Some(stderr),
+                        error: Some(format_lock_hint_if_needed(stderr)),
                     }
                 }
             }
@@ -344,7 +359,7 @@ pub fn get_remote_url(path: &Path) -> Option<String> {
         return None;
     }
 
-    git_cmd()
+    git_readonly_cmd()
         .args(["remote", "get-url", "origin"])
         .current_dir(path)
         .output()
@@ -570,5 +585,69 @@ fn parse_push_error(stderr: &str) -> String {
         "Remote repository not found. Check the URL.".to_string()
     } else {
         stderr.trim().to_string()
+    }
+}
+
+/// Append a concise recovery hint when git fails due to a stale `.git/index.lock` file.
+fn format_lock_hint_if_needed(message: String) -> String {
+    if message.contains("index.lock") && message.contains("File exists") {
+        format!(
+            "{}\n\nIf no other git process is running, remove the stale .git/index.lock file in your notes folder and try again.",
+            message
+        )
+    } else {
+        message
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn create_temp_git_repo(prefix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("scratch-{}-{}", prefix, nanos));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        git_init(&dir).expect("git init");
+        dir
+    }
+
+    #[test]
+    fn get_status_succeeds_without_touching_index_lock() {
+        let repo = create_temp_git_repo("git-status-lock");
+        fs::write(repo.join("note.md"), "# Hello\n").expect("write note");
+        let lock_path = repo.join(".git").join("index.lock");
+        fs::write(&lock_path, "").expect("create dummy index.lock");
+
+        let status = get_status(&repo);
+        assert!(status.is_repo);
+        assert_eq!(status.changed_count, 1);
+        assert!(lock_path.exists());
+
+        let _ = fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn commit_all_appends_stale_lock_hint_when_index_lock_exists() {
+        let repo = create_temp_git_repo("git-commit-lock");
+        fs::write(repo.join("note.md"), "# Hello\n").expect("write note");
+        fs::write(repo.join(".git").join("index.lock"), "").expect("create dummy index.lock");
+
+        let result = commit_all(&repo, "test commit");
+        assert!(!result.success);
+        let err = result.error.expect("expected lock error");
+        assert!(err.contains("index.lock"), "unexpected error: {}", err);
+        assert!(
+            err.contains("remove the stale .git/index.lock"),
+            "missing stale-lock guidance: {}",
+            err
+        );
+
+        let _ = fs::remove_dir_all(&repo);
     }
 }
