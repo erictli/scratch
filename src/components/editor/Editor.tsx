@@ -548,6 +548,24 @@ export function Editor({
   const notes = notesCtx?.notes;
   const { textDirection } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
+  // Screen-reader live announcement for Return/Enter key (VoiceOver accessibility)
+  const [srAnnouncement, setSrAnnouncement] = useState("");
+  const srToggleRef = useRef(false);
+  const srClearTimeoutRef = useRef<number | null>(null);
+  const announceNewLine = useCallback(() => {
+    if (srClearTimeoutRef.current) {
+      clearTimeout(srClearTimeoutRef.current);
+    }
+    srToggleRef.current = !srToggleRef.current;
+    // Alternate trailing zero-width space so consecutive Return presses are each announced
+    setSrAnnouncement(srToggleRef.current ? "New line" : "New line\u200B");
+    srClearTimeoutRef.current = window.setTimeout(() => {
+      setSrAnnouncement("");
+      srClearTimeoutRef.current = null;
+    }, 600);
+  }, []);
+  const announceNewLineRef = useRef(announceNewLine);
+  announceNewLineRef.current = announceNewLine;
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
@@ -1171,12 +1189,26 @@ export function Editor({
           return "";
         });
       },
-      // Trap Tab key inside the editor
-      handleKeyDown: (_view, event) => {
+      // Trap Tab key inside the editor and announce Return for screen readers (VoiceOver)
+      handleKeyDown: (view, event) => {
         if (event.key === "Tab") {
           // Allow default tab behavior (indent in lists, etc.)
           // but prevent focus from leaving the editor
           return false;
+        }
+        if (
+          event.key === "Enter" &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.isComposing
+        ) {
+          const prevDoc = view.state.doc;
+          requestAnimationFrame(() => {
+            if (view.state.doc !== prevDoc) {
+              announceNewLineRef.current();
+            }
+          });
         }
         return false;
       },
@@ -1634,6 +1666,10 @@ export function Editor({
       }
       if (blockMathPopupRef.current) {
         blockMathPopupRef.current.destroy();
+      }
+      if (srClearTimeoutRef.current) {
+        clearTimeout(srClearTimeoutRef.current);
+        srClearTimeoutRef.current = null;
       }
     };
   }, []); // Only run cleanup on unmount; latest handlers/state read from refs
@@ -2271,6 +2307,10 @@ export function Editor({
 
   return (
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+      {/* Screen-reader live region for VoiceOver new-line feedback */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {srAnnouncement}
+      </div>
       {/* Drag region with sidebar toggle, date and save status */}
       <div
         className={cn(
