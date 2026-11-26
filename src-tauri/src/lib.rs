@@ -340,6 +340,7 @@ pub struct AppState {
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
     pub debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    pub pending_select_note: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
@@ -351,6 +352,7 @@ impl Default for AppState {
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
+            pending_select_note: Mutex::new(None),
         }
     }
 }
@@ -450,21 +452,68 @@ fn is_effectively_empty(s: &str) -> bool {
 }
 
 /// Strip YAML frontmatter (leading `---` ... `---` block) from content.
+/// Strictly requires an exact `---` delimiter line at the start of the file,
+/// a standalone closing `---` line, and YAML-like content (preventing leading
+/// horizontal rules like `---` or `----` from stripping note content).
 fn strip_frontmatter(content: &str) -> &str {
-    let trimmed = content.trim_start();
-    if trimmed.starts_with("---") {
-        // Find the closing --- (skip the opening line)
-        if let Some(rest) = trimmed.strip_prefix("---") {
-            if let Some(end) = rest.find("\n---") {
-                // Skip past closing --- and the newline after it (handle CRLF)
-                let after_close = &rest[end + 4..];
-                return after_close
-                    .strip_prefix("\r\n")
-                    .or_else(|| after_close.strip_prefix('\n'))
-                    .unwrap_or(after_close);
+    let s = content.strip_prefix('\u{FEFF}').unwrap_or(content);
+
+    // Opening line must be exactly `---` followed by optional spaces/tabs and a newline
+    let first_nl = match s.find('\n') {
+        Some(idx) => idx,
+        None => return content,
+    };
+    let opening_line = s[..first_nl].trim_end_matches('\r');
+    if opening_line.trim_end_matches([' ', '\t']) != "---" {
+        return content;
+    }
+
+    let mut pos = first_nl + 1;
+    let body_start = pos;
+    let mut first_inner_line: Option<&str> = None;
+    let mut has_yaml_key = false;
+
+    while pos <= s.len() {
+        let rest = &s[pos..];
+        let (line_raw, next_pos) = match rest.find('\n') {
+            Some(rel_nl) => (&rest[..rel_nl], pos + rel_nl + 1),
+            None => (rest, s.len() + 1),
+        };
+        let line = line_raw.trim_end_matches('\r');
+
+        if line.trim_end_matches([' ', '\t']) == "---" {
+            let is_empty_block = pos == body_start;
+            let starts_with_blank = first_inner_line.map(|l| l.trim().is_empty()).unwrap_or(false);
+            if is_empty_block || (!starts_with_blank && has_yaml_key) {
+                return if next_pos <= s.len() {
+                    &s[next_pos..]
+                } else {
+                    ""
+                };
+            }
+            return content;
+        }
+
+        if first_inner_line.is_none() {
+            first_inner_line = Some(line);
+        }
+
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+            if let Some(colon_idx) = trimmed.find(':') {
+                let key = &trimmed[..colon_idx];
+                if !key.is_empty() && !key.contains(char::is_whitespace) {
+                    has_yaml_key = true;
+                }
             }
         }
+
+        if next_pos > s.len() {
+            break;
+        }
+        pos = next_pos;
     }
+
     content
 }
 
@@ -1025,6 +1074,37 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
     })
 }
 
+/// Check whether two existing paths refer to the exact same file on disk
+/// (e.g., case-only filename differences on macOS APFS or Windows NTFS).
+fn paths_refer_to_same_file(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) {
+            return ma.dev() == mb.dev() && ma.ino() == mb.ino();
+        }
+        false
+    }
+    #[cfg(windows)]
+    {
+        if a.exists() && b.exists() {
+            if let (Ok(ca), Ok(cb)) = (a.canonicalize(), b.canonicalize()) {
+                return ca
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&cb.to_string_lossy());
+            }
+        }
+        false
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        false
+    }
+}
+
 #[tauri::command]
 async fn save_note(
     id: Option<String>,
@@ -1043,8 +1123,8 @@ async fn save_note(
     let title = extract_title(&content);
     let sanitized_leaf = sanitize_filename(&title);
 
-    // Determine the file ID and path, handling renames
-    let (final_id, file_path, old_id) = if let Some(existing_id) = id {
+    // Determine the file ID and path, handling renames (including case-only renames)
+    let (final_id, file_path, old_id, is_case_only_same_file) = if let Some(existing_id) = id {
         // Preserve directory prefix for notes in subfolders
         let (dir_prefix, desired_id) = if let Some(pos) = existing_id.rfind('/') {
             let prefix = &existing_id[..pos];
@@ -1056,26 +1136,33 @@ async fn save_note(
         let old_file_path = abs_path_from_id(&folder_path, &existing_id)?;
 
         if existing_id != desired_id {
-            let mut new_id = desired_id.clone();
-            let mut counter = 1;
+            let desired_path = abs_path_from_id(&folder_path, &desired_id)?;
+            if old_file_path.exists() && paths_refer_to_same_file(&old_file_path, &desired_path) {
+                (desired_id, desired_path, Some((existing_id, old_file_path)), true)
+            } else {
+                let mut new_id = desired_id.clone();
+                let mut counter = 1;
 
-            while new_id != existing_id
-                && abs_path_from_id(&folder_path, &new_id)
-                    .map(|p| p.exists())
-                    .unwrap_or(false)
-            {
-                new_id = if let Some(ref prefix) = dir_prefix {
-                    format!("{}/{}-{}", prefix, sanitized_leaf, counter)
-                } else {
-                    format!("{}-{}", sanitized_leaf, counter)
-                };
-                counter += 1;
+                while new_id != existing_id
+                    && abs_path_from_id(&folder_path, &new_id)
+                        .map(|p| p.exists() && !paths_refer_to_same_file(&old_file_path, &p))
+                        .unwrap_or(false)
+                {
+                    new_id = if let Some(ref prefix) = dir_prefix {
+                        format!("{}/{}-{}", prefix, sanitized_leaf, counter)
+                    } else {
+                        format!("{}-{}", sanitized_leaf, counter)
+                    };
+                    counter += 1;
+                }
+
+                let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
+                let same_file = old_file_path.exists()
+                    && paths_refer_to_same_file(&old_file_path, &new_file_path);
+                (new_id, new_file_path, Some((existing_id, old_file_path)), same_file)
             }
-
-            let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
-            (new_id, new_file_path, Some((existing_id, old_file_path)))
         } else {
-            (existing_id, old_file_path, None)
+            (existing_id, old_file_path, None, false)
         }
     } else {
         // New notes go in root
@@ -1091,18 +1178,45 @@ async fn save_note(
         }
 
         let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
-        (new_id, new_file_path, None)
+        (new_id, new_file_path, None, false)
     };
 
-    // Write the file to the new path
-    fs::write(&file_path, &content)
-        .await
-        .map_err(|e| e.to_string())?;
+    if is_case_only_same_file {
+        // On case-insensitive filesystems (APFS/NTFS), perform a two-step rename
+        // so the on-disk filename casing updates without deleting the file itself.
+        if let Some((_, ref old_file_path)) = old_id {
+            fs::write(old_file_path, &content)
+                .await
+                .map_err(|e| e.to_string())?;
+            if let Some(parent) = file_path.parent() {
+                let unique = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                let tmp_path = parent.join(format!(".scratch-rename-{}.tmp", unique));
+                if fs::rename(old_file_path, &tmp_path).await.is_ok() {
+                    if let Err(e) = fs::rename(&tmp_path, &file_path).await {
+                        // Roll back temporary rename if final rename fails
+                        let _ = fs::rename(&tmp_path, old_file_path).await;
+                        return Err(e.to_string());
+                    }
+                }
+            }
+        }
+    } else {
+        // Write the file to the new path
+        fs::write(&file_path, &content)
+            .await
+            .map_err(|e| e.to_string())?;
 
-    // Delete old file AFTER successful write (to prevent data loss)
-    if let Some((_, ref old_file_path)) = old_id {
-        if old_file_path.exists() && *old_file_path != file_path {
-            let _ = fs::remove_file(old_file_path).await;
+        // Delete old file AFTER successful write (to prevent data loss)
+        if let Some((_, ref old_file_path)) = old_id {
+            if old_file_path.exists()
+                && *old_file_path != file_path
+                && !paths_refer_to_same_file(old_file_path, &file_path)
+            {
+                let _ = fs::remove_file(old_file_path).await;
+            }
         }
     }
 
@@ -1127,10 +1241,21 @@ async fn save_note(
         }
     }
 
-    // Update cache (remove old entry if renamed)
-    if let Some((ref old_id_str, _)) = old_id {
+    // Update cache (remove old entry if renamed and upsert saved metadata)
+    {
         let mut cache = state.notes_cache.write().expect("cache write lock");
-        cache.remove(old_id_str);
+        if let Some((ref old_id_str, _)) = old_id {
+            cache.remove(old_id_str);
+        }
+        cache.insert(
+            final_id.clone(),
+            NoteMetadata {
+                id: final_id.clone(),
+                title: title.clone(),
+                preview: generate_preview(&content),
+                modified,
+            },
+        );
     }
 
     Ok(Note {
@@ -2766,54 +2891,72 @@ async fn git_push_with_upstream(state: State<'_, AppState>) -> Result<git::GitRe
     }
 }
 
-// Check if Claude CLI is installed
+// Expand PATH to include common user/node/package-manager CLI installation directories
 fn get_expanded_path() -> String {
-    let system_path = std::env::var("PATH").unwrap_or_default();
-    let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
+    let system_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = Vec::new();
 
-    if home.is_empty() {
-        return system_path;
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            dirs.push(PathBuf::from(&appdata).join("npm"));
+        }
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(&local_appdata).join("Programs").join("Ollama"));
+            dirs.push(PathBuf::from(&local_appdata).join("Microsoft").join("WinGet").join("Links"));
+        }
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            let home = PathBuf::from(profile);
+            dirs.push(home.join(".local").join("bin"));
+            dirs.push(home.join(".bun").join("bin"));
+            dirs.push(home.join(".volta").join("bin"));
+            dirs.push(home.join(".cargo").join("bin"));
+        }
     }
 
-    // Common locations for node-installed CLIs (nvm, volta, fnm, mise, homebrew, global npm)
-    let candidate_dirs = vec![
-        format!("{home}/.nvm/versions/node"),
-        format!("{home}/.fnm/node-versions"),
-        format!("{home}/.local/share/mise/installs/node"),
-    ];
-    let static_dirs = vec![
-        format!("{home}/.bun/bin"),
-        format!("{home}/.volta/bin"),
-        format!("{home}/.local/bin"),
-        "/usr/local/bin".to_string(),
-        "/opt/homebrew/bin".to_string(),
-    ];
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            if !home.is_empty() {
+                // Common locations for node-installed CLIs (nvm, volta, fnm, mise, homebrew, global npm)
+                let static_dirs = [
+                    format!("{home}/.bun/bin"),
+                    format!("{home}/.volta/bin"),
+                    format!("{home}/.local/bin"),
+                    "/usr/local/bin".to_string(),
+                    "/opt/homebrew/bin".to_string(),
+                ];
+                for dir in static_dirs {
+                    dirs.push(PathBuf::from(dir));
+                }
 
-    let mut expanded = Vec::new();
-
-    // Prefer well-known static locations (e.g. ~/.local/bin for native CLI installs)
-    for dir in static_dirs {
-        expanded.push(dir);
-    }
-
-    // Then scan nvm/fnm node version dirs containing a bin/ folder
-    for base in &candidate_dirs {
-        if let Ok(entries) = std::fs::read_dir(base) {
-            for entry in entries.flatten() {
-                let bin_path = entry.path().join("bin");
-                if bin_path.exists() {
-                    expanded.push(bin_path.to_string_lossy().to_string());
+                let candidate_dirs = [
+                    format!("{home}/.nvm/versions/node"),
+                    format!("{home}/.fnm/node-versions"),
+                    format!("{home}/.local/share/mise/installs/node"),
+                ];
+                for base in &candidate_dirs {
+                    if let Ok(entries) = std::fs::read_dir(base) {
+                        for entry in entries.flatten() {
+                            let bin_path = entry.path().join("bin");
+                            if bin_path.exists() {
+                                dirs.push(bin_path);
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    expanded.push(system_path);
-    expanded.join(":")
+    dirs.extend(std::env::split_paths(&system_path));
+    std::env::join_paths(dirs)
+        .map(|os| os.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| system_path.to_string_lossy().into_owned())
 }
 
 /// Create a `Command` that hides the console window on Windows.
-fn no_window_cmd(program: &str) -> std::process::Command {
+fn no_window_cmd<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {
     let cmd = std::process::Command::new(program);
     #[cfg(target_os = "windows")]
     {
@@ -2828,7 +2971,48 @@ fn no_window_cmd(program: &str) -> std::process::Command {
     }
 }
 
-fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
+/// Select the best executable candidate from `where` (Windows) or `which` (Unix) output.
+/// On Windows, npm installs extensionless shell shims alongside `.cmd`/`.ps1` wrappers;
+/// `CreateProcess` cannot run extensionless shims or `.ps1`, so `.exe` > `.cmd` > `.bat` > `.com`
+/// are preferred in order.
+fn select_best_cli_candidate(stdout: &str, is_windows: bool) -> Option<PathBuf> {
+    let candidates: Vec<&str> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    if !is_windows {
+        return Some(PathBuf::from(candidates[0]));
+    }
+
+    let rank = |path: &str| -> u8 {
+        match Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("exe") => 0,
+            Some("cmd") => 1,
+            Some("bat") => 2,
+            Some("com") => 3,
+            _ => 10,
+        }
+    };
+
+    candidates
+        .into_iter()
+        .filter(|c| rank(c) < 10)
+        .min_by_key(|c| rank(c))
+        .map(PathBuf::from)
+}
+
+fn resolve_cli(command_name: &str, path: &str) -> Result<Option<PathBuf>, String> {
     let which_cmd = if cfg!(target_os = "windows") {
         "where"
     } else {
@@ -2841,7 +3025,16 @@ fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
         .output()
         .map_err(|e| format!("Failed to check for {} CLI: {}", command_name, e))?;
 
-    Ok(check_output.status.success())
+    if !check_output.status.success() {
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&check_output.stdout);
+    Ok(select_best_cli_candidate(&stdout, cfg!(target_os = "windows")))
+}
+
+fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
+    Ok(resolve_cli(command_name, path)?.is_some())
 }
 
 /// Marker comment embedded in CLI wrapper scripts installed by Scratch.
@@ -3011,6 +3204,49 @@ async fn ai_check_opencode_cli() -> Result<bool, String> {
     .map_err(|e| format!("Failed to check OpenCode CLI: {}", e))?
 }
 
+/// Strip ANSI escape sequences and resolve bare carriage-return (`\r`) line overwrites
+/// (e.g., terminal spinners or word-wrap rewrites).
+fn strip_ansi_and_cr(input: &str) -> String {
+    let ansi_re = regex::Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)").unwrap();
+    let no_ansi = ansi_re.replace_all(input, "");
+    let normalized = no_ansi.replace("\r\n", "\n");
+    normalized
+        .split('\n')
+        .map(|line| line.rsplit('\r').next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Clean Ollama CLI output: remove ANSI/CR artifacts, strip `<think>...</think>` and
+/// Ollama's `Thinking... ...done thinking.` reasoning blocks, and unwrap accidental
+/// top-level markdown code fences.
+fn clean_ollama_output(raw: &str) -> String {
+    let mut text = strip_ansi_and_cr(raw);
+
+    // Strip XML-style <think>...</think> reasoning blocks (e.g. DeepSeek-R1, Qwen3)
+    let think_tag_re = regex::Regex::new(r"(?is)<think>.*?</think>\s*").unwrap();
+    text = think_tag_re.replace_all(&text, "").into_owned();
+
+    // Strip Ollama CLI's `Thinking...\n...\n...done thinking.` blocks
+    let ollama_think_re =
+        regex::Regex::new(r"(?s)^Thinking\.\.\.\n.*?\.\.\.done thinking\.\s*").unwrap();
+    text = ollama_think_re.replace(text.trim_start(), "").into_owned();
+
+    let trimmed = text.trim();
+    // Unwrap a single outer markdown fence if the model wrapped the entire note
+    if let Some(rest) = trimmed
+        .strip_prefix("```markdown\n")
+        .or_else(|| trimmed.strip_prefix("```md\n"))
+        .or_else(|| trimmed.strip_prefix("```\n"))
+    {
+        if let Some(inner) = rest.strip_suffix("\n```") {
+            return inner.trim().to_string();
+        }
+    }
+
+    trimmed.to_string()
+}
+
 /// Shared AI CLI execution: spawns `command` with `args`, writes `stdin_input` to stdin,
 /// and returns the result with a 5-minute timeout.
 async fn execute_ai_cli(
@@ -3032,10 +3268,11 @@ async fn execute_ai_cli(
     let cli_name_task = cli_name.clone();
 
     let mut task = tauri::async_runtime::spawn_blocking(move || {
-        // Blocking I/O: expand PATH and check CLI exists
+        // Blocking I/O: expand PATH and resolve concrete executable path once
         let path = get_expanded_path();
-        match check_cli_exists(&command, &path) {
-            Ok(false) => {
+        let resolved_program = match resolve_cli(&command, &path) {
+            Ok(Some(resolved)) => resolved,
+            Ok(None) => {
                 return AiExecutionResult {
                     success: false,
                     output: String::new(),
@@ -3049,10 +3286,9 @@ async fn execute_ai_cli(
                     error: Some(e),
                 };
             }
-            Ok(true) => {}
-        }
+        };
 
-        let mut cmd = no_window_cmd(&command);
+        let mut cmd = no_window_cmd(&resolved_program);
         cmd.env("PATH", &path);
         if let Some(dir) = &current_dir {
             cmd.current_dir(dir);
@@ -3142,15 +3378,24 @@ async fn execute_ai_cli(
 
         use std::io::Read;
 
+        // Drain stdout and stderr concurrently to prevent OS pipe-buffer deadlocks
+        // when a CLI writes verbose output to stderr while stdout is still open.
+        let stderr_thread = stderr_handle.map(|mut err| {
+            std::thread::spawn(move || {
+                let mut buf = String::new();
+                let _ = err.read_to_string(&mut buf);
+                buf
+            })
+        });
+
         let mut stdout_str = String::new();
         if let Some(mut out) = stdout_handle {
             let _ = out.read_to_string(&mut stdout_str);
         }
 
-        let mut stderr_str = String::new();
-        if let Some(mut err) = stderr_handle {
-            let _ = err.read_to_string(&mut stderr_str);
-        }
+        let stderr_str = stderr_thread
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_default();
 
         // Collect exit status — process has exited after stdout/stderr close
         let success = child_for_task
@@ -3160,10 +3405,9 @@ async fn execute_ai_cli(
             .map(|s| s.success())
             .unwrap_or(false);
 
-        // Strip ANSI escape sequences from output (e.g. Ollama progress spinners)
-        let ansi_re = regex::Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?\x07").unwrap();
-        let stdout_clean = ansi_re.replace_all(&stdout_str, "").to_string();
-        let stderr_clean = ansi_re.replace_all(&stderr_str, "").trim().to_string();
+        // Strip ANSI escape sequences and bare carriage returns from output
+        let stdout_clean = strip_ansi_and_cr(&stdout_str);
+        let stderr_clean = strip_ansi_and_cr(&stderr_str).trim().to_string();
 
         if success {
             AiExecutionResult {
@@ -3409,7 +3653,11 @@ async fn ai_execute_ollama(
         let mn = model_name.clone();
         let available = tauri::async_runtime::spawn_blocking(move || {
             let path = get_expanded_path();
-            let mut cmd = no_window_cmd("ollama");
+            let ollama_bin = match resolve_cli("ollama", &path) {
+                Ok(Some(bin)) => bin,
+                _ => return false,
+            };
+            let mut cmd = no_window_cmd(&ollama_bin);
             cmd.env("PATH", &path);
             cmd.args(["show", &mn]);
             cmd.stdout(std::process::Stdio::null())
@@ -3437,7 +3685,11 @@ async fn ai_execute_ollama(
     let result = execute_ai_cli(
         "Ollama",
         "ollama".to_string(),
-        vec!["run".to_string(), model_name.clone()],
+        vec![
+            "run".to_string(),
+            "--nowordwrap".to_string(),
+            model_name.clone(),
+        ],
         stdin_input,
         "Ollama CLI not found. Please install it from https://ollama.com".to_string(),
         None,
@@ -3475,7 +3727,7 @@ async fn ai_execute_ollama(
 
     // If successful, write the output back to the file
     if result.success {
-        let edited_content = result.output.trim().to_string();
+        let edited_content = clean_ollama_output(&result.output);
         if edited_content.is_empty() {
             return Ok(AiExecutionResult {
                 success: false,
@@ -3539,12 +3791,44 @@ fn try_select_in_notes_folder(app: &AppHandle, path: &Path) -> bool {
         None => return false,
     };
 
+    if let Ok(mut pending) = state.pending_select_note.lock() {
+        *pending = Some(note_id.clone());
+    }
     let _ = app.emit_to("main", "select-note", note_id);
     if let Some(main_window) = app.get_webview_window("main") {
         let _ = main_window.show();
         let _ = main_window.set_focus();
     }
     true
+}
+
+#[tauri::command]
+fn take_pending_select_note(state: State<AppState>) -> Option<String> {
+    state
+        .pending_select_note
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.take())
+}
+
+/// Resolve a CLI argument (either a `file://` URI or an absolute/relative filesystem path)
+/// into a `PathBuf`. Desktop "Open With" launchers on Linux commonly pass `file://` URIs.
+fn resolve_cli_arg_path(arg: &str, cwd: &str) -> Option<PathBuf> {
+    let trimmed = arg.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.starts_with("file://") {
+        return url::Url::parse(trimmed).ok()?.to_file_path().ok();
+    }
+    let p = PathBuf::from(trimmed);
+    if p.is_absolute() {
+        Some(p)
+    } else if !cwd.is_empty() {
+        Some(PathBuf::from(cwd).join(p))
+    } else {
+        Some(p)
+    }
 }
 
 /// Check if a file extension is a supported markdown extension.
@@ -3635,10 +3919,9 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
             continue;
         }
 
-        let path = if PathBuf::from(arg).is_absolute() {
-            PathBuf::from(arg)
-        } else {
-            PathBuf::from(cwd).join(arg)
+        let path = match resolve_cli_arg_path(arg, cwd) {
+            Some(p) => p,
+            None => continue,
         };
 
         if is_markdown_extension(&path) && path.is_file() {
@@ -3708,8 +3991,35 @@ fn enable_webview_spellcheck_defaults() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Handle --version / -V before launching the GUI application
+    let startup_args: Vec<String> = std::env::args().collect();
+    if startup_args
+        .iter()
+        .skip(1)
+        .any(|a| a == "--version" || a == "-V")
+    {
+        println!("Scratch {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     #[cfg(target_os = "macos")]
     enable_webview_spellcheck_defaults();
+
+    #[cfg(target_os = "macos")]
+    #[derive(Default)]
+    struct MacLaunchState {
+        pending_opened_paths: Vec<PathBuf>,
+        deferred_main_show: bool,
+        opened_in_launch: bool,
+        opened_preview_only: bool,
+        main_shown_for_user: bool,
+        ready_instant: Option<Instant>,
+    }
+
+    #[cfg(target_os = "macos")]
+    let mac_launch_state = Arc::new(Mutex::new(MacLaunchState::default()));
+    #[cfg(target_os = "macos")]
+    let mac_launch_for_setup = Arc::clone(&mac_launch_state);
 
     let app = tauri::Builder::default()
         // Single-instance: forward CLI args from subsequent launches to the running instance
@@ -3721,7 +4031,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
             // Load app config on startup (contains notes folder path)
             let mut app_config = load_app_config(app.handle());
 
@@ -3775,6 +4085,7 @@ pub fn run() {
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
+                pending_select_note: Mutex::new(None),
             };
             app.manage(state);
 
@@ -3783,13 +4094,12 @@ pub fn run() {
                 let _ = app.asset_protocol_scope().allow_directory(folder, true);
             }
 
-            // Handle CLI args on first launch; determine whether to show the main window.
-            // When a standalone preview is opened (file outside the notes folder) and the
-            // notes folder is already configured, the main window is closed so users only
-            // see the preview. When no notes folder is configured yet, the main window is
-            // always shown so new users can complete onboarding via the FolderPicker.
+            // Handle CLI args and any macOS RunEvent::Opened files delivered before .setup().
+            // Ignore flag-only arguments (such as macOS LaunchServices `-psn_...` or `-NS...`)
+            // so Finder / `open -a` launches don't prematurely show the main window.
             let args: Vec<String> = std::env::args().collect();
-            let opened_preview = if args.len() > 1 {
+            let has_positional_cli_arg = args.iter().skip(1).any(|a| !a.starts_with('-'));
+            let mut opened_preview = if has_positional_cli_arg {
                 let cwd = std::env::current_dir()
                     .unwrap_or_default()
                     .to_string_lossy()
@@ -3798,6 +4108,24 @@ pub fn run() {
             } else {
                 false
             };
+
+            #[cfg(target_os = "macos")]
+            let mut selected_in_main_from_opened = false;
+            #[cfg(target_os = "macos")]
+            {
+                let queued_paths: Vec<PathBuf> = mac_launch_for_setup
+                    .lock()
+                    .map(|mut st| std::mem::take(&mut st.pending_opened_paths))
+                    .unwrap_or_default();
+
+                for path in queued_paths {
+                    if try_select_in_notes_folder(app.handle(), &path) {
+                        selected_in_main_from_opened = true;
+                    } else if create_preview_window(app.handle(), &path.to_string_lossy()).is_ok() {
+                        opened_preview = true;
+                    }
+                }
+            }
 
             if let Some(main_window) = app.get_webview_window("main") {
                 let has_notes_folder = app
@@ -3808,15 +4136,38 @@ pub fn run() {
                     .notes_folder
                     .is_some();
 
-                if opened_preview && has_notes_folder {
+                #[cfg(target_os = "macos")]
+                let preview_only = opened_preview && !selected_in_main_from_opened && has_notes_folder;
+                #[cfg(not(target_os = "macos"))]
+                let preview_only = opened_preview && has_notes_folder;
+
+                if preview_only {
                     // Existing user: notes folder is configured and a standalone preview
-                    // was opened. Close the hidden main window so only the preview is visible.
+                    // was opened on launch. Keep the main window hidden so only the preview is visible.
+                    #[cfg(target_os = "macos")]
+                    if let Ok(mut st) = mac_launch_for_setup.lock() {
+                        st.opened_preview_only = true;
+                        st.main_shown_for_user = false;
+                    }
                     let _ = main_window.hide();
                 } else {
-                    // Show the main window when:
-                    // - No standalone preview was opened (normal launch), OR
-                    // - No notes folder is configured yet (new user needs FolderPicker
-                    //   for onboarding, even if a preview is also showing).
+                    // On macOS, Finder double-click ("Open With") and `open -a Scratch file.md`
+                    // may also deliver `RunEvent::Opened` shortly after `RunEvent::Ready`.
+                    // Defer showing the main window briefly after `Ready` when launched without
+                    // files so late cold-start preview launches never flash or leave both windows open.
+                    #[cfg(target_os = "macos")]
+                    if has_notes_folder && !has_positional_cli_arg && !selected_in_main_from_opened {
+                        if let Ok(mut st) = mac_launch_for_setup.lock() {
+                            st.deferred_main_show = true;
+                        }
+                    } else {
+                        if let Ok(mut st) = mac_launch_for_setup.lock() {
+                            st.main_shown_for_user = true;
+                        }
+                        let _ = main_window.show();
+                    }
+
+                    #[cfg(not(target_os = "macos"))]
                     let _ = main_window.show();
                 }
             }
@@ -3889,6 +4240,7 @@ pub fn run() {
             save_file_direct,
             import_file_to_folder,
             open_file_preview,
+            take_pending_select_note,
             install_cli,
             uninstall_cli,
             get_cli_status,
@@ -3897,21 +4249,165 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    // Use .run() callback to handle macOS "Open With" file events
-    // RunEvent::Opened is macOS-only in Tauri v2
-    app.run(|_app_handle, _event| {
+    // Use .run() callback to handle macOS "Open With" file events, Ready, and Dock clicks
+    // RunEvent::Opened and RunEvent::Reopen are macOS-only in Tauri v2
+    app.run(move |_app_handle, _event| {
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Opened { urls } = _event {
-            for url in urls {
-                if let Ok(path) = url.to_file_path() {
-                    if is_markdown_extension(&path)
-                        && path.is_file()
-                        && !try_select_in_notes_folder(_app_handle, &path)
-                    {
-                        let _ = create_preview_window(_app_handle, &path.to_string_lossy());
+        match _event {
+            tauri::RunEvent::Ready => {
+                let should_schedule_show = if let Ok(mut st) = mac_launch_state.lock() {
+                    st.ready_instant = Some(Instant::now());
+                    st.deferred_main_show
+                        && !st.opened_in_launch
+                        && !st.opened_preview_only
+                        && !st.main_shown_for_user
+                } else {
+                    false
+                };
+
+                if should_schedule_show {
+                    let handle = _app_handle.clone();
+                    let launch_state = Arc::clone(&mac_launch_state);
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(200));
+                        let show_main = if let Ok(mut st) = launch_state.lock() {
+                            if !st.opened_in_launch
+                                && !st.opened_preview_only
+                                && !st.main_shown_for_user
+                            {
+                                st.main_shown_for_user = true;
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if show_main {
+                            let handle_for_ui = handle.clone();
+                            let _ = handle.run_on_main_thread(move || {
+                                if let Some(main_window) = handle_for_ui.get_webview_window("main")
+                                {
+                                    let _ = main_window.show();
+                                    let _ = main_window.set_focus();
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+            tauri::RunEvent::Opened { urls } => {
+                let md_paths: Vec<PathBuf> = urls
+                    .into_iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .filter(|path| is_markdown_extension(path) && path.is_file())
+                    .collect();
+
+                if md_paths.is_empty() {
+                    return;
+                }
+
+                // On macOS cold-start launches (Finder double-click or `open -a Scratch file.md`),
+                // Tauri/AppKit can deliver `RunEvent::Opened` BEFORE `.setup()` registers `AppState`.
+                // Queue those paths so `.setup()` processes them once `notes_folder` and `settings`
+                // are loaded, keeping the main window hidden for standalone previews.
+                if _app_handle.try_state::<AppState>().is_none() {
+                    if let Ok(mut st) = mac_launch_state.lock() {
+                        st.opened_in_launch = true;
+                        st.pending_opened_paths.extend(md_paths);
+                    }
+                    return;
+                }
+
+                // Mark launch as file-opened BEFORE any potentially slow filesystem I/O
+                // (e.g. canonicalizing a WebDAV/iCloud notes folder) so the post-Ready
+                // timer cannot race and show the main window while we're opening a preview.
+                if let Ok(mut st) = mac_launch_state.lock() {
+                    if !st.main_shown_for_user {
+                        st.opened_in_launch = true;
+                    }
+                }
+
+                let mut opened_standalone_preview = false;
+                let mut selected_in_main = false;
+                for path in md_paths {
+                    if try_select_in_notes_folder(_app_handle, &path) {
+                        selected_in_main = true;
+                    } else if create_preview_window(_app_handle, &path.to_string_lossy()).is_ok() {
+                        opened_standalone_preview = true;
+                    }
+                }
+
+                let has_notes_folder = _app_handle
+                    .try_state::<AppState>()
+                    .and_then(|s| s.app_config.read().ok().map(|c| c.notes_folder.is_some()))
+                    .unwrap_or(false);
+
+                let mut should_hide_main = false;
+                let mut should_show_main = false;
+                if let Ok(mut st) = mac_launch_state.lock() {
+                    if selected_in_main {
+                        st.main_shown_for_user = true;
+                    } else if opened_standalone_preview && has_notes_folder {
+                        let within_launch_window = !st.main_shown_for_user
+                            || st
+                                .ready_instant
+                                .map(|t| t.elapsed() < Duration::from_secs(3))
+                                .unwrap_or(true);
+                        if within_launch_window {
+                            st.opened_preview_only = true;
+                            st.main_shown_for_user = false;
+                            should_hide_main = true;
+                        }
+                    } else {
+                        st.opened_in_launch = false;
+                        if st.deferred_main_show && !st.main_shown_for_user {
+                            st.main_shown_for_user = true;
+                            should_show_main = true;
+                        }
+                    }
+                }
+
+                if should_hide_main {
+                    if let Some(main_window) = _app_handle.get_webview_window("main") {
+                        let _ = main_window.hide();
+                    }
+                } else if should_show_main {
+                    if let Some(main_window) = _app_handle.get_webview_window("main") {
+                        let _ = main_window.show();
+                        let _ = main_window.set_focus();
                     }
                 }
             }
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => {
+                let allow_reopen = if let Ok(mut st) = mac_launch_state.lock() {
+                    let suppressing_cold_start = st.opened_in_launch
+                        && st
+                            .ready_instant
+                            .map(|t| t.elapsed() < Duration::from_secs(2))
+                            .unwrap_or(true);
+                    if suppressing_cold_start {
+                        false
+                    } else {
+                        st.main_shown_for_user = true;
+                        true
+                    }
+                } else {
+                    true
+                };
+
+                if allow_reopen {
+                    if let Some(main_window) = _app_handle.get_webview_window("main") {
+                        let _ = main_window.show();
+                        let _ = main_window.set_focus();
+                    }
+                }
+            }
+            _ => {}
         }
     });
 }
@@ -3993,4 +4489,88 @@ fn set_title_bar_theme(
         let _ = (app, is_dark, r, g, b);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_frontmatter_handles_valid_yaml_and_ignores_horizontal_rules() {
+        let yaml = "---\ntitle: My Note\ntags: [work]\n---\n# Real Heading\n\nBody text";
+        assert_eq!(extract_title(yaml), "Real Heading");
+
+        let crlf_yaml = "---\r\nauthor: Alice\r\n---\r\n# CRLF Heading\r\n";
+        assert_eq!(extract_title(crlf_yaml), "CRLF Heading");
+
+        let four_dashes = "----\ntitle: Not YAML\n----\n# After";
+        assert_eq!(strip_frontmatter(four_dashes), four_dashes);
+
+        let leading_hr = "---\n\n# Real Heading\n\n---\n\nFooter";
+        assert_eq!(strip_frontmatter(leading_hr), leading_hr);
+
+        let hr_around_text = "---\nJust a regular sentence\n---\n";
+        assert_eq!(strip_frontmatter(hr_around_text), hr_around_text);
+    }
+
+    #[test]
+    fn select_best_cli_candidate_prefers_runnable_windows_wrappers() {
+        let npm_where = "C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode\r\n\
+                         C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode.cmd\r\n\
+                         C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode.ps1\r\n";
+        assert_eq!(
+            select_best_cli_candidate(npm_where, true),
+            Some(PathBuf::from("C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode.cmd"))
+        );
+
+        let exe_and_cmd = "C:\\tools\\claude.cmd\r\nC:\\tools\\claude.exe\r\n";
+        assert_eq!(
+            select_best_cli_candidate(exe_and_cmd, true),
+            Some(PathBuf::from("C:\\tools\\claude.exe"))
+        );
+
+        let sh_only = "C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode\r\n";
+        assert_eq!(select_best_cli_candidate(sh_only, true), None);
+
+        assert_eq!(
+            select_best_cli_candidate("/opt/homebrew/bin/claude\n/usr/local/bin/claude\n", false),
+            Some(PathBuf::from("/opt/homebrew/bin/claude"))
+        );
+    }
+
+    #[test]
+    fn resolve_cli_arg_path_handles_file_uris_and_relative_paths() {
+        assert_eq!(
+            resolve_cli_arg_path("file:///tmp/my%20note.md", "/work"),
+            Some(PathBuf::from("/tmp/my note.md"))
+        );
+        assert_eq!(
+            resolve_cli_arg_path("notes/todo.md", "/work"),
+            Some(PathBuf::from("/work/notes/todo.md"))
+        );
+        assert_eq!(
+            resolve_cli_arg_path("/abs/doc.md", "/work"),
+            Some(PathBuf::from("/abs/doc.md"))
+        );
+    }
+
+    #[test]
+    fn clean_ollama_output_strips_cr_ansi_thinking_and_outer_fences() {
+        assert_eq!(
+            clean_ollama_output("founda\rfoundational scaffolding\r\nsecond line"),
+            "foundational scaffolding\nsecond line"
+        );
+        assert_eq!(
+            clean_ollama_output("<think>let me think\nstep 2</think>\n# Title\n\nBody"),
+            "# Title\n\nBody"
+        );
+        assert_eq!(
+            clean_ollama_output("Thinking...\ninternal reasoning\n...done thinking.\n\n# Result"),
+            "# Result"
+        );
+        assert_eq!(
+            clean_ollama_output("```markdown\n# Wrapped\n\nHello\n```"),
+            "# Wrapped\n\nHello"
+        );
+    }
 }

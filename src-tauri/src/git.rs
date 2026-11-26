@@ -209,19 +209,28 @@ pub fn commit_all(path: &Path, message: &str) -> GitResult {
                     error: None,
                 }
             } else {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                // "nothing to commit" is not really an error
-                if stderr.contains("nothing to commit") {
+                let combined = format!("{}\n{}", stdout, stderr);
+                // "nothing to commit" is printed to stdout by git and is not an error
+                if combined.contains("nothing to commit") {
                     GitResult {
                         success: true,
                         message: Some("Nothing to commit".to_string()),
                         error: None,
                     }
                 } else {
+                    let err_msg = if !stderr.trim().is_empty() {
+                        stderr.trim().to_string()
+                    } else if !stdout.trim().is_empty() {
+                        stdout.trim().to_string()
+                    } else {
+                        "Git commit failed".to_string()
+                    };
                     GitResult {
                         success: false,
                         message: None,
-                        error: Some(stderr),
+                        error: Some(err_msg),
                     }
                 }
             }
