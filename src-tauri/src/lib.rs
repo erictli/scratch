@@ -2889,54 +2889,72 @@ async fn git_push_with_upstream(state: State<'_, AppState>) -> Result<git::GitRe
     }
 }
 
-// Check if Claude CLI is installed
+// Expand PATH to include common user/node/package-manager CLI installation directories
 fn get_expanded_path() -> String {
-    let system_path = std::env::var("PATH").unwrap_or_default();
-    let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
+    let system_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = Vec::new();
 
-    if home.is_empty() {
-        return system_path;
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            dirs.push(PathBuf::from(&appdata).join("npm"));
+        }
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(&local_appdata).join("Programs").join("Ollama"));
+            dirs.push(PathBuf::from(&local_appdata).join("Microsoft").join("WinGet").join("Links"));
+        }
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            let home = PathBuf::from(profile);
+            dirs.push(home.join(".local").join("bin"));
+            dirs.push(home.join(".bun").join("bin"));
+            dirs.push(home.join(".volta").join("bin"));
+            dirs.push(home.join(".cargo").join("bin"));
+        }
     }
 
-    // Common locations for node-installed CLIs (nvm, volta, fnm, mise, homebrew, global npm)
-    let candidate_dirs = vec![
-        format!("{home}/.nvm/versions/node"),
-        format!("{home}/.fnm/node-versions"),
-        format!("{home}/.local/share/mise/installs/node"),
-    ];
-    let static_dirs = vec![
-        format!("{home}/.bun/bin"),
-        format!("{home}/.volta/bin"),
-        format!("{home}/.local/bin"),
-        "/usr/local/bin".to_string(),
-        "/opt/homebrew/bin".to_string(),
-    ];
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            if !home.is_empty() {
+                // Common locations for node-installed CLIs (nvm, volta, fnm, mise, homebrew, global npm)
+                let static_dirs = [
+                    format!("{home}/.bun/bin"),
+                    format!("{home}/.volta/bin"),
+                    format!("{home}/.local/bin"),
+                    "/usr/local/bin".to_string(),
+                    "/opt/homebrew/bin".to_string(),
+                ];
+                for dir in static_dirs {
+                    dirs.push(PathBuf::from(dir));
+                }
 
-    let mut expanded = Vec::new();
-
-    // Prefer well-known static locations (e.g. ~/.local/bin for native CLI installs)
-    for dir in static_dirs {
-        expanded.push(dir);
-    }
-
-    // Then scan nvm/fnm node version dirs containing a bin/ folder
-    for base in &candidate_dirs {
-        if let Ok(entries) = std::fs::read_dir(base) {
-            for entry in entries.flatten() {
-                let bin_path = entry.path().join("bin");
-                if bin_path.exists() {
-                    expanded.push(bin_path.to_string_lossy().to_string());
+                let candidate_dirs = [
+                    format!("{home}/.nvm/versions/node"),
+                    format!("{home}/.fnm/node-versions"),
+                    format!("{home}/.local/share/mise/installs/node"),
+                ];
+                for base in &candidate_dirs {
+                    if let Ok(entries) = std::fs::read_dir(base) {
+                        for entry in entries.flatten() {
+                            let bin_path = entry.path().join("bin");
+                            if bin_path.exists() {
+                                dirs.push(bin_path);
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    expanded.push(system_path);
-    expanded.join(":")
+    dirs.extend(std::env::split_paths(&system_path));
+    std::env::join_paths(dirs)
+        .map(|os| os.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| system_path.to_string_lossy().into_owned())
 }
 
 /// Create a `Command` that hides the console window on Windows.
-fn no_window_cmd(program: &str) -> std::process::Command {
+fn no_window_cmd<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {
     let cmd = std::process::Command::new(program);
     #[cfg(target_os = "windows")]
     {
@@ -2951,7 +2969,48 @@ fn no_window_cmd(program: &str) -> std::process::Command {
     }
 }
 
-fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
+/// Select the best executable candidate from `where` (Windows) or `which` (Unix) output.
+/// On Windows, npm installs extensionless shell shims alongside `.cmd`/`.ps1` wrappers;
+/// `CreateProcess` cannot run extensionless shims or `.ps1`, so `.exe` > `.cmd` > `.bat` > `.com`
+/// are preferred in order.
+fn select_best_cli_candidate(stdout: &str, is_windows: bool) -> Option<PathBuf> {
+    let candidates: Vec<&str> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    if !is_windows {
+        return Some(PathBuf::from(candidates[0]));
+    }
+
+    let rank = |path: &str| -> u8 {
+        match Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("exe") => 0,
+            Some("cmd") => 1,
+            Some("bat") => 2,
+            Some("com") => 3,
+            _ => 10,
+        }
+    };
+
+    candidates
+        .into_iter()
+        .filter(|c| rank(c) < 10)
+        .min_by_key(|c| rank(c))
+        .map(PathBuf::from)
+}
+
+fn resolve_cli(command_name: &str, path: &str) -> Result<Option<PathBuf>, String> {
     let which_cmd = if cfg!(target_os = "windows") {
         "where"
     } else {
@@ -2964,7 +3023,16 @@ fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
         .output()
         .map_err(|e| format!("Failed to check for {} CLI: {}", command_name, e))?;
 
-    Ok(check_output.status.success())
+    if !check_output.status.success() {
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&check_output.stdout);
+    Ok(select_best_cli_candidate(&stdout, cfg!(target_os = "windows")))
+}
+
+fn check_cli_exists(command_name: &str, path: &str) -> Result<bool, String> {
+    Ok(resolve_cli(command_name, path)?.is_some())
 }
 
 /// Marker comment embedded in CLI wrapper scripts installed by Scratch.
@@ -3155,10 +3223,11 @@ async fn execute_ai_cli(
     let cli_name_task = cli_name.clone();
 
     let mut task = tauri::async_runtime::spawn_blocking(move || {
-        // Blocking I/O: expand PATH and check CLI exists
+        // Blocking I/O: expand PATH and resolve concrete executable path once
         let path = get_expanded_path();
-        match check_cli_exists(&command, &path) {
-            Ok(false) => {
+        let resolved_program = match resolve_cli(&command, &path) {
+            Ok(Some(resolved)) => resolved,
+            Ok(None) => {
                 return AiExecutionResult {
                     success: false,
                     output: String::new(),
@@ -3172,10 +3241,9 @@ async fn execute_ai_cli(
                     error: Some(e),
                 };
             }
-            Ok(true) => {}
-        }
+        };
 
-        let mut cmd = no_window_cmd(&command);
+        let mut cmd = no_window_cmd(&resolved_program);
         cmd.env("PATH", &path);
         if let Some(dir) = &current_dir {
             cmd.current_dir(dir);
@@ -3541,7 +3609,11 @@ async fn ai_execute_ollama(
         let mn = model_name.clone();
         let available = tauri::async_runtime::spawn_blocking(move || {
             let path = get_expanded_path();
-            let mut cmd = no_window_cmd("ollama");
+            let ollama_bin = match resolve_cli("ollama", &path) {
+                Ok(Some(bin)) => bin,
+                _ => return false,
+            };
+            let mut cmd = no_window_cmd(&ollama_bin);
             cmd.env("PATH", &path);
             cmd.args(["show", &mn]);
             cmd.stdout(std::process::Stdio::null())
@@ -4147,5 +4219,30 @@ mod tests {
 
         let hr_around_text = "---\nJust a regular sentence\n---\n";
         assert_eq!(strip_frontmatter(hr_around_text), hr_around_text);
+    }
+
+    #[test]
+    fn select_best_cli_candidate_prefers_runnable_windows_wrappers() {
+        let npm_where = "C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode\r\n\
+                         C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode.cmd\r\n\
+                         C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode.ps1\r\n";
+        assert_eq!(
+            select_best_cli_candidate(npm_where, true),
+            Some(PathBuf::from("C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode.cmd"))
+        );
+
+        let exe_and_cmd = "C:\\tools\\claude.cmd\r\nC:\\tools\\claude.exe\r\n";
+        assert_eq!(
+            select_best_cli_candidate(exe_and_cmd, true),
+            Some(PathBuf::from("C:\\tools\\claude.exe"))
+        );
+
+        let sh_only = "C:\\Users\\alice\\AppData\\Roaming\\npm\\opencode\r\n";
+        assert_eq!(select_best_cli_candidate(sh_only, true), None);
+
+        assert_eq!(
+            select_best_cli_candidate("/opt/homebrew/bin/claude\n/usr/local/bin/claude\n", false),
+            Some(PathBuf::from("/opt/homebrew/bin/claude"))
+        );
     }
 }
