@@ -6,6 +6,7 @@ import type {
 } from "@tiptap/core";
 
 const BR_HTML_RE = /^<br\s*\/?>$/i;
+const TASK_PREFIX_RE = /^\s*[-*+]\s+\[([ xX])\](?:\s+(.*)|\s*$)/;
 
 interface MarkedTableCell {
   text: string;
@@ -21,8 +22,61 @@ interface MarkedTableToken extends MarkdownToken {
 }
 
 /**
+ * Split a table cell's inline token stream into line segments separated by `<br>` / `br` tokens.
+ */
+function splitTokensOnBr(tokens: MarkdownToken[]): MarkdownToken[][] {
+  const segments: MarkdownToken[][] = [];
+  let current: MarkdownToken[] = [];
+
+  for (const token of tokens) {
+    const raw = (token.raw ?? token.text ?? "").trim();
+    if (
+      token.type === "br" ||
+      (token.type === "html" && BR_HTML_RE.test(raw))
+    ) {
+      segments.push(current);
+      current = [];
+    } else {
+      current.push(token);
+    }
+  }
+  segments.push(current);
+  return segments;
+}
+
+/**
+ * Check whether a line segment begins with a GFM task item marker (`- [ ] ` / `- [x] `).
+ * If so, return `{ checked, restTokens }`; otherwise return `null`.
+ */
+function extractTaskItemSegment(
+  segment: MarkdownToken[],
+): { checked: boolean; restTokens: MarkdownToken[] } | null {
+  if (segment.length === 0) return null;
+  const first = segment[0];
+  if (first.type !== "text") return null;
+
+  const text = first.text ?? first.raw ?? "";
+  const match = text.match(TASK_PREFIX_RE);
+  if (!match) return null;
+
+  const checked = match[1].toLowerCase() === "x";
+  const remainder = match[2] ?? "";
+  const restTokens: MarkdownToken[] = [];
+  if (remainder.length > 0) {
+    restTokens.push({
+      ...first,
+      raw: remainder,
+      text: remainder,
+    });
+  }
+  restTokens.push(...segment.slice(1));
+  return { checked, restTokens };
+}
+
+/**
  * Parse inline tokens for a table cell, converting `<br>` / `<br/>` HTML tokens
- * into TipTap `hardBreak` nodes so manual line breaks survive Markdown round-trips.
+ * into TipTap `hardBreak` nodes and reconstructing `taskList` / `taskItem` nodes
+ * from `- [ ]` / `- [x]` cell lines so both survive Markdown round-trips.
  */
 function parseTableCellTokens(
   tokens: MarkdownToken[] | undefined,
@@ -39,36 +93,56 @@ function parseTableCellTokens(
     return [h.createNode("paragraph", {}, [])];
   }
 
-  const inlineNodes: JSONContent[] = [];
-  let chunk: MarkdownToken[] = [];
+  const segments = splitTokensOnBr(tokens);
+  const blocks: JSONContent[] = [];
+  let pendingParagraphInline: JSONContent[] | null = null;
+  let pendingTaskItems: JSONContent[] = [];
 
-  const flushChunk = () => {
-    if (chunk.length > 0) {
-      inlineNodes.push(...h.parseInline(chunk));
-      chunk = [];
+  const flushParagraph = () => {
+    if (pendingParagraphInline !== null) {
+      blocks.push(h.createNode("paragraph", {}, pendingParagraphInline));
+      pendingParagraphInline = null;
     }
   };
 
-  for (const token of tokens) {
-    const raw = (token.raw ?? token.text ?? "").trim();
-    if (
-      token.type === "br" ||
-      (token.type === "html" && BR_HTML_RE.test(raw))
-    ) {
-      flushChunk();
-      inlineNodes.push(h.createNode("hardBreak", {}));
+  const flushTaskList = () => {
+    if (pendingTaskItems.length > 0) {
+      blocks.push(h.createNode("taskList", {}, pendingTaskItems));
+      pendingTaskItems = [];
+    }
+  };
+
+  for (const segment of segments) {
+    const task = extractTaskItemSegment(segment);
+    if (task) {
+      flushParagraph();
+      const inline =
+        task.restTokens.length > 0 ? h.parseInline(task.restTokens) : [];
+      pendingTaskItems.push(
+        h.createNode("taskItem", { checked: task.checked }, [
+          h.createNode("paragraph", {}, inline),
+        ]),
+      );
     } else {
-      chunk.push(token);
+      flushTaskList();
+      const inline = segment.length > 0 ? h.parseInline(segment) : [];
+      if (pendingParagraphInline === null) {
+        pendingParagraphInline = [...inline];
+      } else {
+        pendingParagraphInline.push(h.createNode("hardBreak", {}), ...inline);
+      }
     }
   }
-  flushChunk();
 
-  return [h.createNode("paragraph", {}, inlineNodes)];
+  flushParagraph();
+  flushTaskList();
+
+  return blocks.length > 0 ? blocks : [h.createNode("paragraph", {}, [])];
 }
 
 /**
  * Serialize a single table cell's JSON content into GFM-safe inline Markdown,
- * preserving `hardBreak` and multiple paragraphs as `<br>`.
+ * preserving `hardBreak`, multiple paragraphs, and `taskList` items via `<br>`.
  */
 function serializeCellContent(
   cellNode: JSONContent,
@@ -77,16 +151,36 @@ function serializeCellContent(
   const children = cellNode.content ?? [];
   if (children.length === 0) return "";
 
-  const renderedBlocks = children.map((child) => {
-    const rendered = h.renderChildren(child);
-    // Preserve explicit line breaks from HardBreak (`  \n`, `\\\n`, or `\n`) as `<br>`
-    return rendered
-      .replace(/(?: {2}|\\)\r?\n/g, "<br>")
-      .replace(/\r?\n/g, "<br>")
-      .trim();
-  });
+  const renderedBlocks = children
+    .map((child) => {
+      if (child.type === "taskList") {
+        const items = (child.content ?? []).map((item) => {
+          const checked = Boolean(item.attrs?.checked);
+          const itemText = (item.content ?? [])
+            .map((p) =>
+              h
+                .renderChildren(p)
+                .replace(/(?: {2}|\\)\r?\n/g, "<br>")
+                .replace(/\r?\n/g, "<br>")
+                .trim(),
+            )
+            .filter(Boolean)
+            .join("<br>");
+          return `- [${checked ? "x" : " "}] ${itemText}`.trimEnd();
+        });
+        return items.join("<br>");
+      }
 
-  // Join multi-paragraph cells with `<br>` and collapse horizontal runs of spaces
+      const rendered = h.renderChildren(child);
+      // Preserve explicit line breaks from HardBreak (`  \n`, `\\\n`, or `\n`) as `<br>`
+      return rendered
+        .replace(/(?: {2}|\\)\r?\n/g, "<br>")
+        .replace(/\r?\n/g, "<br>")
+        .trim();
+    })
+    .filter((block) => block.length > 0);
+
+  // Join multi-block cells with `<br>` and collapse horizontal runs of spaces
   return renderedBlocks
     .join("<br>")
     .replace(/[ \t]+/g, " ")
