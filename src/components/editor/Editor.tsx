@@ -17,7 +17,6 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
 import { TableKit } from "@tiptap/extension-table";
 import { Markdown } from "@tiptap/markdown";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -69,6 +68,7 @@ import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
+import { ScratchTaskItem } from "./TaskItemExtension";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -548,6 +548,24 @@ export function Editor({
   const notes = notesCtx?.notes;
   const { textDirection } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
+  // Screen-reader live announcement for Return/Enter key (VoiceOver accessibility)
+  const [srAnnouncement, setSrAnnouncement] = useState("");
+  const srToggleRef = useRef(false);
+  const srClearTimeoutRef = useRef<number | null>(null);
+  const announceNewLine = useCallback(() => {
+    if (srClearTimeoutRef.current) {
+      clearTimeout(srClearTimeoutRef.current);
+    }
+    srToggleRef.current = !srToggleRef.current;
+    // Alternate trailing zero-width space so consecutive Return presses are each announced
+    setSrAnnouncement(srToggleRef.current ? "New line" : "New line\u200B");
+    srClearTimeoutRef.current = window.setTimeout(() => {
+      setSrAnnouncement("");
+      srClearTimeoutRef.current = null;
+    }, 600);
+  }, []);
+  const announceNewLineRef = useRef(announceNewLine);
+  announceNewLineRef.current = announceNewLine;
   // Force re-render when selection changes to update toolbar active states
   const [, setSelectionKey] = useState(0);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
@@ -592,6 +610,11 @@ export function Editor({
   const currentNoteIdRef = useRef<string | null>(null);
   // Track if we need to save (use ref to avoid computing markdown on every keystroke)
   const needsSaveRef = useRef(false);
+  const needsSourceSaveRef = useRef(false);
+  const saveNoteRef = useRef(saveNote);
+  saveNoteRef.current = saveNote;
+  const sourceContentRef = useRef(sourceContent);
+  sourceContentRef.current = sourceContent;
   // Stable refs for wikilink click handler (avoids re-registering listener on every notes change)
   const notesRef = useRef(notes);
   notesRef.current = notes;
@@ -747,8 +770,19 @@ export function Editor({
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
+    if (sourceTimeoutRef.current) {
+      clearTimeout(sourceTimeoutRef.current);
+      sourceTimeoutRef.current = null;
+    }
 
     // Use loadedNoteIdRef (the note in the editor) not currentNoteIdRef (which may have changed)
+    if (needsSourceSaveRef.current && loadedNoteIdRef.current) {
+      needsSourceSaveRef.current = false;
+      needsSaveRef.current = false;
+      await saveImmediately(loadedNoteIdRef.current, sourceContentRef.current);
+      return;
+    }
+
     if (needsSaveRef.current && editorRef.current && loadedNoteIdRef.current) {
       needsSaveRef.current = false;
       const markdown = getMarkdown(editorRef.current);
@@ -1099,7 +1133,7 @@ export function Editor({
         allowBase64: false,
       }),
       TaskList,
-      TaskItem.configure({
+      ScratchTaskItem.configure({
         nested: true,
       }),
       TableKit.configure({
@@ -1138,32 +1172,43 @@ export function Editor({
         autocorrect: "on",
         autocapitalize: "sentences",
       },
-      // Serialize copied text as markdown instead of plain text
+      // Serialize copied text as clean plain text for text/plain clipboard targets
+      // (ProseMirror still writes rich text/html automatically for rich-text targets)
       clipboardTextSerializer: (slice) => {
-        const fallback = slice.content.textBetween(
-          0,
-          slice.content.size,
-          "\n\n",
-        );
-        const currentEditor = editorRef.current;
-        const manager = currentEditor?.storage.markdown?.manager;
-        if (!currentEditor || !manager) return fallback;
-        try {
-          const doc = currentEditor.schema.topNodeType.create(
-            null,
-            slice.content,
-          );
-          return manager.serialize(doc.toJSON());
-        } catch {
-          return fallback;
+        // Direct selection inside a single code block: preserve exact code text without fences
+        if (
+          slice.content.childCount === 1 &&
+          slice.content.firstChild?.type.name === "codeBlock"
+        ) {
+          return slice.content.firstChild.textContent;
         }
+        return slice.content.textBetween(0, slice.content.size, "\n\n", (node) => {
+          if (node.type.name === "hardBreak") return "\n";
+          if (node.type.name === "wikilink") return String(node.attrs.noteTitle ?? "");
+          if (node.type.name === "blockMath") return String(node.attrs.latex ?? "");
+          return "";
+        });
       },
-      // Trap Tab key inside the editor
-      handleKeyDown: (_view, event) => {
+      // Trap Tab key inside the editor and announce Return for screen readers (VoiceOver)
+      handleKeyDown: (view, event) => {
         if (event.key === "Tab") {
           // Allow default tab behavior (indent in lists, etc.)
           // but prevent focus from leaving the editor
           return false;
+        }
+        if (
+          event.key === "Enter" &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.isComposing
+        ) {
+          const prevDoc = view.state.doc;
+          requestAnimationFrame(() => {
+            if (view.state.doc !== prevDoc) {
+              announceNewLineRef.current();
+            }
+          });
         }
         return false;
       },
@@ -1216,6 +1261,13 @@ export function Editor({
             reader.readAsDataURL(blob);
             return true; // Handled
           }
+        }
+
+        // Let ProseMirror handle internal rich-text pastes directly (preserves code blocks,
+        // tables, lists, etc. without misinterpreting code comments as Markdown)
+        const html = clipboardData.getData("text/html");
+        if (html && html.includes("data-pm-slice")) {
+          return false;
         }
 
         // Handle markdown text paste
@@ -1466,12 +1518,13 @@ export function Editor({
     }
 
     // Flush any pending save before switching to a different note
-    if (!isSameNote && needsSaveRef.current) {
+    if (!isSameNote && (needsSaveRef.current || needsSourceSaveRef.current)) {
       flushPendingSave();
     }
     // Reset source mode when genuinely switching notes (renames return early above)
     if (!isSameNote) {
       setSourceMode(false);
+      needsSourceSaveRef.current = false;
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
         sourceTimeoutRef.current = null;
@@ -1584,16 +1637,29 @@ export function Editor({
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
       }
-      // Flush any pending save before unmounting
-      if (needsSaveRef.current && editorRef.current) {
+      if (sourceTimeoutRef.current) {
+        clearTimeout(sourceTimeoutRef.current);
+        sourceTimeoutRef.current = null;
+      }
+      const noteId = loadedNoteIdRef.current;
+      // Flush any pending source-mode save before unmounting
+      if (needsSourceSaveRef.current && noteId) {
+        needsSourceSaveRef.current = false;
+        needsSaveRef.current = false;
+        saveNoteRef.current(sourceContentRef.current, noteId);
+      } else if (needsSaveRef.current && editorRef.current && noteId) {
+        // Flush any pending WYSIWYG save before unmounting
         needsSaveRef.current = false;
         const manager = editorRef.current.storage.markdown?.manager;
         const markdown = manager
-          ? manager.serialize(editorRef.current.getJSON())
+          ? manager
+              .serialize(editorRef.current.getJSON())
+              .replace(/&nbsp;|&#160;/g, " ")
           : editorRef.current.getText();
         // Fire and forget - save will complete in background
-        saveNote(markdown);
+        saveNoteRef.current(markdown, noteId);
       }
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
@@ -1601,9 +1667,12 @@ export function Editor({
       if (blockMathPopupRef.current) {
         blockMathPopupRef.current.destroy();
       }
+      if (srClearTimeoutRef.current) {
+        clearTimeout(srClearTimeoutRef.current);
+        srClearTimeoutRef.current = null;
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run cleanup on unmount, not when saveNote changes
+  }, []); // Only run cleanup on unmount; latest handlers/state read from refs
 
   // Link handlers - show inline popup at cursor position
   const handleAddLink = useCallback(() => {
@@ -2121,15 +2190,20 @@ export function Editor({
   const handleSourceChange = useCallback(
     (value: string) => {
       setSourceContent(value);
+      sourceContentRef.current = value;
+      needsSourceSaveRef.current = true;
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
       }
+      const savingNoteId = loadedNoteIdRef.current ?? currentNote?.id;
       sourceTimeoutRef.current = window.setTimeout(async () => {
-        if (currentNote) {
+        sourceTimeoutRef.current = null;
+        if (savingNoteId && needsSourceSaveRef.current) {
+          needsSourceSaveRef.current = false;
           setIsSaving(true);
           try {
-            lastSaveRef.current = { noteId: currentNote.id, content: value };
-            await saveNote(value, currentNote.id);
+            lastSaveRef.current = { noteId: savingNoteId, content: value };
+            await saveNoteRef.current(value, savingNoteId);
           } catch (error) {
             console.error("Failed to save note:", error);
             toast.error("Failed to save note");
@@ -2139,7 +2213,7 @@ export function Editor({
         }
       }, 300);
     },
-    [currentNote, saveNote],
+    [currentNote?.id],
   );
 
   if (!currentNote) {
@@ -2233,6 +2307,10 @@ export function Editor({
 
   return (
     <div className="flex-1 flex flex-col bg-bg overflow-hidden">
+      {/* Screen-reader live region for VoiceOver new-line feedback */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {srAnnouncement}
+      </div>
       {/* Drag region with sidebar toggle, date and save status */}
       <div
         className={cn(
@@ -2242,6 +2320,8 @@ export function Editor({
         data-tauri-drag-region
       >
         <div
+          aria-hidden={Boolean(focusMode)}
+          inert={Boolean(focusMode)}
           className={`titlebar-no-drag flex items-center gap-1 min-w-0 transition-opacity duration-400 ${needsSidebarDelay ? "delay-200" : ""} ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
         >
           {onToggleSidebar && (
@@ -2262,6 +2342,8 @@ export function Editor({
           </span>
         </div>
         <div
+          aria-hidden={Boolean(focusMode)}
+          inert={Boolean(focusMode)}
           className={`titlebar-no-drag flex items-center gap-px shrink-0 transition-opacity duration-400 ${needsSidebarDelay ? "delay-200" : ""} ${focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
         >
           {hasExternalChanges ? (
@@ -2434,6 +2516,8 @@ export function Editor({
       {/* Format Bar – transition only after initial mount to avoid height animation on note load */}
       <div
         data-format-bar
+        aria-hidden={Boolean(focusMode || sourceMode)}
+        inert={Boolean(focusMode || sourceMode)}
         className={`${focusMode || sourceMode ? "opacity-0 max-h-0 overflow-hidden pointer-events-none" : "opacity-100 max-h-20"} ${hasTransitioned ? `transition-all duration-400 ${needsSidebarDelay ? "delay-200" : ""}` : ""}`}
       >
         <FormatBar

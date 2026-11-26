@@ -24,12 +24,20 @@ export const WikilinkSuggestion = Extension.create({
         allowSpaces: true,
         startOfLine: false,
 
-        allow: ({ editor }) => {
-          return (
-            !editor.isActive("codeBlock") &&
-            !editor.isActive("frontmatter") &&
-            !editor.isActive("code")
-          );
+        allow: ({ editor, state, range }) => {
+          if (
+            editor.isActive("codeBlock") ||
+            editor.isActive("frontmatter") ||
+            editor.isActive("code")
+          ) {
+            return false;
+          }
+          // Close suggestion once the wikilink has been closed with `]]` or spans a newline
+          const text = state.doc.textBetween(range.from, range.to, "\n");
+          if (text.includes("]]") || text.includes("\n")) {
+            return false;
+          }
+          return true;
         },
 
         items: ({ query }) => {
