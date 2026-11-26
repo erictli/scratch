@@ -450,21 +450,68 @@ fn is_effectively_empty(s: &str) -> bool {
 }
 
 /// Strip YAML frontmatter (leading `---` ... `---` block) from content.
+/// Strictly requires an exact `---` delimiter line at the start of the file,
+/// a standalone closing `---` line, and YAML-like content (preventing leading
+/// horizontal rules like `---` or `----` from stripping note content).
 fn strip_frontmatter(content: &str) -> &str {
-    let trimmed = content.trim_start();
-    if trimmed.starts_with("---") {
-        // Find the closing --- (skip the opening line)
-        if let Some(rest) = trimmed.strip_prefix("---") {
-            if let Some(end) = rest.find("\n---") {
-                // Skip past closing --- and the newline after it (handle CRLF)
-                let after_close = &rest[end + 4..];
-                return after_close
-                    .strip_prefix("\r\n")
-                    .or_else(|| after_close.strip_prefix('\n'))
-                    .unwrap_or(after_close);
+    let s = content.strip_prefix('\u{FEFF}').unwrap_or(content);
+
+    // Opening line must be exactly `---` followed by optional spaces/tabs and a newline
+    let first_nl = match s.find('\n') {
+        Some(idx) => idx,
+        None => return content,
+    };
+    let opening_line = s[..first_nl].trim_end_matches('\r');
+    if opening_line.trim_end_matches([' ', '\t']) != "---" {
+        return content;
+    }
+
+    let mut pos = first_nl + 1;
+    let body_start = pos;
+    let mut first_inner_line: Option<&str> = None;
+    let mut has_yaml_key = false;
+
+    while pos <= s.len() {
+        let rest = &s[pos..];
+        let (line_raw, next_pos) = match rest.find('\n') {
+            Some(rel_nl) => (&rest[..rel_nl], pos + rel_nl + 1),
+            None => (rest, s.len() + 1),
+        };
+        let line = line_raw.trim_end_matches('\r');
+
+        if line.trim_end_matches([' ', '\t']) == "---" {
+            let is_empty_block = pos == body_start;
+            let starts_with_blank = first_inner_line.map(|l| l.trim().is_empty()).unwrap_or(false);
+            if is_empty_block || (!starts_with_blank && has_yaml_key) {
+                return if next_pos <= s.len() {
+                    &s[next_pos..]
+                } else {
+                    ""
+                };
+            }
+            return content;
+        }
+
+        if first_inner_line.is_none() {
+            first_inner_line = Some(line);
+        }
+
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+            if let Some(colon_idx) = trimmed.find(':') {
+                let key = &trimmed[..colon_idx];
+                if !key.is_empty() && !key.contains(char::is_whitespace) {
+                    has_yaml_key = true;
+                }
             }
         }
+
+        if next_pos > s.len() {
+            break;
+        }
+        pos = next_pos;
     }
+
     content
 }
 
@@ -4078,4 +4125,27 @@ fn set_title_bar_theme(
         let _ = (app, is_dark, r, g, b);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_frontmatter_handles_valid_yaml_and_ignores_horizontal_rules() {
+        let yaml = "---\ntitle: My Note\ntags: [work]\n---\n# Real Heading\n\nBody text";
+        assert_eq!(extract_title(yaml), "Real Heading");
+
+        let crlf_yaml = "---\r\nauthor: Alice\r\n---\r\n# CRLF Heading\r\n";
+        assert_eq!(extract_title(crlf_yaml), "CRLF Heading");
+
+        let four_dashes = "----\ntitle: Not YAML\n----\n# After";
+        assert_eq!(strip_frontmatter(four_dashes), four_dashes);
+
+        let leading_hr = "---\n\n# Real Heading\n\n---\n\nFooter";
+        assert_eq!(strip_frontmatter(leading_hr), leading_hr);
+
+        let hr_around_text = "---\nJust a regular sentence\n---\n";
+        assert_eq!(strip_frontmatter(hr_around_text), hr_around_text);
+    }
 }
