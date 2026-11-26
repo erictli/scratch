@@ -1025,6 +1025,37 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
     })
 }
 
+/// Check whether two existing paths refer to the exact same file on disk
+/// (e.g., case-only filename differences on macOS APFS or Windows NTFS).
+fn paths_refer_to_same_file(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) {
+            return ma.dev() == mb.dev() && ma.ino() == mb.ino();
+        }
+        false
+    }
+    #[cfg(windows)]
+    {
+        if a.exists() && b.exists() {
+            if let (Ok(ca), Ok(cb)) = (a.canonicalize(), b.canonicalize()) {
+                return ca
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&cb.to_string_lossy());
+            }
+        }
+        false
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        false
+    }
+}
+
 #[tauri::command]
 async fn save_note(
     id: Option<String>,
@@ -1043,8 +1074,8 @@ async fn save_note(
     let title = extract_title(&content);
     let sanitized_leaf = sanitize_filename(&title);
 
-    // Determine the file ID and path, handling renames
-    let (final_id, file_path, old_id) = if let Some(existing_id) = id {
+    // Determine the file ID and path, handling renames (including case-only renames)
+    let (final_id, file_path, old_id, is_case_only_same_file) = if let Some(existing_id) = id {
         // Preserve directory prefix for notes in subfolders
         let (dir_prefix, desired_id) = if let Some(pos) = existing_id.rfind('/') {
             let prefix = &existing_id[..pos];
@@ -1056,26 +1087,33 @@ async fn save_note(
         let old_file_path = abs_path_from_id(&folder_path, &existing_id)?;
 
         if existing_id != desired_id {
-            let mut new_id = desired_id.clone();
-            let mut counter = 1;
+            let desired_path = abs_path_from_id(&folder_path, &desired_id)?;
+            if old_file_path.exists() && paths_refer_to_same_file(&old_file_path, &desired_path) {
+                (desired_id, desired_path, Some((existing_id, old_file_path)), true)
+            } else {
+                let mut new_id = desired_id.clone();
+                let mut counter = 1;
 
-            while new_id != existing_id
-                && abs_path_from_id(&folder_path, &new_id)
-                    .map(|p| p.exists())
-                    .unwrap_or(false)
-            {
-                new_id = if let Some(ref prefix) = dir_prefix {
-                    format!("{}/{}-{}", prefix, sanitized_leaf, counter)
-                } else {
-                    format!("{}-{}", sanitized_leaf, counter)
-                };
-                counter += 1;
+                while new_id != existing_id
+                    && abs_path_from_id(&folder_path, &new_id)
+                        .map(|p| p.exists() && !paths_refer_to_same_file(&old_file_path, &p))
+                        .unwrap_or(false)
+                {
+                    new_id = if let Some(ref prefix) = dir_prefix {
+                        format!("{}/{}-{}", prefix, sanitized_leaf, counter)
+                    } else {
+                        format!("{}-{}", sanitized_leaf, counter)
+                    };
+                    counter += 1;
+                }
+
+                let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
+                let same_file = old_file_path.exists()
+                    && paths_refer_to_same_file(&old_file_path, &new_file_path);
+                (new_id, new_file_path, Some((existing_id, old_file_path)), same_file)
             }
-
-            let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
-            (new_id, new_file_path, Some((existing_id, old_file_path)))
         } else {
-            (existing_id, old_file_path, None)
+            (existing_id, old_file_path, None, false)
         }
     } else {
         // New notes go in root
@@ -1091,18 +1129,45 @@ async fn save_note(
         }
 
         let new_file_path = abs_path_from_id(&folder_path, &new_id)?;
-        (new_id, new_file_path, None)
+        (new_id, new_file_path, None, false)
     };
 
-    // Write the file to the new path
-    fs::write(&file_path, &content)
-        .await
-        .map_err(|e| e.to_string())?;
+    if is_case_only_same_file {
+        // On case-insensitive filesystems (APFS/NTFS), perform a two-step rename
+        // so the on-disk filename casing updates without deleting the file itself.
+        if let Some((_, ref old_file_path)) = old_id {
+            fs::write(old_file_path, &content)
+                .await
+                .map_err(|e| e.to_string())?;
+            if let Some(parent) = file_path.parent() {
+                let unique = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                let tmp_path = parent.join(format!(".scratch-rename-{}.tmp", unique));
+                if fs::rename(old_file_path, &tmp_path).await.is_ok() {
+                    if let Err(e) = fs::rename(&tmp_path, &file_path).await {
+                        // Roll back temporary rename if final rename fails
+                        let _ = fs::rename(&tmp_path, old_file_path).await;
+                        return Err(e.to_string());
+                    }
+                }
+            }
+        }
+    } else {
+        // Write the file to the new path
+        fs::write(&file_path, &content)
+            .await
+            .map_err(|e| e.to_string())?;
 
-    // Delete old file AFTER successful write (to prevent data loss)
-    if let Some((_, ref old_file_path)) = old_id {
-        if old_file_path.exists() && *old_file_path != file_path {
-            let _ = fs::remove_file(old_file_path).await;
+        // Delete old file AFTER successful write (to prevent data loss)
+        if let Some((_, ref old_file_path)) = old_id {
+            if old_file_path.exists()
+                && *old_file_path != file_path
+                && !paths_refer_to_same_file(old_file_path, &file_path)
+            {
+                let _ = fs::remove_file(old_file_path).await;
+            }
         }
     }
 
@@ -1127,10 +1192,21 @@ async fn save_note(
         }
     }
 
-    // Update cache (remove old entry if renamed)
-    if let Some((ref old_id_str, _)) = old_id {
+    // Update cache (remove old entry if renamed and upsert saved metadata)
+    {
         let mut cache = state.notes_cache.write().expect("cache write lock");
-        cache.remove(old_id_str);
+        if let Some((ref old_id_str, _)) = old_id {
+            cache.remove(old_id_str);
+        }
+        cache.insert(
+            final_id.clone(),
+            NoteMetadata {
+                id: final_id.clone(),
+                title: title.clone(),
+                preview: generate_preview(&content),
+                modified,
+            },
+        );
     }
 
     Ok(Note {
