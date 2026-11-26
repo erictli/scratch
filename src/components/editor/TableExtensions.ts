@@ -1,9 +1,58 @@
 import { Table } from "@tiptap/extension-table";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
 import type {
   JSONContent,
   MarkdownRendererHelpers,
   MarkdownToken,
 } from "@tiptap/core";
+
+export type TableColumnAlign = "left" | "center" | "right" | null;
+
+function normalizeAlign(value: unknown): TableColumnAlign {
+  if (value === "left" || value === "center" || value === "right") {
+    return value;
+  }
+  return null;
+}
+
+const textAlignAttribute = {
+  textAlign: {
+    default: null as TableColumnAlign,
+    parseHTML: (element: HTMLElement) =>
+      normalizeAlign(
+        element.style.textAlign ||
+          element.getAttribute("data-align") ||
+          element.getAttribute("align"),
+      ),
+    renderHTML: (attributes: Record<string, unknown>) => {
+      const align = normalizeAlign(attributes.textAlign);
+      if (!align) return {};
+      return {
+        style: `text-align: ${align}`,
+        "data-align": align,
+      };
+    },
+  },
+};
+
+export const ScratchTableCell = TableCell.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      ...textAlignAttribute,
+    };
+  },
+});
+
+export const ScratchTableHeader = TableHeader.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      ...textAlignAttribute,
+    };
+  },
+});
 
 const BR_HTML_RE = /^<br\s*\/?>$/i;
 const TASK_PREFIX_RE = /^\s*[-*+]\s+\[([ xX])\](?:\s+(.*)|\s*$)/;
@@ -187,23 +236,48 @@ function serializeCellContent(
     .trim();
 }
 
+function formatAlignmentSeparator(width: number, align: TableColumnAlign): string {
+  const minW = Math.max(3, width);
+  switch (align) {
+    case "left":
+      return `:${"-".repeat(Math.max(3, minW - 1))}`;
+    case "center":
+      return `:${"-".repeat(Math.max(3, minW - 2))}:`;
+    case "right":
+      return `${"-".repeat(Math.max(3, minW - 1))}:`;
+    default:
+      return "-".repeat(minW);
+  }
+}
+
 export const ScratchTable = Table.extend({
   parseMarkdown(token, h) {
     const tableToken = token as MarkedTableToken;
+    const colAligns = tableToken.align ?? [];
     const rows: JSONContent[] = [];
 
     if (tableToken.header) {
-      const headerCells = tableToken.header.map((cell) =>
-        h.createNode("tableHeader", {}, parseTableCellTokens(cell.tokens, h)),
-      );
+      const headerCells = tableToken.header.map((cell, colIdx) => {
+        const align = normalizeAlign(colAligns[colIdx] ?? cell.align);
+        return h.createNode(
+          "tableHeader",
+          align ? { textAlign: align } : {},
+          parseTableCellTokens(cell.tokens, h),
+        );
+      });
       rows.push(h.createNode("tableRow", {}, headerCells));
     }
 
     if (tableToken.rows) {
       for (const row of tableToken.rows) {
-        const bodyCells = row.map((cell) =>
-          h.createNode("tableCell", {}, parseTableCellTokens(cell.tokens, h)),
-        );
+        const bodyCells = row.map((cell, colIdx) => {
+          const align = normalizeAlign(colAligns[colIdx] ?? cell.align);
+          return h.createNode(
+            "tableCell",
+            align ? { textAlign: align } : {},
+            parseTableCellTokens(cell.tokens, h),
+          );
+        });
         rows.push(h.createNode("tableRow", {}, bodyCells));
       }
     }
@@ -216,13 +290,20 @@ export const ScratchTable = Table.extend({
       return "";
     }
 
-    const rows: Array<Array<{ text: string; isHeader: boolean }>> = [];
+    const rows: Array<
+      Array<{ text: string; isHeader: boolean; align: TableColumnAlign }>
+    > = [];
     for (const rowNode of node.content) {
-      const cells: Array<{ text: string; isHeader: boolean }> = [];
+      const cells: Array<{
+        text: string;
+        isHeader: boolean;
+        align: TableColumnAlign;
+      }> = [];
       for (const cellNode of rowNode.content ?? []) {
         cells.push({
           text: serializeCellContent(cellNode, h),
           isHeader: cellNode.type === "tableHeader",
+          align: normalizeAlign(cellNode.attrs?.textAlign),
         });
       }
       rows.push(cells);
@@ -232,10 +313,15 @@ export const ScratchTable = Table.extend({
     if (columnCount === 0) return "";
 
     const colWidths = new Array<number>(columnCount).fill(3);
+    const colAligns = new Array<TableColumnAlign>(columnCount).fill(null);
     for (const row of rows) {
       for (let i = 0; i < columnCount; i++) {
-        const len = (row[i]?.text ?? "").length;
+        const cell = row[i];
+        const len = (cell?.text ?? "").length;
         if (len > colWidths[i]) colWidths[i] = len;
+        if (colAligns[i] === null && cell?.align) {
+          colAligns[i] = cell.align;
+        }
       }
     }
 
@@ -250,7 +336,7 @@ export const ScratchTable = Table.extend({
 
     let out = "\n";
     out += `| ${headerTexts.map((t, i) => pad(t, colWidths[i])).join(" | ")} |\n`;
-    out += `| ${colWidths.map((w) => "-".repeat(Math.max(3, w))).join(" | ")} |\n`;
+    out += `| ${colWidths.map((w, i) => formatAlignmentSeparator(w, colAligns[i])).join(" | ")} |\n`;
 
     const bodyRows = hasHeader ? rows.slice(1) : rows;
     for (const row of bodyRows) {
