@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getSettings, updateSettings } from "../services/notes";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
 import type {
@@ -377,15 +378,32 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, [sidebarWidthPx]);
 
-  // Apply interface zoom whenever it changes (suppress transitions during zoom)
+  // Apply interface zoom using native Tauri WebView zoom instead of CSS `zoom`.
+  // CSS `documentElement.style.zoom` causes Floating UI / Radix UI tooltips and
+  // context menus to be misplaced on Windows (Chromium/WebView2) due to coordinate
+  // space mismatches between clientX/clientY and getBoundingClientRect().
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("zoom-no-transition");
-    root.style.zoom = String(interfaceZoom);
+    root.style.zoom = "";
+
+    let cancelled = false;
+    getCurrentWebview()
+      .setZoom(interfaceZoom)
+      .catch(() => {
+        // Fallback for non-Tauri browser dev preview only
+        if (!cancelled) {
+          root.style.zoom = interfaceZoom === 1 ? "" : String(interfaceZoom);
+        }
+      });
+
     const raf = requestAnimationFrame(() => {
       root.classList.remove("zoom-no-transition");
     });
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
   }, [interfaceZoom]);
 
   // Save font settings to backend

@@ -476,7 +476,7 @@ function AppContent() {
             <div
               data-sidebar
               style={{ width: (!sidebarVisible || focusMode) ? 0 : `var(--sidebar-width, ${SIDEBAR_DEFAULT_PX}px)` }}
-              className={`relative transition-all duration-500 ease-out overflow-hidden ${!sidebarVisible || focusMode ? "opacity-0 -translate-x-4 pointer-events-none" : "opacity-100 translate-x-0"}`}
+              className={`relative transition-[width,opacity] duration-500 ease-out overflow-hidden ${!sidebarVisible || focusMode ? "opacity-0 pointer-events-none" : "opacity-100"}`}
             >
               <Sidebar onOpenSettings={toggleSettings} />
               {sidebarVisible && !focusMode && <SidebarResizeHandle />}
