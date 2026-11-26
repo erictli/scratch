@@ -69,6 +69,7 @@ import { Wikilink, type WikilinkStorage } from "./Wikilink";
 import { WikilinkSuggestion } from "./WikilinkSuggestion";
 import { EditorWidthHandles } from "./EditorWidthHandle";
 import { ScratchBlockMath, normalizeBlockMath } from "./MathExtensions";
+import { ScratchTable } from "./TableExtensions";
 import { cn } from "../../lib/utils";
 import { plainTextFromMarkdown } from "../../lib/plainText";
 import { Button, IconButton, ToolbarButton, Tooltip } from "../ui";
@@ -1103,11 +1104,12 @@ export function Editor({
         nested: true,
       }),
       TableKit.configure({
-        table: {
-          resizable: false,
-          HTMLAttributes: {
-            class: "not-prose",
-          },
+        table: false,
+      }),
+      ScratchTable.configure({
+        resizable: false,
+        HTMLAttributes: {
+          class: "not-prose",
         },
       }),
       Frontmatter,
