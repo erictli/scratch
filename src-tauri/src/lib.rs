@@ -1801,9 +1801,45 @@ fn update_git_enabled(
     Ok(())
 }
 
+fn validate_export_markdown_path(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Export path cannot be empty".to_string());
+    }
+
+    let file_path = PathBuf::from(trimmed);
+    for component in file_path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err("Invalid export path: parent directory references not allowed".to_string());
+        }
+    }
+
+    if !is_markdown_extension(&file_path) {
+        return Err("Only .md and .markdown files can be exported".to_string());
+    }
+
+    let parent = file_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| "Invalid export path: missing parent directory".to_string())?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|_| "Export destination directory does not exist".to_string())?;
+    if !canonical_parent.is_dir() {
+        return Err("Export destination parent is not a directory".to_string());
+    }
+
+    let file_name = file_path
+        .file_name()
+        .ok_or_else(|| "Invalid export path: missing filename".to_string())?;
+
+    Ok(canonical_parent.join(file_name))
+}
+
 #[tauri::command]
 async fn write_file(path: String, contents: Vec<u8>) -> Result<(), String> {
-    fs::write(&path, contents)
+    let target = validate_export_markdown_path(&path)?;
+    fs::write(&target, contents)
         .await
         .map_err(|_| "Failed to write file".to_string())
 }
