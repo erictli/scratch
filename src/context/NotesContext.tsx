@@ -12,6 +12,21 @@ import { listen } from "@tauri-apps/api/event";
 import type { Note, NoteMetadata } from "../types/note";
 import * as notesService from "../services/notes";
 import type { SearchResult } from "../services/notes";
+import { plainTextFromMarkdown } from "../lib/plainText";
+
+function derivePreview(content: string): string {
+  // Strip optional leading YAML frontmatter before taking the first body line
+  const body = content.replace(/^(?:\uFEFF)?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, "");
+  const lines = body.split(/\r?\n/);
+  for (let i = 1; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed) {
+      const plain = plainTextFromMarkdown(trimmed).trim();
+      if (plain) return plain.slice(0, 100);
+    }
+  }
+  return "";
+}
 
 // Separate contexts to prevent unnecessary re-renders
 // Data context: changes frequently, only subscribed by components that need the data
@@ -232,15 +247,37 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           return prevId;
         });
 
-        // Schedule refresh with debounce - avoids blocking typing during rapid saves
-        scheduleRefresh();
+        // Update notes list metadata in place instead of triggering a full vault
+        // directory scan (list_notes) on every auto-save — prevents severe typing lag
+        // on cloud-synced folders such as iCloud Drive.
+        const updatedPreview = derivePreview(updated.content);
+        const existsInList = notesRef.current.some(
+          (n) => n.id === savingNoteId,
+        );
+        if (existsInList) {
+          setNotes((prev) => {
+            const idx = prev.findIndex((n) => n.id === savingNoteId);
+            if (idx === -1) return prev;
+            const next = [...prev];
+            next[idx] = {
+              ...next[idx],
+              id: updated.id,
+              title: updated.title,
+              preview: updatedPreview,
+              modified: updated.modified,
+            };
+            return next;
+          });
+        } else {
+          scheduleRefresh();
+        }
 
-        // Clear the recently saved flag after a short delay
-        // (longer than the file watcher debounce of 500ms)
+        // Clear the recently saved flag after a delay long enough to absorb
+        // delayed FSEvents / iCloud sync echoes from our own save
         setTimeout(() => {
           recentlySavedRef.current.delete(savingNoteId);
           if (updatedId) recentlySavedRef.current.delete(updatedId);
-        }, 1000);
+        }, 2500);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save note");
         // Clean up immediately on error to avoid leaving stale entries

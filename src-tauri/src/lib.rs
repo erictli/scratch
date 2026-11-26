@@ -4,7 +4,7 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
@@ -195,7 +195,7 @@ impl SearchIndex {
             .reload_policy(ReloadPolicy::OnCommitWithDelay)
             .try_into()?;
 
-        let writer = index.writer(50_000_000)?; // 50MB buffer
+        let writer = index.writer(15_000_000)?; // 15MB buffer (Tantivy minimum for fast desktop startup)
 
         Ok(Self {
             index,
@@ -551,11 +551,13 @@ fn strip_markdown(text: &str) -> String {
     }
 
     // Remove images ![alt](url) - must come before links
-    let img_re = regex::Regex::new(r"!\[([^\]]*)\]\([^)]+\)").unwrap();
+    static IMG_RE: OnceLock<regex::Regex> = OnceLock::new();
+    let img_re = IMG_RE.get_or_init(|| regex::Regex::new(r"!\[([^\]]*)\]\([^)]+\)").unwrap());
     result = img_re.replace_all(&result, "$1").to_string();
 
     // Remove links [text](url)
-    let link_re = regex::Regex::new(r"\[([^\]]+)\]\([^)]+\)").unwrap();
+    static LINK_RE: OnceLock<regex::Regex> = OnceLock::new();
+    let link_re = LINK_RE.get_or_init(|| regex::Regex::new(r"\[([^\]]+)\]\([^)]+\)").unwrap());
     result = link_re.replace_all(&result, "$1").to_string();
 
     // Remove italic (*text* or _text_) - simple approach after bold is removed
@@ -593,7 +595,8 @@ fn strip_markdown(text: &str) -> String {
         .replace("- [X] ", "");
 
     // Remove list markers at start (-, *, +, 1.)
-    let list_re = regex::Regex::new(r"^(\s*[-+*]|\s*\d+\.)\s+").unwrap();
+    static LIST_RE: OnceLock<regex::Regex> = OnceLock::new();
+    let list_re = LIST_RE.get_or_init(|| regex::Regex::new(r"^(\s*[-+*]|\s*\d+\.)\s+").unwrap());
     result = list_re.replace(&result, "").to_string();
 
     result.trim().to_string()
@@ -786,6 +789,17 @@ fn cleanup_debounce_map(map: &Mutex<HashMap<PathBuf, Instant>>) {
     map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
 }
 
+// Record a path written by Scratch itself so FSEvents / iCloud sync echoes are
+// suppressed in the file watcher instead of re-reading and re-indexing immediately.
+fn mark_self_write(map: &Mutex<HashMap<PathBuf, Instant>>, path: &Path) {
+    let mut guard = map.lock().expect("debounce map mutex");
+    let now = Instant::now();
+    guard.insert(path.to_path_buf(), now);
+    if let Ok(canonical) = path.canonicalize() {
+        guard.insert(canonical, now);
+    }
+}
+
 // Normalize notes folder path from plain paths and legacy file:// URIs.
 fn normalize_notes_folder_path(path: &str) -> Result<PathBuf, String> {
     let trimmed = path.trim();
@@ -804,9 +818,45 @@ fn normalize_notes_folder_path(path: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(trimmed))
 }
 
+/// Spawn a background task to initialize and rebuild the Tantivy search index without
+/// blocking cold start or folder switches. Search transparently uses `fallback_search`
+/// until the index finishes building.
+fn spawn_background_search_index_build(
+    app: AppHandle,
+    folder: PathBuf,
+    expected_folder: String,
+    ignored_dirs: Vec<String>,
+) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let index_path = match get_search_index_path(&app) {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        let search_index = match SearchIndex::new(&index_path) {
+            Ok(idx) => idx,
+            Err(_) => return,
+        };
+        let _ = search_index.rebuild_index(&folder, &ignored_dirs);
+
+        if let Some(state) = app.try_state::<AppState>() {
+            let still_same_folder = state
+                .app_config
+                .read()
+                .ok()
+                .and_then(|cfg| cfg.notes_folder.clone())
+                .as_deref()
+                == Some(expected_folder.as_str());
+            if still_same_folder {
+                let mut index = state.search_index.lock().expect("search index mutex");
+                *index = Some(search_index);
+            }
+        }
+    });
+}
+
 /// Shared initialization logic for setting a notes folder.
 /// Creates required directories, verifies write access, updates config/settings,
-/// adds asset protocol scope, and rebuilds the search index.
+/// adds asset protocol scope, and schedules a background search index rebuild.
 fn initialize_notes_folder(app: &AppHandle, path_buf: &PathBuf, state: &AppState) -> Result<String, String> {
     let normalized_path = path_buf.to_string_lossy().into_owned();
 
@@ -853,18 +903,21 @@ fn initialize_notes_folder(app: &AppHandle, path_buf: &PathBuf, state: &AppState
     // Add notes folder to asset protocol scope so images can be served
     let _ = app.asset_protocol_scope().allow_directory(path_buf, true);
 
-    // Initialize search index
-    if let Ok(index_path) = get_search_index_path(app) {
-        if let Ok(search_index) = SearchIndex::new(&index_path) {
-            let ignored_dirs = {
-                let settings = state.settings.read().expect("settings read lock");
-                get_effective_ignored_dirs(&settings)
-            };
-            let _ = search_index.rebuild_index(path_buf, &ignored_dirs);
-            let mut index = state.search_index.lock().expect("search index mutex");
-            *index = Some(search_index);
-        }
+    // Clear stale index from previous folder and rebuild asynchronously in the background
+    {
+        let mut index = state.search_index.lock().expect("search index mutex");
+        *index = None;
     }
+    let ignored_dirs = {
+        let settings = state.settings.read().expect("settings read lock");
+        get_effective_ignored_dirs(&settings)
+    };
+    spawn_background_search_index_build(
+        app.clone(),
+        path_buf.clone(),
+        normalized_path.clone(),
+        ignored_dirs,
+    );
 
     Ok(normalized_path)
 }
@@ -1027,6 +1080,7 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
 
 #[tauri::command]
 async fn save_note(
+    app: AppHandle,
     id: Option<String>,
     content: String,
     state: State<'_, AppState>,
@@ -1094,6 +1148,12 @@ async fn save_note(
         (new_id, new_file_path, None)
     };
 
+    // Suppress file-watcher echoes for our own writes (especially important on iCloud Drive)
+    mark_self_write(&state.debounce_map, &file_path);
+    if let Some((_, ref old_file_path)) = old_id {
+        mark_self_write(&state.debounce_map, old_file_path);
+    }
+
     // Write the file to the new path
     fs::write(&file_path, &content)
         .await
@@ -1106,6 +1166,9 @@ async fn save_note(
         }
     }
 
+    // Re-mark after write completes so canonical path is recorded for newly created files
+    mark_self_write(&state.debounce_map, &file_path);
+
     let metadata = fs::metadata(&file_path)
         .await
         .map_err(|e| e.to_string())?;
@@ -1116,22 +1179,43 @@ async fn save_note(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    // Update search index (delete old entry if renamed, then add new)
+    let preview = generate_preview(&content);
+
+    // Update cache immediately in memory (remove old entry if renamed and upsert saved metadata)
     {
-        let index = state.search_index.lock().expect("search index mutex");
-        if let Some(ref search_index) = *index {
-            if let Some((ref old_id_str, _)) = old_id {
-                let _ = search_index.delete_note(old_id_str);
-            }
-            let _ = search_index.index_note(&final_id, &title, &content, modified);
+        let mut cache = state.notes_cache.write().expect("cache write lock");
+        if let Some((ref old_id_str, _)) = old_id {
+            cache.remove(old_id_str);
         }
+        cache.insert(
+            final_id.clone(),
+            NoteMetadata {
+                id: final_id.clone(),
+                title: title.clone(),
+                preview,
+                modified,
+            },
+        );
     }
 
-    // Update cache (remove old entry if renamed)
-    if let Some((ref old_id_str, _)) = old_id {
-        let mut cache = state.notes_cache.write().expect("cache write lock");
-        cache.remove(old_id_str);
-    }
+    // Offload Tantivy index commit to a background task so typing/auto-save never
+    // blocks on synchronous disk fsync (especially impactful on iCloud Drive).
+    let bg_app = app.clone();
+    let bg_old_id = old_id.map(|(s, _)| s);
+    let bg_final_id = final_id.clone();
+    let bg_title = title.clone();
+    let bg_content = content.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(app_state) = bg_app.try_state::<AppState>() {
+            let index = app_state.search_index.lock().expect("search index mutex");
+            if let Some(ref search_index) = *index {
+                if let Some(ref old_id_str) = bg_old_id {
+                    let _ = search_index.delete_note(old_id_str);
+                }
+                let _ = search_index.index_note(&bg_final_id, &bg_title, &bg_content, modified);
+            }
+        }
+    });
 
     Ok(Note {
         id: final_id,
@@ -2167,10 +2251,17 @@ fn setup_file_watcher(
                             map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
                         }
 
-                        if let Some(last) = map.get(path) {
-                            if now.duration_since(*last) < Duration::from_millis(500) {
-                                continue;
-                            }
+                        let is_debounced = map
+                            .get(path)
+                            .or_else(|| {
+                                path.canonicalize()
+                                    .ok()
+                                    .and_then(|c| map.get(&c))
+                            })
+                            .map(|last| now.duration_since(*last) < Duration::from_millis(1200))
+                            .unwrap_or(false);
+                        if is_debounced {
+                            continue;
                         }
                         map.insert(path.clone(), now);
                     }
@@ -3754,29 +3845,29 @@ pub fn run() {
                 Settings::default()
             };
 
-            // Initialize search index if notes folder is set
+            // Defer search index initialization/rebuild to a background thread so
+            // cold start displays the window immediately without blocking on disk I/O.
+            let initial_folder = app_config.notes_folder.clone();
             let ignored_dirs = get_effective_ignored_dirs(&settings);
-            let search_index = if let Some(ref folder) = app_config.notes_folder {
-                if let Ok(index_path) = get_search_index_path(app.handle()) {
-                    SearchIndex::new(&index_path).ok().inspect(|idx| {
-                        let _ = idx.rebuild_index(&PathBuf::from(folder), &ignored_dirs);
-                    })
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
 
             let state = AppState {
                 app_config: RwLock::new(app_config),
                 settings: RwLock::new(settings),
                 notes_cache: RwLock::new(HashMap::new()),
                 file_watcher: Mutex::new(None),
-                search_index: Mutex::new(search_index),
+                search_index: Mutex::new(None),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
             };
             app.manage(state);
+
+            if let Some(folder) = initial_folder {
+                spawn_background_search_index_build(
+                    app.handle().clone(),
+                    PathBuf::from(&folder),
+                    folder,
+                    ignored_dirs,
+                );
+            }
 
             // Add notes folder to asset protocol scope so images can be served
             if let Some(ref folder) = app.state::<AppState>().app_config.read().expect("app_config read lock").notes_folder.clone() {
