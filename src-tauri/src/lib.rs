@@ -1452,6 +1452,7 @@ async fn rename_folder(
     if sanitized_name.is_empty() {
         return Err("Folder name cannot be empty".to_string());
     }
+    validate_folder_path(&sanitized_name)?;
 
     let folder_root = PathBuf::from(&folder);
     let old_target = folder_root.join(old_path.replace('/', std::path::MAIN_SEPARATOR_STR));
@@ -1469,6 +1470,10 @@ async fn rename_folder(
         .ok_or("Cannot determine parent directory")?
         .join(&sanitized_name);
 
+    if !new_target.starts_with(&folder_root) {
+        return Err("Invalid path: escapes notes folder".to_string());
+    }
+
     if new_target.exists() {
         return Err("A folder with that name already exists".to_string());
     }
@@ -1481,6 +1486,7 @@ async fn rename_folder(
     } else {
         sanitized_name.clone()
     };
+    validate_folder_path(&new_path)?;
     let new_prefix = format!("{}/", new_path);
 
     // Rename on disk
