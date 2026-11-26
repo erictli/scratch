@@ -592,6 +592,11 @@ export function Editor({
   const currentNoteIdRef = useRef<string | null>(null);
   // Track if we need to save (use ref to avoid computing markdown on every keystroke)
   const needsSaveRef = useRef(false);
+  const needsSourceSaveRef = useRef(false);
+  const saveNoteRef = useRef(saveNote);
+  saveNoteRef.current = saveNote;
+  const sourceContentRef = useRef(sourceContent);
+  sourceContentRef.current = sourceContent;
   // Stable refs for wikilink click handler (avoids re-registering listener on every notes change)
   const notesRef = useRef(notes);
   notesRef.current = notes;
@@ -747,8 +752,19 @@ export function Editor({
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
+    if (sourceTimeoutRef.current) {
+      clearTimeout(sourceTimeoutRef.current);
+      sourceTimeoutRef.current = null;
+    }
 
     // Use loadedNoteIdRef (the note in the editor) not currentNoteIdRef (which may have changed)
+    if (needsSourceSaveRef.current && loadedNoteIdRef.current) {
+      needsSourceSaveRef.current = false;
+      needsSaveRef.current = false;
+      await saveImmediately(loadedNoteIdRef.current, sourceContentRef.current);
+      return;
+    }
+
     if (needsSaveRef.current && editorRef.current && loadedNoteIdRef.current) {
       needsSaveRef.current = false;
       const markdown = getMarkdown(editorRef.current);
@@ -1466,12 +1482,13 @@ export function Editor({
     }
 
     // Flush any pending save before switching to a different note
-    if (!isSameNote && needsSaveRef.current) {
+    if (!isSameNote && (needsSaveRef.current || needsSourceSaveRef.current)) {
       flushPendingSave();
     }
     // Reset source mode when genuinely switching notes (renames return early above)
     if (!isSameNote) {
       setSourceMode(false);
+      needsSourceSaveRef.current = false;
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
         sourceTimeoutRef.current = null;
@@ -1584,16 +1601,29 @@ export function Editor({
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
       }
-      // Flush any pending save before unmounting
-      if (needsSaveRef.current && editorRef.current) {
+      if (sourceTimeoutRef.current) {
+        clearTimeout(sourceTimeoutRef.current);
+        sourceTimeoutRef.current = null;
+      }
+      const noteId = loadedNoteIdRef.current;
+      // Flush any pending source-mode save before unmounting
+      if (needsSourceSaveRef.current && noteId) {
+        needsSourceSaveRef.current = false;
+        needsSaveRef.current = false;
+        saveNoteRef.current(sourceContentRef.current, noteId);
+      } else if (needsSaveRef.current && editorRef.current && noteId) {
+        // Flush any pending WYSIWYG save before unmounting
         needsSaveRef.current = false;
         const manager = editorRef.current.storage.markdown?.manager;
         const markdown = manager
-          ? manager.serialize(editorRef.current.getJSON())
+          ? manager
+              .serialize(editorRef.current.getJSON())
+              .replace(/&nbsp;|&#160;/g, " ")
           : editorRef.current.getText();
         // Fire and forget - save will complete in background
-        saveNote(markdown);
+        saveNoteRef.current(markdown, noteId);
       }
       if (linkPopupRef.current) {
         linkPopupRef.current.destroy();
@@ -1602,8 +1632,7 @@ export function Editor({
         blockMathPopupRef.current.destroy();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run cleanup on unmount, not when saveNote changes
+  }, []); // Only run cleanup on unmount; latest handlers/state read from refs
 
   // Link handlers - show inline popup at cursor position
   const handleAddLink = useCallback(() => {
@@ -2121,15 +2150,20 @@ export function Editor({
   const handleSourceChange = useCallback(
     (value: string) => {
       setSourceContent(value);
+      sourceContentRef.current = value;
+      needsSourceSaveRef.current = true;
       if (sourceTimeoutRef.current) {
         clearTimeout(sourceTimeoutRef.current);
       }
+      const savingNoteId = loadedNoteIdRef.current ?? currentNote?.id;
       sourceTimeoutRef.current = window.setTimeout(async () => {
-        if (currentNote) {
+        sourceTimeoutRef.current = null;
+        if (savingNoteId && needsSourceSaveRef.current) {
+          needsSourceSaveRef.current = false;
           setIsSaving(true);
           try {
-            lastSaveRef.current = { noteId: currentNote.id, content: value };
-            await saveNote(value, currentNote.id);
+            lastSaveRef.current = { noteId: savingNoteId, content: value };
+            await saveNoteRef.current(value, savingNoteId);
           } catch (error) {
             console.error("Failed to save note:", error);
             toast.error("Failed to save note");
@@ -2139,7 +2173,7 @@ export function Editor({
         }
       }, 300);
     },
-    [currentNote, saveNote],
+    [currentNote?.id],
   );
 
   if (!currentNote) {
