@@ -3204,6 +3204,49 @@ async fn ai_check_opencode_cli() -> Result<bool, String> {
     .map_err(|e| format!("Failed to check OpenCode CLI: {}", e))?
 }
 
+/// Strip ANSI escape sequences and resolve bare carriage-return (`\r`) line overwrites
+/// (e.g., terminal spinners or word-wrap rewrites).
+fn strip_ansi_and_cr(input: &str) -> String {
+    let ansi_re = regex::Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)").unwrap();
+    let no_ansi = ansi_re.replace_all(input, "");
+    let normalized = no_ansi.replace("\r\n", "\n");
+    normalized
+        .split('\n')
+        .map(|line| line.rsplit('\r').next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Clean Ollama CLI output: remove ANSI/CR artifacts, strip `<think>...</think>` and
+/// Ollama's `Thinking... ...done thinking.` reasoning blocks, and unwrap accidental
+/// top-level markdown code fences.
+fn clean_ollama_output(raw: &str) -> String {
+    let mut text = strip_ansi_and_cr(raw);
+
+    // Strip XML-style <think>...</think> reasoning blocks (e.g. DeepSeek-R1, Qwen3)
+    let think_tag_re = regex::Regex::new(r"(?is)<think>.*?</think>\s*").unwrap();
+    text = think_tag_re.replace_all(&text, "").into_owned();
+
+    // Strip Ollama CLI's `Thinking...\n...\n...done thinking.` blocks
+    let ollama_think_re =
+        regex::Regex::new(r"(?s)^Thinking\.\.\.\n.*?\.\.\.done thinking\.\s*").unwrap();
+    text = ollama_think_re.replace(text.trim_start(), "").into_owned();
+
+    let trimmed = text.trim();
+    // Unwrap a single outer markdown fence if the model wrapped the entire note
+    if let Some(rest) = trimmed
+        .strip_prefix("```markdown\n")
+        .or_else(|| trimmed.strip_prefix("```md\n"))
+        .or_else(|| trimmed.strip_prefix("```\n"))
+    {
+        if let Some(inner) = rest.strip_suffix("\n```") {
+            return inner.trim().to_string();
+        }
+    }
+
+    trimmed.to_string()
+}
+
 /// Shared AI CLI execution: spawns `command` with `args`, writes `stdin_input` to stdin,
 /// and returns the result with a 5-minute timeout.
 async fn execute_ai_cli(
@@ -3362,10 +3405,9 @@ async fn execute_ai_cli(
             .map(|s| s.success())
             .unwrap_or(false);
 
-        // Strip ANSI escape sequences from output (e.g. Ollama progress spinners)
-        let ansi_re = regex::Regex::new(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?\x07").unwrap();
-        let stdout_clean = ansi_re.replace_all(&stdout_str, "").to_string();
-        let stderr_clean = ansi_re.replace_all(&stderr_str, "").trim().to_string();
+        // Strip ANSI escape sequences and bare carriage returns from output
+        let stdout_clean = strip_ansi_and_cr(&stdout_str);
+        let stderr_clean = strip_ansi_and_cr(&stderr_str).trim().to_string();
 
         if success {
             AiExecutionResult {
@@ -3643,7 +3685,11 @@ async fn ai_execute_ollama(
     let result = execute_ai_cli(
         "Ollama",
         "ollama".to_string(),
-        vec!["run".to_string(), model_name.clone()],
+        vec![
+            "run".to_string(),
+            "--nowordwrap".to_string(),
+            model_name.clone(),
+        ],
         stdin_input,
         "Ollama CLI not found. Please install it from https://ollama.com".to_string(),
         None,
@@ -3681,7 +3727,7 @@ async fn ai_execute_ollama(
 
     // If successful, write the output back to the file
     if result.success {
-        let edited_content = result.output.trim().to_string();
+        let edited_content = clean_ollama_output(&result.output);
         if edited_content.is_empty() {
             return Ok(AiExecutionResult {
                 success: false,
@@ -4305,6 +4351,26 @@ mod tests {
         assert_eq!(
             resolve_cli_arg_path("/abs/doc.md", "/work"),
             Some(PathBuf::from("/abs/doc.md"))
+        );
+    }
+
+    #[test]
+    fn clean_ollama_output_strips_cr_ansi_thinking_and_outer_fences() {
+        assert_eq!(
+            clean_ollama_output("founda\rfoundational scaffolding\r\nsecond line"),
+            "foundational scaffolding\nsecond line"
+        );
+        assert_eq!(
+            clean_ollama_output("<think>let me think\nstep 2</think>\n# Title\n\nBody"),
+            "# Title\n\nBody"
+        );
+        assert_eq!(
+            clean_ollama_output("Thinking...\ninternal reasoning\n...done thinking.\n\n# Result"),
+            "# Result"
+        );
+        assert_eq!(
+            clean_ollama_output("```markdown\n# Wrapped\n\nHello\n```"),
+            "# Wrapped\n\nHello"
         );
     }
 }
