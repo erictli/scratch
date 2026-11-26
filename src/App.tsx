@@ -669,7 +669,7 @@ function App() {
       <ThemeProvider>
         <Toaster />
         <TooltipProvider>
-          <PreviewApp filePath={decodeURIComponent(previewFile)} />
+          <PreviewApp filePath={previewFile} />
         </TooltipProvider>
       </ThemeProvider>
     );
