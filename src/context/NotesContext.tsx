@@ -608,6 +608,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           setNotes(notesList);
           // Start file watcher
           await notesService.startFileWatcher();
+          // Select any note queued during cold-start CLI / Open With handling
+          const pendingId = await notesService.takePendingSelectNote();
+          if (pendingId) {
+            await selectNote(pendingId);
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to initialize");

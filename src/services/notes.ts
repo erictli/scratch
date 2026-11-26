@@ -97,3 +97,7 @@ export async function searchNotes(query: string): Promise<SearchResult[]> {
 export async function startFileWatcher(): Promise<void> {
   return invoke("start_file_watcher");
 }
+
+export async function takePendingSelectNote(): Promise<string | null> {
+  return invoke("take_pending_select_note");
+}

@@ -340,6 +340,7 @@ pub struct AppState {
     pub file_watcher: Mutex<Option<FileWatcherState>>,
     pub search_index: Mutex<Option<SearchIndex>>,
     pub debounce_map: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    pub pending_select_note: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
@@ -351,6 +352,7 @@ impl Default for AppState {
             file_watcher: Mutex::new(None),
             search_index: Mutex::new(None),
             debounce_map: Arc::new(Mutex::new(HashMap::new())),
+            pending_select_note: Mutex::new(None),
         }
     }
 }
@@ -3743,12 +3745,44 @@ fn try_select_in_notes_folder(app: &AppHandle, path: &Path) -> bool {
         None => return false,
     };
 
+    if let Ok(mut pending) = state.pending_select_note.lock() {
+        *pending = Some(note_id.clone());
+    }
     let _ = app.emit_to("main", "select-note", note_id);
     if let Some(main_window) = app.get_webview_window("main") {
         let _ = main_window.show();
         let _ = main_window.set_focus();
     }
     true
+}
+
+#[tauri::command]
+fn take_pending_select_note(state: State<AppState>) -> Option<String> {
+    state
+        .pending_select_note
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.take())
+}
+
+/// Resolve a CLI argument (either a `file://` URI or an absolute/relative filesystem path)
+/// into a `PathBuf`. Desktop "Open With" launchers on Linux commonly pass `file://` URIs.
+fn resolve_cli_arg_path(arg: &str, cwd: &str) -> Option<PathBuf> {
+    let trimmed = arg.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.starts_with("file://") {
+        return url::Url::parse(trimmed).ok()?.to_file_path().ok();
+    }
+    let p = PathBuf::from(trimmed);
+    if p.is_absolute() {
+        Some(p)
+    } else if !cwd.is_empty() {
+        Some(PathBuf::from(cwd).join(p))
+    } else {
+        Some(p)
+    }
 }
 
 /// Check if a file extension is a supported markdown extension.
@@ -3839,10 +3873,9 @@ fn handle_cli_args(app: &AppHandle, args: &[String], cwd: &str) -> bool {
             continue;
         }
 
-        let path = if PathBuf::from(arg).is_absolute() {
-            PathBuf::from(arg)
-        } else {
-            PathBuf::from(cwd).join(arg)
+        let path = match resolve_cli_arg_path(arg, cwd) {
+            Some(p) => p,
+            None => continue,
         };
 
         if is_markdown_extension(&path) && path.is_file() {
@@ -3912,6 +3945,17 @@ fn enable_webview_spellcheck_defaults() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Handle --version / -V before launching the GUI application
+    let startup_args: Vec<String> = std::env::args().collect();
+    if startup_args
+        .iter()
+        .skip(1)
+        .any(|a| a == "--version" || a == "-V")
+    {
+        println!("Scratch {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     #[cfg(target_os = "macos")]
     enable_webview_spellcheck_defaults();
 
@@ -3979,6 +4023,7 @@ pub fn run() {
                 file_watcher: Mutex::new(None),
                 search_index: Mutex::new(search_index),
                 debounce_map: Arc::new(Mutex::new(HashMap::new())),
+                pending_select_note: Mutex::new(None),
             };
             app.manage(state);
 
@@ -4093,6 +4138,7 @@ pub fn run() {
             save_file_direct,
             import_file_to_folder,
             open_file_preview,
+            take_pending_select_note,
             install_cli,
             uninstall_cli,
             get_cli_status,
@@ -4243,6 +4289,22 @@ mod tests {
         assert_eq!(
             select_best_cli_candidate("/opt/homebrew/bin/claude\n/usr/local/bin/claude\n", false),
             Some(PathBuf::from("/opt/homebrew/bin/claude"))
+        );
+    }
+
+    #[test]
+    fn resolve_cli_arg_path_handles_file_uris_and_relative_paths() {
+        assert_eq!(
+            resolve_cli_arg_path("file:///tmp/my%20note.md", "/work"),
+            Some(PathBuf::from("/tmp/my note.md"))
+        );
+        assert_eq!(
+            resolve_cli_arg_path("notes/todo.md", "/work"),
+            Some(PathBuf::from("/work/notes/todo.md"))
+        );
+        assert_eq!(
+            resolve_cli_arg_path("/abs/doc.md", "/work"),
+            Some(PathBuf::from("/abs/doc.md"))
         );
     }
 }
