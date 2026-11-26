@@ -3263,10 +3263,39 @@ async fn ai_execute_claude(
     .await
 }
 
+fn validate_note_path_in_folder(file_path: &str, folder: &str) -> Result<(PathBuf, PathBuf), String> {
+    let path = PathBuf::from(file_path);
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !ext.eq_ignore_ascii_case("md") && !ext.eq_ignore_ascii_case("markdown") {
+        return Err("AI editing is only supported for markdown files".to_string());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "Invalid file path".to_string())?;
+    let notes_root = PathBuf::from(folder)
+        .canonicalize()
+        .map_err(|_| "Invalid notes folder".to_string())?;
+    if !canonical.starts_with(&notes_root) {
+        return Err("File must be within notes folder".to_string());
+    }
+    Ok((canonical, notes_root))
+}
+
 #[tauri::command]
-async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecutionResult, String> {
+async fn ai_execute_codex(
+    file_path: String,
+    prompt: String,
+    state: State<'_, AppState>,
+) -> Result<AiExecutionResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+    };
+    let (canonical, notes_root) = validate_note_path_in_folder(&file_path, &folder)?;
+    let canonical_str = canonical.to_string_lossy();
+
     let stdin_input = format!(
-        "Edit only this markdown file: {file_path}\n\
+        "Edit only this markdown file: {canonical_str}\n\
          Apply the user's instructions below directly to that file.\n\
          Do not create, delete, rename, or modify any other files.\n\
          User instructions:\n\
@@ -3284,7 +3313,7 @@ async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecuti
         ],
         stdin_input,
         "Codex CLI not found. Please install it from https://github.com/openai/codex".to_string(),
-        None,
+        Some(notes_root.to_string_lossy().to_string()),
         None,
     )
     .await
