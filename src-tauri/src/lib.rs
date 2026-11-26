@@ -789,6 +789,17 @@ fn cleanup_debounce_map(map: &Mutex<HashMap<PathBuf, Instant>>) {
     map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
 }
 
+// Record a path written by Scratch itself so FSEvents / iCloud sync echoes are
+// suppressed in the file watcher instead of re-reading and re-indexing immediately.
+fn mark_self_write(map: &Mutex<HashMap<PathBuf, Instant>>, path: &Path) {
+    let mut guard = map.lock().expect("debounce map mutex");
+    let now = Instant::now();
+    guard.insert(path.to_path_buf(), now);
+    if let Ok(canonical) = path.canonicalize() {
+        guard.insert(canonical, now);
+    }
+}
+
 // Normalize notes folder path from plain paths and legacy file:// URIs.
 fn normalize_notes_folder_path(path: &str) -> Result<PathBuf, String> {
     let trimmed = path.trim();
@@ -1069,6 +1080,7 @@ async fn read_note(id: String, state: State<'_, AppState>) -> Result<Note, Strin
 
 #[tauri::command]
 async fn save_note(
+    app: AppHandle,
     id: Option<String>,
     content: String,
     state: State<'_, AppState>,
@@ -1136,6 +1148,12 @@ async fn save_note(
         (new_id, new_file_path, None)
     };
 
+    // Suppress file-watcher echoes for our own writes (especially important on iCloud Drive)
+    mark_self_write(&state.debounce_map, &file_path);
+    if let Some((_, ref old_file_path)) = old_id {
+        mark_self_write(&state.debounce_map, old_file_path);
+    }
+
     // Write the file to the new path
     fs::write(&file_path, &content)
         .await
@@ -1148,6 +1166,9 @@ async fn save_note(
         }
     }
 
+    // Re-mark after write completes so canonical path is recorded for newly created files
+    mark_self_write(&state.debounce_map, &file_path);
+
     let metadata = fs::metadata(&file_path)
         .await
         .map_err(|e| e.to_string())?;
@@ -1158,22 +1179,43 @@ async fn save_note(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    // Update search index (delete old entry if renamed, then add new)
+    let preview = generate_preview(&content);
+
+    // Update cache immediately in memory (remove old entry if renamed and upsert saved metadata)
     {
-        let index = state.search_index.lock().expect("search index mutex");
-        if let Some(ref search_index) = *index {
-            if let Some((ref old_id_str, _)) = old_id {
-                let _ = search_index.delete_note(old_id_str);
-            }
-            let _ = search_index.index_note(&final_id, &title, &content, modified);
+        let mut cache = state.notes_cache.write().expect("cache write lock");
+        if let Some((ref old_id_str, _)) = old_id {
+            cache.remove(old_id_str);
         }
+        cache.insert(
+            final_id.clone(),
+            NoteMetadata {
+                id: final_id.clone(),
+                title: title.clone(),
+                preview,
+                modified,
+            },
+        );
     }
 
-    // Update cache (remove old entry if renamed)
-    if let Some((ref old_id_str, _)) = old_id {
-        let mut cache = state.notes_cache.write().expect("cache write lock");
-        cache.remove(old_id_str);
-    }
+    // Offload Tantivy index commit to a background task so typing/auto-save never
+    // blocks on synchronous disk fsync (especially impactful on iCloud Drive).
+    let bg_app = app.clone();
+    let bg_old_id = old_id.map(|(s, _)| s);
+    let bg_final_id = final_id.clone();
+    let bg_title = title.clone();
+    let bg_content = content.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(app_state) = bg_app.try_state::<AppState>() {
+            let index = app_state.search_index.lock().expect("search index mutex");
+            if let Some(ref search_index) = *index {
+                if let Some(ref old_id_str) = bg_old_id {
+                    let _ = search_index.delete_note(old_id_str);
+                }
+                let _ = search_index.index_note(&bg_final_id, &bg_title, &bg_content, modified);
+            }
+        }
+    });
 
     Ok(Note {
         id: final_id,
@@ -2209,10 +2251,17 @@ fn setup_file_watcher(
                             map.retain(|_, last| now.duration_since(*last) < Duration::from_secs(5));
                         }
 
-                        if let Some(last) = map.get(path) {
-                            if now.duration_since(*last) < Duration::from_millis(500) {
-                                continue;
-                            }
+                        let is_debounced = map
+                            .get(path)
+                            .or_else(|| {
+                                path.canonicalize()
+                                    .ok()
+                                    .and_then(|c| map.get(&c))
+                            })
+                            .map(|last| now.duration_since(*last) < Duration::from_millis(1200))
+                            .unwrap_or(false);
+                        if is_debounced {
+                            continue;
                         }
                         map.insert(path.clone(), now);
                     }
