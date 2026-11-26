@@ -3218,15 +3218,24 @@ async fn execute_ai_cli(
 
         use std::io::Read;
 
+        // Drain stdout and stderr concurrently to prevent OS pipe-buffer deadlocks
+        // when a CLI writes verbose output to stderr while stdout is still open.
+        let stderr_thread = stderr_handle.map(|mut err| {
+            std::thread::spawn(move || {
+                let mut buf = String::new();
+                let _ = err.read_to_string(&mut buf);
+                buf
+            })
+        });
+
         let mut stdout_str = String::new();
         if let Some(mut out) = stdout_handle {
             let _ = out.read_to_string(&mut stdout_str);
         }
 
-        let mut stderr_str = String::new();
-        if let Some(mut err) = stderr_handle {
-            let _ = err.read_to_string(&mut stderr_str);
-        }
+        let stderr_str = stderr_thread
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_default();
 
         // Collect exit status — process has exited after stdout/stderr close
         let success = child_for_task
