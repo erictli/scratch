@@ -4005,6 +4005,13 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     enable_webview_spellcheck_defaults();
 
+    #[cfg(target_os = "macos")]
+    let startup_instant = Instant::now();
+    #[cfg(target_os = "macos")]
+    let opened_preview_on_launch = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    #[cfg(target_os = "macos")]
+    let opened_preview_for_setup = Arc::clone(&opened_preview_on_launch);
+
     let app = tauri::Builder::default()
         // Single-instance: forward CLI args from subsequent launches to the running instance
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -4015,7 +4022,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
             // Load app config on startup (contains notes folder path)
             let mut app_config = load_app_config(app.handle());
 
@@ -4105,13 +4112,28 @@ pub fn run() {
 
                 if opened_preview && has_notes_folder {
                     // Existing user: notes folder is configured and a standalone preview
-                    // was opened. Close the hidden main window so only the preview is visible.
+                    // was opened. Keep the main window hidden so only the preview is visible.
                     let _ = main_window.hide();
                 } else {
-                    // Show the main window when:
-                    // - No standalone preview was opened (normal launch), OR
-                    // - No notes folder is configured yet (new user needs FolderPicker
-                    //   for onboarding, even if a preview is also showing).
+                    // On macOS, Finder double-click ("Open With") delivers RunEvent::Opened
+                    // shortly after .setup() with no CLI arguments. When a notes folder is
+                    // already configured, defer showing the main window briefly so cold-start
+                    // preview launches don't flash or leave both windows open.
+                    #[cfg(target_os = "macos")]
+                    if has_notes_folder && args.len() <= 1 {
+                        let win = main_window.clone();
+                        let flag = Arc::clone(&opened_preview_for_setup);
+                        std::thread::spawn(move || {
+                            std::thread::sleep(Duration::from_millis(150));
+                            if !flag.load(std::sync::atomic::Ordering::SeqCst) {
+                                let _ = win.show();
+                            }
+                        });
+                    } else {
+                        let _ = main_window.show();
+                    }
+
+                    #[cfg(not(target_os = "macos"))]
                     let _ = main_window.show();
                 }
             }
@@ -4193,21 +4215,61 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    // Use .run() callback to handle macOS "Open With" file events
-    // RunEvent::Opened is macOS-only in Tauri v2
-    app.run(|_app_handle, _event| {
+    // Use .run() callback to handle macOS "Open With" file events and Dock clicks
+    // RunEvent::Opened and RunEvent::Reopen are macOS-only in Tauri v2
+    app.run(move |_app_handle, _event| {
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Opened { urls } = _event {
-            for url in urls {
-                if let Ok(path) = url.to_file_path() {
-                    if is_markdown_extension(&path)
-                        && path.is_file()
-                        && !try_select_in_notes_folder(_app_handle, &path)
-                    {
-                        let _ = create_preview_window(_app_handle, &path.to_string_lossy());
+        match _event {
+            tauri::RunEvent::Opened { urls } => {
+                let mut opened_standalone_preview = false;
+                let mut selected_in_main = false;
+                for url in urls {
+                    if let Ok(path) = url.to_file_path() {
+                        if is_markdown_extension(&path) && path.is_file() {
+                            if try_select_in_notes_folder(_app_handle, &path) {
+                                selected_in_main = true;
+                            } else if create_preview_window(
+                                _app_handle,
+                                &path.to_string_lossy(),
+                            )
+                            .is_ok()
+                            {
+                                opened_standalone_preview = true;
+                            }
+                        }
+                    }
+                }
+
+                // If Finder launched the app directly into a standalone preview (within
+                // the cold-start window) and a notes folder is already configured, keep
+                // the main window hidden so only the preview window opens.
+                if opened_standalone_preview
+                    && !selected_in_main
+                    && startup_instant.elapsed() < Duration::from_secs(2)
+                {
+                    let has_notes_folder = _app_handle
+                        .try_state::<AppState>()
+                        .and_then(|s| s.app_config.read().ok().map(|c| c.notes_folder.is_some()))
+                        .unwrap_or(false);
+                    if has_notes_folder {
+                        opened_preview_on_launch
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                        if let Some(main_window) = _app_handle.get_webview_window("main") {
+                            let _ = main_window.hide();
+                        }
                     }
                 }
             }
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => {
+                if let Some(main_window) = _app_handle.get_webview_window("main") {
+                    let _ = main_window.show();
+                    let _ = main_window.set_focus();
+                }
+            }
+            _ => {}
         }
     });
 }
