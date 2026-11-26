@@ -4006,11 +4006,20 @@ pub fn run() {
     enable_webview_spellcheck_defaults();
 
     #[cfg(target_os = "macos")]
-    let startup_instant = Instant::now();
+    #[derive(Default)]
+    struct MacLaunchState {
+        pending_opened_paths: Vec<PathBuf>,
+        deferred_main_show: bool,
+        opened_in_launch: bool,
+        opened_preview_only: bool,
+        main_shown_for_user: bool,
+        ready_instant: Option<Instant>,
+    }
+
     #[cfg(target_os = "macos")]
-    let opened_preview_on_launch = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mac_launch_state = Arc::new(Mutex::new(MacLaunchState::default()));
     #[cfg(target_os = "macos")]
-    let opened_preview_for_setup = Arc::clone(&opened_preview_on_launch);
+    let mac_launch_for_setup = Arc::clone(&mac_launch_state);
 
     let app = tauri::Builder::default()
         // Single-instance: forward CLI args from subsequent launches to the running instance
@@ -4085,13 +4094,12 @@ pub fn run() {
                 let _ = app.asset_protocol_scope().allow_directory(folder, true);
             }
 
-            // Handle CLI args on first launch; determine whether to show the main window.
-            // When a standalone preview is opened (file outside the notes folder) and the
-            // notes folder is already configured, the main window is closed so users only
-            // see the preview. When no notes folder is configured yet, the main window is
-            // always shown so new users can complete onboarding via the FolderPicker.
+            // Handle CLI args and any macOS RunEvent::Opened files delivered before .setup().
+            // Ignore flag-only arguments (such as macOS LaunchServices `-psn_...` or `-NS...`)
+            // so Finder / `open -a` launches don't prematurely show the main window.
             let args: Vec<String> = std::env::args().collect();
-            let opened_preview = if args.len() > 1 {
+            let has_positional_cli_arg = args.iter().skip(1).any(|a| !a.starts_with('-'));
+            let mut opened_preview = if has_positional_cli_arg {
                 let cwd = std::env::current_dir()
                     .unwrap_or_default()
                     .to_string_lossy()
@@ -4100,6 +4108,24 @@ pub fn run() {
             } else {
                 false
             };
+
+            #[cfg(target_os = "macos")]
+            let mut selected_in_main_from_opened = false;
+            #[cfg(target_os = "macos")]
+            {
+                let queued_paths: Vec<PathBuf> = mac_launch_for_setup
+                    .lock()
+                    .map(|mut st| std::mem::take(&mut st.pending_opened_paths))
+                    .unwrap_or_default();
+
+                for path in queued_paths {
+                    if try_select_in_notes_folder(app.handle(), &path) {
+                        selected_in_main_from_opened = true;
+                    } else if create_preview_window(app.handle(), &path.to_string_lossy()).is_ok() {
+                        opened_preview = true;
+                    }
+                }
+            }
 
             if let Some(main_window) = app.get_webview_window("main") {
                 let has_notes_folder = app
@@ -4110,26 +4136,34 @@ pub fn run() {
                     .notes_folder
                     .is_some();
 
-                if opened_preview && has_notes_folder {
+                #[cfg(target_os = "macos")]
+                let preview_only = opened_preview && !selected_in_main_from_opened && has_notes_folder;
+                #[cfg(not(target_os = "macos"))]
+                let preview_only = opened_preview && has_notes_folder;
+
+                if preview_only {
                     // Existing user: notes folder is configured and a standalone preview
-                    // was opened. Keep the main window hidden so only the preview is visible.
+                    // was opened on launch. Keep the main window hidden so only the preview is visible.
+                    #[cfg(target_os = "macos")]
+                    if let Ok(mut st) = mac_launch_for_setup.lock() {
+                        st.opened_preview_only = true;
+                        st.main_shown_for_user = false;
+                    }
                     let _ = main_window.hide();
                 } else {
-                    // On macOS, Finder double-click ("Open With") delivers RunEvent::Opened
-                    // shortly after .setup() with no CLI arguments. When a notes folder is
-                    // already configured, defer showing the main window briefly so cold-start
-                    // preview launches don't flash or leave both windows open.
+                    // On macOS, Finder double-click ("Open With") and `open -a Scratch file.md`
+                    // may also deliver `RunEvent::Opened` shortly after `RunEvent::Ready`.
+                    // Defer showing the main window briefly after `Ready` when launched without
+                    // files so late cold-start preview launches never flash or leave both windows open.
                     #[cfg(target_os = "macos")]
-                    if has_notes_folder && args.len() <= 1 {
-                        let win = main_window.clone();
-                        let flag = Arc::clone(&opened_preview_for_setup);
-                        std::thread::spawn(move || {
-                            std::thread::sleep(Duration::from_millis(150));
-                            if !flag.load(std::sync::atomic::Ordering::SeqCst) {
-                                let _ = win.show();
-                            }
-                        });
+                    if has_notes_folder && !has_positional_cli_arg && !selected_in_main_from_opened {
+                        if let Ok(mut st) = mac_launch_for_setup.lock() {
+                            st.deferred_main_show = true;
+                        }
                     } else {
+                        if let Ok(mut st) = mac_launch_for_setup.lock() {
+                            st.main_shown_for_user = true;
+                        }
                         let _ = main_window.show();
                     }
 
@@ -4215,48 +4249,134 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    // Use .run() callback to handle macOS "Open With" file events and Dock clicks
+    // Use .run() callback to handle macOS "Open With" file events, Ready, and Dock clicks
     // RunEvent::Opened and RunEvent::Reopen are macOS-only in Tauri v2
     app.run(move |_app_handle, _event| {
         #[cfg(target_os = "macos")]
         match _event {
+            tauri::RunEvent::Ready => {
+                let should_schedule_show = if let Ok(mut st) = mac_launch_state.lock() {
+                    st.ready_instant = Some(Instant::now());
+                    st.deferred_main_show
+                        && !st.opened_in_launch
+                        && !st.opened_preview_only
+                        && !st.main_shown_for_user
+                } else {
+                    false
+                };
+
+                if should_schedule_show {
+                    let handle = _app_handle.clone();
+                    let launch_state = Arc::clone(&mac_launch_state);
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(200));
+                        let show_main = if let Ok(mut st) = launch_state.lock() {
+                            if !st.opened_in_launch
+                                && !st.opened_preview_only
+                                && !st.main_shown_for_user
+                            {
+                                st.main_shown_for_user = true;
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if show_main {
+                            let handle_for_ui = handle.clone();
+                            let _ = handle.run_on_main_thread(move || {
+                                if let Some(main_window) = handle_for_ui.get_webview_window("main")
+                                {
+                                    let _ = main_window.show();
+                                    let _ = main_window.set_focus();
+                                }
+                            });
+                        }
+                    });
+                }
+            }
             tauri::RunEvent::Opened { urls } => {
+                let md_paths: Vec<PathBuf> = urls
+                    .into_iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .filter(|path| is_markdown_extension(path) && path.is_file())
+                    .collect();
+
+                if md_paths.is_empty() {
+                    return;
+                }
+
+                // On macOS cold-start launches (Finder double-click or `open -a Scratch file.md`),
+                // Tauri/AppKit can deliver `RunEvent::Opened` BEFORE `.setup()` registers `AppState`.
+                // Queue those paths so `.setup()` processes them once `notes_folder` and `settings`
+                // are loaded, keeping the main window hidden for standalone previews.
+                if _app_handle.try_state::<AppState>().is_none() {
+                    if let Ok(mut st) = mac_launch_state.lock() {
+                        st.opened_in_launch = true;
+                        st.pending_opened_paths.extend(md_paths);
+                    }
+                    return;
+                }
+
+                // Mark launch as file-opened BEFORE any potentially slow filesystem I/O
+                // (e.g. canonicalizing a WebDAV/iCloud notes folder) so the post-Ready
+                // timer cannot race and show the main window while we're opening a preview.
+                if let Ok(mut st) = mac_launch_state.lock() {
+                    if !st.main_shown_for_user {
+                        st.opened_in_launch = true;
+                    }
+                }
+
                 let mut opened_standalone_preview = false;
                 let mut selected_in_main = false;
-                for url in urls {
-                    if let Ok(path) = url.to_file_path() {
-                        if is_markdown_extension(&path) && path.is_file() {
-                            if try_select_in_notes_folder(_app_handle, &path) {
-                                selected_in_main = true;
-                            } else if create_preview_window(
-                                _app_handle,
-                                &path.to_string_lossy(),
-                            )
-                            .is_ok()
-                            {
-                                opened_standalone_preview = true;
-                            }
+                for path in md_paths {
+                    if try_select_in_notes_folder(_app_handle, &path) {
+                        selected_in_main = true;
+                    } else if create_preview_window(_app_handle, &path.to_string_lossy()).is_ok() {
+                        opened_standalone_preview = true;
+                    }
+                }
+
+                let has_notes_folder = _app_handle
+                    .try_state::<AppState>()
+                    .and_then(|s| s.app_config.read().ok().map(|c| c.notes_folder.is_some()))
+                    .unwrap_or(false);
+
+                let mut should_hide_main = false;
+                let mut should_show_main = false;
+                if let Ok(mut st) = mac_launch_state.lock() {
+                    if selected_in_main {
+                        st.main_shown_for_user = true;
+                    } else if opened_standalone_preview && has_notes_folder {
+                        let within_launch_window = !st.main_shown_for_user
+                            || st
+                                .ready_instant
+                                .map(|t| t.elapsed() < Duration::from_secs(3))
+                                .unwrap_or(true);
+                        if within_launch_window {
+                            st.opened_preview_only = true;
+                            st.main_shown_for_user = false;
+                            should_hide_main = true;
+                        }
+                    } else {
+                        st.opened_in_launch = false;
+                        if st.deferred_main_show && !st.main_shown_for_user {
+                            st.main_shown_for_user = true;
+                            should_show_main = true;
                         }
                     }
                 }
 
-                // If Finder launched the app directly into a standalone preview (within
-                // the cold-start window) and a notes folder is already configured, keep
-                // the main window hidden so only the preview window opens.
-                if opened_standalone_preview
-                    && !selected_in_main
-                    && startup_instant.elapsed() < Duration::from_secs(2)
-                {
-                    let has_notes_folder = _app_handle
-                        .try_state::<AppState>()
-                        .and_then(|s| s.app_config.read().ok().map(|c| c.notes_folder.is_some()))
-                        .unwrap_or(false);
-                    if has_notes_folder {
-                        opened_preview_on_launch
-                            .store(true, std::sync::atomic::Ordering::SeqCst);
-                        if let Some(main_window) = _app_handle.get_webview_window("main") {
-                            let _ = main_window.hide();
-                        }
+                if should_hide_main {
+                    if let Some(main_window) = _app_handle.get_webview_window("main") {
+                        let _ = main_window.hide();
+                    }
+                } else if should_show_main {
+                    if let Some(main_window) = _app_handle.get_webview_window("main") {
+                        let _ = main_window.show();
+                        let _ = main_window.set_focus();
                     }
                 }
             }
@@ -4264,9 +4384,27 @@ pub fn run() {
                 has_visible_windows: false,
                 ..
             } => {
-                if let Some(main_window) = _app_handle.get_webview_window("main") {
-                    let _ = main_window.show();
-                    let _ = main_window.set_focus();
+                let allow_reopen = if let Ok(mut st) = mac_launch_state.lock() {
+                    let suppressing_cold_start = st.opened_in_launch
+                        && st
+                            .ready_instant
+                            .map(|t| t.elapsed() < Duration::from_secs(2))
+                            .unwrap_or(true);
+                    if suppressing_cold_start {
+                        false
+                    } else {
+                        st.main_shown_for_user = true;
+                        true
+                    }
+                } else {
+                    true
+                };
+
+                if allow_reopen {
+                    if let Some(main_window) = _app_handle.get_webview_window("main") {
+                        let _ = main_window.show();
+                        let _ = main_window.set_focus();
+                    }
                 }
             }
             _ => {}
