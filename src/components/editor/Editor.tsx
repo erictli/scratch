@@ -1185,14 +1185,22 @@ export function Editor({
               const base64 = (reader.result as string).split(",")[1]; // Remove data:image/...;base64, prefix
 
               try {
+                // Ensure a notes folder is configured (may be null in standalone Preview mode)
+                const notesFolder = await invoke<string | null>(
+                  "get_notes_folder",
+                );
+                if (!notesFolder) {
+                  toast.error("Set a notes folder before pasting images");
+                  return;
+                }
+
                 // Save clipboard image
                 const relativePath = await invoke<string>(
                   "save_clipboard_image",
                   { base64Data: base64 },
                 );
 
-                // Get notes folder and construct absolute path using Tauri's join
-                const notesFolder = await invoke<string>("get_notes_folder");
+                // Construct absolute path using Tauri's join
                 const absolutePath = await join(notesFolder, relativePath);
 
                 // Convert to Tauri asset URL
@@ -1746,13 +1754,18 @@ export function Editor({
     });
     if (selected) {
       try {
+        const notesFolder = await invoke<string | null>("get_notes_folder");
+        if (!notesFolder) {
+          toast.error("Set a notes folder before inserting images");
+          return;
+        }
+
         // Copy image to assets folder and get relative path (assets/filename.ext)
         const relativePath = await invoke<string>("copy_image_to_assets", {
           sourcePath: selected as string,
         });
 
-        // Get notes folder and construct absolute path using Tauri's join
-        const notesFolder = await invoke<string>("get_notes_folder");
+        // Construct absolute path using Tauri's join
         const absolutePath = await join(notesFolder, relativePath);
 
         // Convert to Tauri asset URL
@@ -1762,6 +1775,7 @@ export function Editor({
         editor.chain().focus().setImage({ src: assetUrl }).run();
       } catch (error) {
         console.error("Failed to add image:", error);
+        toast.error("Failed to insert image");
       }
     }
   }, [editor]);
@@ -1849,7 +1863,7 @@ export function Editor({
         }
 
         // Don't intercept if in sidebar
-        if (target.closest('[class*="sidebar"]')) {
+        if (target.closest("[data-sidebar]")) {
           return;
         }
 
