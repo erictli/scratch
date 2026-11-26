@@ -1452,6 +1452,7 @@ async fn rename_folder(
     if sanitized_name.is_empty() {
         return Err("Folder name cannot be empty".to_string());
     }
+    validate_folder_path(&sanitized_name)?;
 
     let folder_root = PathBuf::from(&folder);
     let old_target = folder_root.join(old_path.replace('/', std::path::MAIN_SEPARATOR_STR));
@@ -1469,6 +1470,10 @@ async fn rename_folder(
         .ok_or("Cannot determine parent directory")?
         .join(&sanitized_name);
 
+    if !new_target.starts_with(&folder_root) {
+        return Err("Invalid path: escapes notes folder".to_string());
+    }
+
     if new_target.exists() {
         return Err("A folder with that name already exists".to_string());
     }
@@ -1481,6 +1486,7 @@ async fn rename_folder(
     } else {
         sanitized_name.clone()
     };
+    validate_folder_path(&new_path)?;
     let new_prefix = format!("{}/", new_path);
 
     // Rename on disk
@@ -1795,9 +1801,45 @@ fn update_git_enabled(
     Ok(())
 }
 
+fn validate_export_markdown_path(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Export path cannot be empty".to_string());
+    }
+
+    let file_path = PathBuf::from(trimmed);
+    for component in file_path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err("Invalid export path: parent directory references not allowed".to_string());
+        }
+    }
+
+    if !is_markdown_extension(&file_path) {
+        return Err("Only .md and .markdown files can be exported".to_string());
+    }
+
+    let parent = file_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| "Invalid export path: missing parent directory".to_string())?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|_| "Export destination directory does not exist".to_string())?;
+    if !canonical_parent.is_dir() {
+        return Err("Export destination parent is not a directory".to_string());
+    }
+
+    let file_name = file_path
+        .file_name()
+        .ok_or_else(|| "Invalid export path: missing filename".to_string())?;
+
+    Ok(canonical_parent.join(file_name))
+}
+
 #[tauri::command]
 async fn write_file(path: String, contents: Vec<u8>) -> Result<(), String> {
-    fs::write(&path, contents)
+    let target = validate_export_markdown_path(&path)?;
+    fs::write(&target, contents)
         .await
         .map_err(|_| "Failed to write file".to_string())
 }
@@ -3263,10 +3305,39 @@ async fn ai_execute_claude(
     .await
 }
 
+fn validate_note_path_in_folder(file_path: &str, folder: &str) -> Result<(PathBuf, PathBuf), String> {
+    let path = PathBuf::from(file_path);
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !ext.eq_ignore_ascii_case("md") && !ext.eq_ignore_ascii_case("markdown") {
+        return Err("AI editing is only supported for markdown files".to_string());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "Invalid file path".to_string())?;
+    let notes_root = PathBuf::from(folder)
+        .canonicalize()
+        .map_err(|_| "Invalid notes folder".to_string())?;
+    if !canonical.starts_with(&notes_root) {
+        return Err("File must be within notes folder".to_string());
+    }
+    Ok((canonical, notes_root))
+}
+
 #[tauri::command]
-async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecutionResult, String> {
+async fn ai_execute_codex(
+    file_path: String,
+    prompt: String,
+    state: State<'_, AppState>,
+) -> Result<AiExecutionResult, String> {
+    let folder = {
+        let app_config = state.app_config.read().expect("app_config read lock");
+        app_config.notes_folder.clone().ok_or("Notes folder not set")?
+    };
+    let (canonical, notes_root) = validate_note_path_in_folder(&file_path, &folder)?;
+    let canonical_str = canonical.to_string_lossy();
+
     let stdin_input = format!(
-        "Edit only this markdown file: {file_path}\n\
+        "Edit only this markdown file: {canonical_str}\n\
          Apply the user's instructions below directly to that file.\n\
          Do not create, delete, rename, or modify any other files.\n\
          User instructions:\n\
@@ -3284,7 +3355,7 @@ async fn ai_execute_codex(file_path: String, prompt: String) -> Result<AiExecuti
         ],
         stdin_input,
         "Codex CLI not found. Please install it from https://github.com/openai/codex".to_string(),
-        None,
+        Some(notes_root.to_string_lossy().to_string()),
         None,
     )
     .await
