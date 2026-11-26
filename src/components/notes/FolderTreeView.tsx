@@ -856,6 +856,13 @@ export function FolderTreeView({
         className="group/notelist flex flex-col gap-0.5 p-1.5 outline-none"
         onKeyDown={handleKeyDown}
       >
+        {/* Empty vault state when neither notes nor folders exist */}
+        {tree.folders.length === 0 && tree.rootNotes.length === 0 && (
+          <div className="p-4 text-center text-sm text-text-muted select-none">
+            No notes yet
+          </div>
+        )}
+
         {/* Pinned root notes */}
         {pinnedRootNotes.map((note) => (
           <FileItem

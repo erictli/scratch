@@ -349,15 +349,8 @@ export function NoteList({
     );
   }
 
-  if (displayItems.length === 0) {
-    return (
-      <div className="p-4 text-center text-sm text-text-muted select-none">
-        No notes yet
-      </div>
-    );
-  }
-
-  // Show folder tree view when folders enabled and not searching
+  // Show folder tree view when folders enabled and not searching (even if there are 0 notes,
+  // so empty folders remain visible)
   if (foldersEnabled && !isSearching) {
     return (
       <>
@@ -392,6 +385,14 @@ export function NoteList({
           </AlertDialogContent>
         </AlertDialog>
       </>
+    );
+  }
+
+  if (displayItems.length === 0) {
+    return (
+      <div className="p-4 text-center text-sm text-text-muted select-none">
+        No notes yet
+      </div>
     );
   }
 

@@ -188,14 +188,20 @@ export function ToolsSettingsSection() {
                       </span>
                     </span>
                   ) : (
-                    <a
-                      href={info.installUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        invoke("open_url_safe", { url: info.installUrl }).catch(
+                          (err) => {
+                            console.error("Failed to open URL:", err);
+                            toast.error("Failed to open link");
+                          },
+                        );
+                      }}
                       className="text-sm text-text font-medium hover:text-text-muted transition-colors cursor-pointer"
                     >
                       Install
-                    </a>
+                    </button>
                   )}
                 </div>
               );

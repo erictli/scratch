@@ -338,14 +338,13 @@ export function GeneralSettingsSection() {
           <div className="bg-bg-secondary rounded-[10px] border border-border p-4">
             <p className="text-sm text-text-muted">
               Git is not available on this system.{" "}
-              <a
-                href="https://git-scm.com/downloads"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => handleOpenUrl("https://git-scm.com/downloads")}
                 className="text-text-muted border-b border-text-muted/50 hover:text-text hover:border-text cursor-pointer transition-colors"
               >
                 Install Git
-              </a>{" "}
+              </button>{" "}
               to enable version control.
             </p>
           </div>
@@ -644,14 +643,17 @@ export function GeneralSettingsSection() {
                     </p>
                     {(lastError.includes("Authentication") ||
                       lastError.includes("SSH")) && (
-                      <a
-                        href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-red-500 hover:text-red-600 underline font-medium mt-1 inline-block"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenUrl(
+                            "https://docs.github.com/en/authentication/connecting-to-github-with-ssh",
+                          )
+                        }
+                        className="text-sm text-red-500 hover:text-red-600 underline font-medium mt-1 inline-block cursor-pointer"
                       >
                         Learn more about SSH authentication
-                      </a>
+                      </button>
                     )}
                     <Button
                       onClick={clearError}

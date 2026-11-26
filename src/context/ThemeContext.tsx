@@ -4,12 +4,15 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getSettings, updateSettings } from "../services/notes";
 import { SIDEBAR_MIN_PX, SIDEBAR_MAX_PX } from "../lib/sidebar";
 import type {
+  Settings,
   ThemeSettings,
   EditorFontSettings,
   FontFamily,
@@ -195,6 +198,24 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [customColorsLight, setCustomColorsLightState] = useState<CustomColors>({});
   const [customColorsDark, setCustomColorsDarkState] = useState<CustomColors>({});
   const [isInitialized, setIsInitialized] = useState(false);
+  // Serialize settings writes so rapid concurrent updates never clobber each other
+  const settingsQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const persistSettingsUpdate = useCallback(
+    (updater: (current: Settings) => Settings, errorLabel: string) => {
+      const next = settingsQueueRef.current.then(async () => {
+        try {
+          const current = await getSettings();
+          await updateSettings(updater(current));
+        } catch (error) {
+          console.error(`Failed to ${errorLabel}:`, error);
+        }
+      });
+      settingsQueueRef.current = next;
+      return next;
+    },
+    [],
+  );
 
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -202,16 +223,18 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       : "light";
   });
 
-  // Function to load settings from backend
+  // Function to load settings from backend (resetting missing fields to defaults
+  // so preferences from a previous notes folder do not bleed into the new folder)
   const loadSettingsFromBackend = useCallback(async () => {
     try {
       const settings = await getSettings();
-      if (settings.theme) {
-        const mode = settings.theme.mode as ThemeMode;
-        if (mode === "light" || mode === "dark" || mode === "system") {
-          setThemeState(mode);
-        }
-      }
+      const mode = settings.theme?.mode as ThemeMode | undefined;
+      setThemeState(
+        mode === "light" || mode === "dark" || mode === "system"
+          ? mode
+          : "system",
+      );
+
       if (settings.editorFont) {
         // Filter out null/undefined values to preserve defaults
         const fontSettings = Object.fromEntries(
@@ -221,45 +244,49 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           ...defaultEditorFontSettings,
           ...fontSettings,
         });
+      } else {
+        setEditorFontSettings(defaultEditorFontSettings);
       }
-      if (isTextDirection(settings.textDirection)) {
-        setTextDirectionState(settings.textDirection);
-      }
-      if (
+
+      setTextDirectionState(
+        isTextDirection(settings.textDirection) ? settings.textDirection : "auto",
+      );
+
+      setEditorWidthState(
         settings.editorWidth === "narrow" ||
-        settings.editorWidth === "normal" ||
-        settings.editorWidth === "wide" ||
-        settings.editorWidth === "full" ||
-        settings.editorWidth === "custom"
-      ) {
-        setEditorWidthState(settings.editorWidth);
-      }
-      if (
+          settings.editorWidth === "normal" ||
+          settings.editorWidth === "wide" ||
+          settings.editorWidth === "full" ||
+          settings.editorWidth === "custom"
+          ? settings.editorWidth
+          : "normal",
+      );
+
+      setInterfaceZoomState(
         typeof settings.interfaceZoom === "number" &&
-        settings.interfaceZoom >= 0.7 &&
-        settings.interfaceZoom <= 1.5
-      ) {
-        setInterfaceZoomState(settings.interfaceZoom);
-      }
-      if (
+          settings.interfaceZoom >= 0.7 &&
+          settings.interfaceZoom <= 1.5
+          ? settings.interfaceZoom
+          : 1.0,
+      );
+
+      setCustomEditorWidthPxState(
         typeof settings.customEditorWidthPx === "number" &&
-        settings.customEditorWidthPx >= 480
-      ) {
-        setCustomEditorWidthPxState(settings.customEditorWidthPx);
-      }
-      if (
+          settings.customEditorWidthPx >= 480
+          ? settings.customEditorWidthPx
+          : DEFAULT_CUSTOM_WIDTH_PX,
+      );
+
+      setSidebarWidthPxState(
         typeof settings.sidebarWidthPx === "number" &&
-        settings.sidebarWidthPx >= SIDEBAR_MIN_PX &&
-        settings.sidebarWidthPx <= SIDEBAR_MAX_PX
-      ) {
-        setSidebarWidthPxState(settings.sidebarWidthPx);
-      }
-      if (settings.customColorsLight) {
-        setCustomColorsLightState(settings.customColorsLight);
-      }
-      if (settings.customColorsDark) {
-        setCustomColorsDarkState(settings.customColorsDark);
-      }
+          settings.sidebarWidthPx >= SIDEBAR_MIN_PX &&
+          settings.sidebarWidthPx <= SIDEBAR_MAX_PX
+          ? settings.sidebarWidthPx
+          : null,
+      );
+
+      setCustomColorsLightState(settings.customColorsLight ?? {});
+      setCustomColorsDarkState(settings.customColorsDark ?? {});
     } catch {
       // If settings can't be loaded, use defaults
     }
@@ -301,20 +328,21 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   }, [resolvedTheme]);
 
   // Save theme mode to backend
-  const saveThemeSettings = useCallback(async (newMode: ThemeMode) => {
-    try {
-      const settings = await getSettings();
+  const saveThemeSettings = useCallback(
+    async (newMode: ThemeMode) => {
       const themeSettings: ThemeSettings = {
         mode: newMode,
       };
-      await updateSettings({
-        ...settings,
-        theme: themeSettings,
-      });
-    } catch (error) {
-      console.error("Failed to save theme settings:", error);
-    }
-  }, []);
+      await persistSettingsUpdate(
+        (settings) => ({
+          ...settings,
+          theme: themeSettings,
+        }),
+        "save theme settings",
+      );
+    },
+    [persistSettingsUpdate],
+  );
 
   const setTheme = useCallback(
     (newTheme: ThemeMode) => {
@@ -350,31 +378,46 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, [sidebarWidthPx]);
 
-  // Apply interface zoom whenever it changes (suppress transitions during zoom)
+  // Apply interface zoom using native Tauri WebView zoom instead of CSS `zoom`.
+  // CSS `documentElement.style.zoom` causes Floating UI / Radix UI tooltips and
+  // context menus to be misplaced on Windows (Chromium/WebView2) due to coordinate
+  // space mismatches between clientX/clientY and getBoundingClientRect().
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("zoom-no-transition");
-    root.style.zoom = String(interfaceZoom);
+    root.style.zoom = "";
+
+    let cancelled = false;
+    getCurrentWebview()
+      .setZoom(interfaceZoom)
+      .catch(() => {
+        // Fallback for non-Tauri browser dev preview only
+        if (!cancelled) {
+          root.style.zoom = interfaceZoom === 1 ? "" : String(interfaceZoom);
+        }
+      });
+
     const raf = requestAnimationFrame(() => {
       root.classList.remove("zoom-no-transition");
     });
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
   }, [interfaceZoom]);
 
   // Save font settings to backend
   const saveFontSettings = useCallback(
     async (newFontSettings: Required<EditorFontSettings>) => {
-      try {
-        const settings = await getSettings();
-        await updateSettings({
+      await persistSettingsUpdate(
+        (settings) => ({
           ...settings,
           editorFont: newFontSettings,
-        });
-      } catch (error) {
-        console.error("Failed to save font settings:", error);
-      }
+        }),
+        "save font settings",
+      );
     },
-    []
+    [persistSettingsUpdate],
   );
 
   // Update a single font setting
@@ -402,9 +445,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setSidebarWidthPxState(null);
     setCustomColorsLightState({});
     setCustomColorsDarkState({});
-    try {
-      const settings = await getSettings();
-      await updateSettings({
+    await persistSettingsUpdate(
+      (settings) => ({
         ...settings,
         editorFont: defaultEditorFontSettings,
         textDirection: "auto",
@@ -414,33 +456,34 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         sidebarWidthPx: undefined,
         customColorsLight: undefined,
         customColorsDark: undefined,
-      });
-    } catch (error) {
-      console.error("Failed to reset editor settings:", error);
-    }
-  }, []);
+      }),
+      "reset editor settings",
+    );
+  }, [persistSettingsUpdate]);
 
   // Save and set text direction
-  const setTextDirection = useCallback(async (dir: TextDirection) => {
-    setTextDirectionState(dir);
-    try {
-      const settings = await getSettings();
-      await updateSettings({ ...settings, textDirection: dir });
-    } catch (error) {
-      console.error("Failed to save text direction:", error);
-    }
-  }, []);
+  const setTextDirection = useCallback(
+    async (dir: TextDirection) => {
+      setTextDirectionState(dir);
+      await persistSettingsUpdate(
+        (settings) => ({ ...settings, textDirection: dir }),
+        "save text direction",
+      );
+    },
+    [persistSettingsUpdate],
+  );
 
   // Save and set editor width
-  const setEditorWidth = useCallback(async (width: EditorWidth) => {
-    setEditorWidthState(width);
-    try {
-      const settings = await getSettings();
-      await updateSettings({ ...settings, editorWidth: width });
-    } catch (error) {
-      console.error("Failed to save editor width:", error);
-    }
-  }, []);
+  const setEditorWidth = useCallback(
+    async (width: EditorWidth) => {
+      setEditorWidthState(width);
+      await persistSettingsUpdate(
+        (settings) => ({ ...settings, editorWidth: width }),
+        "save editor width",
+      );
+    },
+    [persistSettingsUpdate],
+  );
 
   // Save and set interface zoom (accepts absolute value or updater function)
   const setInterfaceZoom = useCallback(
@@ -459,55 +502,54 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   // Persist interface zoom changes to backend
   useEffect(() => {
     if (!isInitialized) return;
-    getSettings()
-      .then((settings) =>
-        updateSettings({ ...settings, interfaceZoom }),
-      )
-      .catch((error) =>
-        console.error("Failed to save interface zoom:", error),
-      );
-  }, [interfaceZoom, isInitialized]);
+    void persistSettingsUpdate(
+      (settings) => ({ ...settings, interfaceZoom }),
+      "save interface zoom",
+    );
+  }, [interfaceZoom, isInitialized, persistSettingsUpdate]);
 
   // Set custom width in px (persists to settings)
-  const setCustomEditorWidthPx = useCallback(async (px: number) => {
-    setEditorWidthState("custom");
-    setCustomEditorWidthPxState(px);
-    try {
-      const settings = await getSettings();
-      await updateSettings({
-        ...settings,
-        editorWidth: "custom",
-        customEditorWidthPx: px,
-      });
-    } catch (error) {
-      console.error("Failed to save custom editor width:", error);
-    }
-  }, []);
+  const setCustomEditorWidthPx = useCallback(
+    async (px: number) => {
+      setEditorWidthState("custom");
+      setCustomEditorWidthPxState(px);
+      await persistSettingsUpdate(
+        (settings) => ({
+          ...settings,
+          editorWidth: "custom",
+          customEditorWidthPx: px,
+        }),
+        "save custom editor width",
+      );
+    },
+    [persistSettingsUpdate],
+  );
 
   /**
    * Persists the clamped sidebar width to settings.
    * Pass `null` to remove the override and fall back to the CSS default.
    */
-  const setSidebarWidthPx = useCallback(async (px: number | null) => {
-    if (px === null) {
-      setSidebarWidthPxState(null);
-      try {
-        const settings = await getSettings();
-        await updateSettings({ ...settings, sidebarWidthPx: undefined });
-      } catch (error) {
-        console.error("Failed to reset sidebar width:", error);
+  const setSidebarWidthPx = useCallback(
+    async (px: number | null) => {
+      if (px === null) {
+        setSidebarWidthPxState(null);
+        await persistSettingsUpdate(
+          (settings) => ({ ...settings, sidebarWidthPx: undefined }),
+          "reset sidebar width",
+        );
+      } else {
+        const clamped = Math.round(
+          Math.min(Math.max(px, SIDEBAR_MIN_PX), SIDEBAR_MAX_PX),
+        );
+        setSidebarWidthPxState(clamped);
+        await persistSettingsUpdate(
+          (settings) => ({ ...settings, sidebarWidthPx: clamped }),
+          "save sidebar width",
+        );
       }
-    } else {
-      const clamped = Math.round(Math.min(Math.max(px, SIDEBAR_MIN_PX), SIDEBAR_MAX_PX));
-      setSidebarWidthPxState(clamped);
-      try {
-        const settings = await getSettings();
-        await updateSettings({ ...settings, sidebarWidthPx: clamped });
-      } catch (error) {
-        console.error("Failed to save sidebar width:", error);
-      }
-    }
-  }, []);
+    },
+    [persistSettingsUpdate],
+  );
 
   // Apply custom color CSS variable overrides whenever theme or colors change
   useEffect(() => {
@@ -544,14 +586,14 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       const settingsKey = mode === "light" ? "customColorsLight" : "customColorsDark";
       setter((prev) => {
         const updated = { ...prev, [key]: value };
-        // Persist in background
-        getSettings()
-          .then((settings) => updateSettings({ ...settings, [settingsKey]: updated }))
-          .catch((err) => console.error("Failed to save custom color:", err));
+        void persistSettingsUpdate(
+          (settings) => ({ ...settings, [settingsKey]: updated }),
+          "save custom color",
+        );
         return updated;
       });
     },
-    [],
+    [persistSettingsUpdate],
   );
 
   // Reset a single custom color back to theme default
@@ -562,18 +604,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       setter((prev) => {
         const updated = { ...prev };
         delete updated[key];
-        getSettings()
-          .then((settings) =>
-            updateSettings({
-              ...settings,
-              [settingsKey]: Object.keys(updated).length > 0 ? updated : undefined,
-            }),
-          )
-          .catch((err) => console.error("Failed to reset custom color:", err));
+        void persistSettingsUpdate(
+          (settings) => ({
+            ...settings,
+            [settingsKey]: Object.keys(updated).length > 0 ? updated : undefined,
+          }),
+          "reset custom color",
+        );
         return updated;
       });
     },
-    [],
+    [persistSettingsUpdate],
   );
 
   // Reset all custom colors for a given mode
@@ -582,14 +623,12 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       const setter = mode === "light" ? setCustomColorsLightState : setCustomColorsDarkState;
       const settingsKey = mode === "light" ? "customColorsLight" : "customColorsDark";
       setter({});
-      try {
-        const settings = await getSettings();
-        await updateSettings({ ...settings, [settingsKey]: undefined });
-      } catch (err) {
-        console.error("Failed to reset all custom colors:", err);
-      }
+      await persistSettingsUpdate(
+        (settings) => ({ ...settings, [settingsKey]: undefined }),
+        "reset all custom colors",
+      );
     },
-    [],
+    [persistSettingsUpdate],
   );
 
   // Live CSS variable update during drag (no persistence)

@@ -9,6 +9,7 @@
     "core:window:allow-start-dragging",
     "core:window:allow-set-focus",
     "core:webview:allow-print",
+    "core:webview:allow-set-webview-zoom",
     "opener:default",
     "opener:allow-open-url",
     "opener:allow-reveal-item-in-dir",

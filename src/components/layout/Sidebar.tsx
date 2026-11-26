@@ -275,16 +275,22 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   }, [selectedNoteId]);
 
   const handleFolderDialogConfirm = useCallback(
-    async (name: string) => {
+    async (name: string, chosenParent?: string) => {
       try {
-        await createFolder(folderDialogParent, name);
+        const targetParent = chosenParent ?? "";
+        await createFolder(targetParent, name);
+        if (targetParent) {
+          window.dispatchEvent(
+            new CustomEvent("expand-folder", { detail: targetParent }),
+          );
+        }
         setFolderDialogOpen(false);
       } catch (error) {
         console.error("Failed to create folder:", error);
         toast.error("Failed to create folder");
       }
     },
-    [createFolder, folderDialogParent],
+    [createFolder],
   );
 
   // Listen for create-new-folder event (from command palette / keyboard shortcut)
@@ -431,6 +437,18 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         title="Create new folder"
         description="Enter a name for your new folder"
         confirmLabel="Create"
+        defaultLocation=""
+        locationOptions={
+          folderDialogParent
+            ? [
+                { label: "Root folder", value: "" },
+                {
+                  label: `Inside "${folderDialogParent}"`,
+                  value: folderDialogParent,
+                },
+              ]
+            : undefined
+        }
       />
     </div>
 
