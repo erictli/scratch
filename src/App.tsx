@@ -475,6 +475,8 @@ function AppContent() {
           <>
             <div
               data-sidebar
+              aria-hidden={!sidebarVisible || focusMode}
+              inert={!sidebarVisible || focusMode}
               style={{ width: (!sidebarVisible || focusMode) ? 0 : `var(--sidebar-width, ${SIDEBAR_DEFAULT_PX}px)` }}
               className={`relative transition-all duration-500 ease-out overflow-hidden ${!sidebarVisible || focusMode ? "opacity-0 -translate-x-4 pointer-events-none" : "opacity-100 translate-x-0"}`}
             >
