@@ -48,6 +48,9 @@ function SuggestionListInner<T>(
 
   useImperativeHandle(ref, () => ({
     onKeyDown: ({ event }) => {
+      if (items.length === 0) {
+        return false;
+      }
       if (event.key === "ArrowUp") {
         setSelectedIndex((i) => (i > 0 ? i - 1 : items.length - 1));
         return true;
@@ -59,8 +62,9 @@ function SuggestionListInner<T>(
       if (event.key === "Enter") {
         if (items[selectedIndex]) {
           command(items[selectedIndex]);
+          return true;
         }
-        return true;
+        return false;
       }
       return false;
     },
