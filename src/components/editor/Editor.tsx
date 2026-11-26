@@ -1154,25 +1154,22 @@ export function Editor({
         autocorrect: "on",
         autocapitalize: "sentences",
       },
-      // Serialize copied text as markdown instead of plain text
+      // Serialize copied text as clean plain text for text/plain clipboard targets
+      // (ProseMirror still writes rich text/html automatically for rich-text targets)
       clipboardTextSerializer: (slice) => {
-        const fallback = slice.content.textBetween(
-          0,
-          slice.content.size,
-          "\n\n",
-        );
-        const currentEditor = editorRef.current;
-        const manager = currentEditor?.storage.markdown?.manager;
-        if (!currentEditor || !manager) return fallback;
-        try {
-          const doc = currentEditor.schema.topNodeType.create(
-            null,
-            slice.content,
-          );
-          return manager.serialize(doc.toJSON());
-        } catch {
-          return fallback;
+        // Direct selection inside a single code block: preserve exact code text without fences
+        if (
+          slice.content.childCount === 1 &&
+          slice.content.firstChild?.type.name === "codeBlock"
+        ) {
+          return slice.content.firstChild.textContent;
         }
+        return slice.content.textBetween(0, slice.content.size, "\n\n", (node) => {
+          if (node.type.name === "hardBreak") return "\n";
+          if (node.type.name === "wikilink") return String(node.attrs.noteTitle ?? "");
+          if (node.type.name === "blockMath") return String(node.attrs.latex ?? "");
+          return "";
+        });
       },
       // Trap Tab key inside the editor
       handleKeyDown: (_view, event) => {
@@ -1232,6 +1229,13 @@ export function Editor({
             reader.readAsDataURL(blob);
             return true; // Handled
           }
+        }
+
+        // Let ProseMirror handle internal rich-text pastes directly (preserves code blocks,
+        // tables, lists, etc. without misinterpreting code comments as Markdown)
+        const html = clipboardData.getData("text/html");
+        if (html && html.includes("data-pm-slice")) {
+          return false;
         }
 
         // Handle markdown text paste
