@@ -39,12 +39,92 @@ import { join } from "@tauri-apps/api/path";
 import { toast } from "sonner";
 import { mod, alt, shift, isMac, isWindows } from "../../lib/platform";
 
-// Prepend https:// if no protocol is present
+// Prepend https:// if no protocol is present (preserve in-document #fragment anchors)
 function normalizeUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return trimmed;
+  if (trimmed.startsWith("#")) return trimmed;
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return trimmed;
   return `https://${trimmed}`;
+}
+
+// GitHub-compatible heading slugger for matching Markdown #section anchors
+function slugifyHeading(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .replace(/\s/g, "-");
+}
+
+// Smoothly scroll to a heading or element matching an in-document `#anchor` link.
+// Supports Obsidian-style exact heading links (`#Heading%20Text`), GitHub-style
+// slugs (`#part-i--summary`), and explicit DOM `id` targets.
+function scrollToHeadingAnchor(
+  editorElement: HTMLElement,
+  rawHref: string,
+): boolean {
+  const rawFragment = rawHref.slice(1).trim();
+  if (!rawFragment) return false;
+
+  let decoded = rawFragment;
+  try {
+    decoded = decodeURIComponent(rawFragment);
+  } catch {
+    // Keep raw fragment if percent-encoding is malformed
+  }
+
+  const normalizedTarget = decoded.trim().toLowerCase();
+  const targetSlug = slugifyHeading(decoded);
+
+  // 1. Check explicit DOM id inside the editor (e.g. HTML anchor tags)
+  const escapedId =
+    typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape(decoded)
+      : decoded.replace(/["\\]/g, "\\$&");
+  const byId = editorElement.querySelector<HTMLElement>(`[id="${escapedId}"]`);
+  if (byId) {
+    byId.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }
+
+  // 2. Match headings by exact text, GitHub slug, or normalized slug
+  const headings = Array.from(
+    editorElement.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"),
+  );
+
+  const exactMatch = headings.find(
+    (h) => (h.textContent ?? "").trim().toLowerCase() === normalizedTarget,
+  );
+  if (exactMatch) {
+    exactMatch.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }
+
+  const slugMatch = headings.find((h) => {
+    const slug = slugifyHeading(h.textContent ?? "");
+    return slug === normalizedTarget || (targetSlug !== "" && slug === targetSlug);
+  });
+  if (slugMatch) {
+    slugMatch.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }
+
+  // 3. Fallback for legacy `#turn-N` / `#entry-N` style prefix anchors
+  const prefixNum = normalizedTarget.match(/^([a-z]+)-(\d+)$/);
+  if (prefixNum) {
+    const [, prefix, num] = prefixNum;
+    const prefixRe = new RegExp(`^\\[?${prefix}\\s+#?${num}\\b`, "i");
+    const prefixMatch = headings.find((h) =>
+      prefixRe.test((h.textContent ?? "").trim()),
+    );
+    if (prefixMatch) {
+      prefixMatch.scrollIntoView({ behavior: "smooth", block: "start" });
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // Validate URL scheme for safe opening
@@ -1409,13 +1489,28 @@ export function Editor({
         return;
       }
 
-      // Prevent links from opening unless Cmd/Ctrl+Click
+      // Handle in-document #anchor links on click (with or without Cmd/Ctrl),
+      // and external links only on Cmd/Ctrl+Click
       const link = target.closest("a");
       if (link) {
         e.preventDefault();
-        if ((e.metaKey || e.ctrlKey) && link.href) {
+        const rawHref = (link.getAttribute("href") ?? "").trim();
+
+        if (rawHref.startsWith("#")) {
+          if (!scrollToHeadingAnchor(editor.view.dom, rawHref)) {
+            let label = rawHref.slice(1);
+            try {
+              label = decodeURIComponent(label);
+            } catch {
+              // Keep raw fragment
+            }
+            toast.info(`Section "${label}" not found`);
+          }
+          return;
+        }
+
+        if ((e.metaKey || e.ctrlKey) && rawHref) {
           // Use raw href attribute and normalize to handle protocol-less URLs
-          const rawHref = link.getAttribute("href") ?? "";
           const normalizedHref = normalizeUrl(rawHref);
           if (isAllowedUrlScheme(normalizedHref)) {
             openUrl(normalizedHref).catch((error) =>
